@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lịch lớp - Giáo viên</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">📅</div>
+        <div>
+          <h1>Lịch Lớp <span class="badge-soft">Console</span></h1>
+          <p class="sub">Quản lý lớp, duyệt lịch bận và tìm buổi học phù hợp nhất.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <a class="student-link" href="student.html">Trang học sinh</a>
+        <button id="btn-theme" class="theme-toggle" title="Chuyển Light/Dark">🌙</button>
+      </div>
+    </div>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="teacher">Lớp học</button>
+      <button class="tab" data-tab="archived">Lớp cũ</button>
+    </nav>
+  </header>
+
+  <section id="tab-teacher" class="tab-panel active">
+    <div id="teacher-login" class="card login-card">
+      <h2>Đăng nhập giáo viên</h2>
+      <label>Tài khoản
+        <input id="t-username" type="text" placeholder="vd: gv" autocomplete="username" />
+      </label>
+      <label>Mật khẩu
+        <input id="t-password" type="password" placeholder="••••••" autocomplete="current-password" />
+      </label>
+      <button id="btn-login" class="primary">Đăng nhập</button>
+      <p id="login-error" class="error"></p>
+      <p class="hint">Tài khoản demo: <code>gv / 123456</code></p>
+    </div>
+
+    <div id="teacher-dashboard" class="hidden">
+      <div class="dash-top">
+        <span>Xin chào, <b id="teacher-name"></b></span>
+        <button id="btn-logout" class="link">Đăng xuất</button>
+      </div>
+
+      <div class="dash-body">
+        <aside class="classes-panel">
+          <div class="panel-head">
+            <h3>Lớp học</h3>
+            <button id="btn-manage" class="icon-btn" title="Quản lý / xoá lớp">🗑</button>
+          </div>
+          <ul id="class-list"></ul>
+          <div class="add-class">
+            <input id="new-class-name" type="text" placeholder="Tên lớp mới..." />
+            <button id="btn-add-class">+ Thêm</button>
+          </div>
+        </aside>
+
+        <main id="class-detail" class="class-detail">
+          <p class="placeholder">← Chọn một lớp để xem lịch</p>
+        </main>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-archived" class="tab-panel">
+    <div class="card">
+      <div class="detail-head">
+        <h2>Lớp đã xoá</h2>
+        <button id="btn-clear-archived" class="btn-del-class">Xoá tất cả</button>
+      </div>
+      <p class="hint">Lớp bị xoá sẽ nằm ở đây. Bạn có thể khôi phục lại hoặc xoá vĩnh viễn.</p>
+      <ul id="archived-list" class="archived-list"></ul>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
