@@ -40,6 +40,45 @@ Web giúp **giáo viên** chọn buổi học phù hợp nhất với cả lớp
 
 Lần chạy đầu, nếu database trống, server sẽ tự seed 3 lớp **F12 / F13 / F14**.
 
+## Publish miễn phí bằng Google Sheets + Apps Script
+
+Cách này không cần Render chạy 24/7. Dữ liệu nằm trong một Google Sheet private, học sinh gửi qua Apps Script.
+
+1. Tạo Google Sheet mới, đặt tên ví dụ `Lich Lop Data`.
+2. Trong Sheet: **Extensions → Apps Script**.
+3. Xoá code mặc định, dán toàn bộ nội dung file `apps-script/Code.gs`.
+4. Vào **Project Settings → Script Properties**, thêm:
+   ```text
+   STUDENT_KEY = doi-key-hoc-sinh
+   TEACHER_KEY = doi-key-giao-vien
+   TEACHER_USERNAME = gv
+   TEACHER_PASSWORD = mat_khau_manh
+   TEACHER_NAME = Thay/Co
+   ```
+5. Bấm **Deploy → New deployment → Web app**:
+   - Execute as: `Me`
+   - Who has access: `Anyone`
+6. Copy Web App URL dạng:
+   ```text
+   https://script.google.com/macros/s/.../exec
+   ```
+7. Copy `public/config.example.js` thành `public/config.js`, rồi sửa:
+   ```js
+   window.GAS_API_URL = 'URL Apps Script vua copy';
+   window.STUDENT_KEY = 'doi-key-hoc-sinh';
+   window.TEACHER_KEY = 'doi-key-giao-vien';
+   ```
+8. Publish thư mục `public/` bằng GitHub Pages hoặc host tĩnh bất kỳ.
+
+Link dùng sau khi publish:
+
+- Giáo viên: `/index.html`
+- Học sinh: `/student.html`
+
+Khi sửa code Apps Script sau này: **Deploy → Manage deployments → Edit → Version: New version → Deploy**. Nếu không tạo version mới, web vẫn chạy code Apps Script cũ.
+
+Lưu ý: `public/config.js` chứa key cơ bản và có thể commit nếu publish bằng GitHub Pages public repo. Key này chỉ dùng để chặn truy cập vô tình, không phải bảo mật tuyệt đối.
+
 ## Tài khoản giáo viên demo
 
 | Tài khoản | Mật khẩu |
@@ -61,6 +100,7 @@ public/
   style.css           CSS dùng chung
   app.js              Logic frontend dùng chung
 render.yaml           Cấu hình deploy Render
+apps-script/Code.gs   Backend Google Sheets + Apps Script
 ```
 
 ## Lưu ý deploy

@@ -7,9 +7,14 @@ let SLOTS = [];
 let selectedClassId = null;
 let editMode = false;
 let manageMode = false;
+let classRefreshTimer = null;
+let editDirtyNames = new Set();
 
 const $ = (sel) => document.querySelector(sel);
 const API_BASE = window.API_BASE || '';
+const GAS_API_URL = window.GAS_API_URL || '';
+const STUDENT_KEY = window.STUDENT_KEY || '';
+const TEACHER_KEY = window.TEACHER_KEY || '';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -62,6 +67,8 @@ function buildSlots() {
 }
 
 async function api(path, opts = {}) {
+  if (GAS_API_URL) return gasApi(path, opts);
+
   const res = await fetch(API_BASE + '/api' + path, {
     headers: { 'Content-Type': 'application/json' },
     ...opts,
@@ -69,6 +76,114 @@ async function api(path, opts = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Lỗi máy chủ');
   return data;
+}
+
+function jsonp(params) {
+  return new Promise((resolve, reject) => {
+    const callback = `__lichlop_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const url = new URL(GAS_API_URL);
+    Object.entries({ ...params, callback }).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) url.searchParams.set(key, value);
+    });
+
+    const script = document.createElement('script');
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Kết nối Google Sheet quá lâu, hãy thử lại.'));
+    }, 30000);
+
+    function cleanup() {
+      clearTimeout(timer);
+      delete window[callback];
+      script.remove();
+    }
+
+    window[callback] = (data) => {
+      cleanup();
+      if (data && data.error) reject(new Error(data.error));
+      else resolve(data);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('Không gọi được Google Apps Script.'));
+    };
+
+    script.src = url.toString();
+    document.body.appendChild(script);
+  });
+}
+
+async function gasApi(path, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  const body = opts.body ? JSON.parse(opts.body) : {};
+
+  if (path === '/config') return jsonp({ action: 'config' });
+  if (path === '/login' && method === 'POST') {
+    return jsonp({ action: 'login', username: body.username, password: body.password });
+  }
+  if (path === '/classes' && method === 'GET') {
+    return jsonp({ action: 'classes', key: STUDENT_KEY });
+  }
+  if (path === '/classes' && method === 'POST') {
+    return jsonp({ action: 'addClass', key: TEACHER_KEY, name: body.name });
+  }
+  if (path === '/archived-classes' && method === 'GET') {
+    return jsonp({ action: 'archivedClasses', key: TEACHER_KEY });
+  }
+  if (path === '/archived-classes' && method === 'DELETE') {
+    return jsonp({ action: 'clearArchived', key: TEACHER_KEY });
+  }
+
+  let match = path.match(/^\/classes\/([^/]+)$/);
+  if (match && method === 'GET') {
+    return jsonp({ action: 'class', key: TEACHER_KEY, classId: match[1] });
+  }
+  if (match && method === 'DELETE') {
+    return jsonp({ action: 'deleteClass', key: TEACHER_KEY, classId: match[1] });
+  }
+
+  match = path.match(/^\/classes\/([^/]+)\/(archive|restore|submit|approve|reject|update-busy|bulk-update-busy)$/);
+  if (match) {
+    const classId = match[1];
+    const action = match[2];
+    if (action === 'archive') return jsonp({ action: 'archiveClass', key: TEACHER_KEY, classId });
+    if (action === 'restore') return jsonp({ action: 'restoreClass', key: TEACHER_KEY, classId });
+    if (action === 'submit') {
+      return jsonp({
+        action: 'submit',
+        key: STUDENT_KEY,
+        classId,
+        studentName: body.studentName,
+        busySlots: JSON.stringify(body.busySlots || []),
+      });
+    }
+    if (action === 'approve') {
+      return jsonp({ action: 'approve', key: TEACHER_KEY, classId, studentName: body.studentName });
+    }
+    if (action === 'reject') {
+      return jsonp({ action: 'reject', key: TEACHER_KEY, classId, studentName: body.studentName });
+    }
+    if (action === 'update-busy') {
+      return jsonp({
+        action: 'updateBusy',
+        key: TEACHER_KEY,
+        classId,
+        studentName: body.studentName,
+        busySlots: JSON.stringify(body.busySlots || []),
+      });
+    }
+    if (action === 'bulk-update-busy') {
+      return jsonp({
+        action: 'bulkUpdateBusy',
+        key: TEACHER_KEY,
+        classId,
+        updates: JSON.stringify(body.updates || []),
+      });
+    }
+  }
+
+  throw new Error('API Google Sheet chưa hỗ trợ thao tác này.');
 }
 
 // ---------- Tabs ----------
@@ -95,6 +210,7 @@ function initTeacher() {
   });
 
   $('#btn-logout')?.addEventListener('click', () => {
+    clearTimeout(classRefreshTimer);
     $('#teacher-dashboard')?.classList.add('hidden');
     $('#teacher-login')?.classList.remove('hidden');
     if ($('#t-password')) $('#t-password').value = '';
@@ -191,6 +307,7 @@ async function addClass() {
 
 // ---------- Chi tiết lớp ----------
 async function openClass(id) {
+  clearTimeout(classRefreshTimer);
   const cls = await api('/classes/' + id);
   const approved = cls.submissions.filter((s) => s.status === 'approved');
   const pending = cls.submissions.filter((s) => s.status === 'pending');
@@ -295,22 +412,25 @@ async function openClass(id) {
 
   detail.innerHTML = html;
 
-  detail.querySelector('#btn-edit')?.addEventListener('click', () => {
-    editMode = !editMode;
+  detail.querySelector('#btn-edit')?.addEventListener('click', async () => {
+    if (!editMode) {
+      editDirtyNames = new Set();
+      editMode = true;
+      openClass(id);
+      return;
+    }
+
+    await saveBusyEdits(id, detail);
+    editMode = false;
+    editDirtyNames = new Set();
     openClass(id);
+    loadClasses();
   });
 
   detail.querySelectorAll('.busy-chk').forEach((checkbox) => {
-    checkbox.addEventListener('change', async () => {
-      const encodedName = checkbox.dataset.name;
-      const slots = [...detail.querySelectorAll(`.busy-chk[data-name="${encodedName}"]`)]
-        .filter((input) => input.checked)
-        .map((input) => input.dataset.slot);
-      await api(`/classes/${id}/update-busy`, {
-        method: 'POST',
-        body: JSON.stringify({ studentName: decodeURIComponent(encodedName), busySlots: slots }),
-      });
-      openClass(id);
+    checkbox.addEventListener('change', () => {
+      editDirtyNames.add(checkbox.dataset.name);
+      checkbox.closest('td')?.classList.toggle('busy', checkbox.checked);
     });
   });
 
@@ -345,6 +465,37 @@ async function openClass(id) {
       loadClasses();
     });
   });
+
+  scheduleClassRefresh(id);
+}
+
+async function saveBusyEdits(id, detail) {
+  if (editDirtyNames.size === 0) return;
+
+  const updates = [...editDirtyNames].map((encodedName) => ({
+    studentName: decodeURIComponent(encodedName),
+    busySlots: [...detail.querySelectorAll(`.busy-chk[data-name="${encodedName}"]`)]
+      .filter((input) => input.checked)
+      .map((input) => input.dataset.slot),
+  }));
+
+  await api(`/classes/${id}/bulk-update-busy`, {
+    method: 'POST',
+    body: JSON.stringify({ updates }),
+  });
+}
+
+function scheduleClassRefresh(id) {
+  const teacherTabIsOpen = $('#tab-teacher')?.classList.contains('active');
+  const dashboardIsOpen = !$('#teacher-dashboard')?.classList.contains('hidden');
+  if (!teacherTabIsOpen || !dashboardIsOpen || editMode) return;
+
+  classRefreshTimer = setTimeout(() => {
+    if (selectedClassId === id) {
+      openClass(id);
+      loadClasses();
+    }
+  }, 15000);
 }
 
 // ---------- Lớp cũ ----------

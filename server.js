@@ -214,6 +214,22 @@ app.post('/api/classes/:id/reject', wrap(async (req, res) => {
 }));
 
 // Giáo viên chỉnh lịch bận của 1 học sinh (edit mode)
+app.post('/api/classes/:id/bulk-update-busy', wrap(async (req, res) => {
+  const { updates } = req.body || {};
+  const cls = await classes.findOne({ id: req.params.id });
+  if (!cls) return res.status(404).json({ error: 'KhÃ´ng tÃ¬m tháº¥y lá»›p' });
+  const list = Array.isArray(updates) ? updates : [];
+  let count = 0;
+  list.forEach((item) => {
+    const sub = (cls.submissions || []).find((s) => sameName(s.studentName, item.studentName || ''));
+    if (!sub) return;
+    sub.busySlots = Array.isArray(item.busySlots) ? item.busySlots : [];
+    count++;
+  });
+  await classes.updateOne({ id: req.params.id }, { $set: { submissions: cls.submissions } });
+  res.json({ ok: true, count });
+}));
+
 app.post('/api/classes/:id/update-busy', wrap(async (req, res) => {
   const { studentName, busySlots } = req.body || {};
   const cls = await classes.findOne({ id: req.params.id });
