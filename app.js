@@ -495,7 +495,7 @@ function scheduleClassRefresh(id) {
       openClass(id);
       loadClasses();
     }
-  }, 15000);
+  }, 60000);
 }
 
 // ---------- Lớp cũ ----------
