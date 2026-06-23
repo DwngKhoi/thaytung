@@ -15,6 +15,9 @@ const API_BASE = window.API_BASE || '';
 const GAS_API_URL = window.GAS_API_URL || '';
 const STUDENT_KEY = window.STUDENT_KEY || '';
 const TEACHER_KEY = window.TEACHER_KEY || '';
+const TEACHER_SESSION_KEY = 'lichlop-teacher-session';
+const CLASSES_CACHE_KEY = 'lichlop-classes-cache';
+const SELECTED_CLASS_KEY = 'lichlop-selected-class';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -241,10 +244,12 @@ function initTeacher() {
 
   $('#btn-logout')?.addEventListener('click', () => {
     clearTimeout(classRefreshTimer);
+    localStorage.removeItem(TEACHER_SESSION_KEY);
     $('#teacher-dashboard')?.classList.add('hidden');
     $('#teacher-login')?.classList.remove('hidden');
     if ($('#t-password')) $('#t-password').value = '';
     selectedClassId = null;
+    localStorage.removeItem(SELECTED_CLASS_KEY);
   });
 
   $('#btn-manage')?.addEventListener('click', () => {
@@ -257,6 +262,8 @@ function initTeacher() {
   $('#new-class-name')?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') addClass();
   });
+
+  restoreTeacherSession();
 }
 
 async function loginTeacher() {
@@ -266,17 +273,56 @@ async function loginTeacher() {
   if (error) error.textContent = '';
 
   try {
+    $('#btn-login').disabled = true;
+    $('#btn-login').textContent = 'Đang đăng nhập...';
     const result = await api('/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     });
-    if ($('#teacher-name')) $('#teacher-name').textContent = result.name;
-    $('#teacher-login')?.classList.add('hidden');
-    $('#teacher-dashboard')?.classList.remove('hidden');
-    loadClasses();
+    showTeacherDashboard(result.name);
+    localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify({ name: result.name, at: Date.now() }));
+    await loadClasses();
   } catch (err) {
     if (error) error.textContent = err.message;
+  } finally {
+    $('#btn-login').disabled = false;
+    $('#btn-login').textContent = 'Đăng nhập';
   }
+}
+
+function restoreTeacherSession() {
+  const raw = localStorage.getItem(TEACHER_SESSION_KEY);
+  if (!raw) return;
+
+  try {
+    const session = JSON.parse(raw);
+    if (!session?.name) return;
+    showTeacherDashboard(session.name);
+    renderCachedClasses();
+    loadClasses().catch((err) => {
+      const ul = $('#class-list');
+      if (ul) ul.innerHTML = `<li class="placeholder">${escapeHtml(err.message)}</li>`;
+    });
+    const lastClassId = localStorage.getItem(SELECTED_CLASS_KEY);
+    if (lastClassId) {
+      selectedClassId = lastClassId;
+      openClass(lastClassId).catch(() => localStorage.removeItem(SELECTED_CLASS_KEY));
+    }
+  } catch (err) {
+    localStorage.removeItem(TEACHER_SESSION_KEY);
+  }
+}
+
+function showTeacherDashboard(name) {
+  if ($('#teacher-name')) $('#teacher-name').textContent = name;
+  $('#teacher-login')?.classList.add('hidden');
+  $('#teacher-dashboard')?.classList.remove('hidden');
+}
+
+async function refreshTeacherView(id = selectedClassId) {
+  const tasks = [loadClasses()];
+  if (id) tasks.push(openClass(id));
+  await Promise.all(tasks);
 }
 
 // ---------- Panel danh sách lớp ----------
@@ -285,6 +331,24 @@ async function loadClasses() {
   if (!ul) return;
 
   const classes = await api('/classes');
+  sessionStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(classes));
+  renderClassList(classes);
+}
+
+function renderCachedClasses() {
+  const raw = sessionStorage.getItem(CLASSES_CACHE_KEY);
+  if (!raw) return;
+  try {
+    renderClassList(JSON.parse(raw));
+  } catch (err) {
+    sessionStorage.removeItem(CLASSES_CACHE_KEY);
+  }
+}
+
+function renderClassList(classes) {
+  const ul = $('#class-list');
+  if (!ul) return;
+
   ul.innerHTML = '';
 
   if (classes.length === 0) {
@@ -305,6 +369,7 @@ async function loadClasses() {
     li.innerHTML = `<span class="cls-name">${escapeHtml(cls.name)}</span><span class="cls-right">${right}</span>`;
     li.addEventListener('click', () => {
       selectedClassId = cls.id;
+      localStorage.setItem(SELECTED_CLASS_KEY, cls.id);
       editMode = false;
       loadClasses();
       openClass(cls.id);
@@ -338,10 +403,13 @@ async function addClass() {
 // ---------- Chi tiết lớp ----------
 async function openClass(id) {
   clearTimeout(classRefreshTimer);
+  const detail = $('#class-detail');
+  if (detail && !detail.querySelector('.schedule, .pending-box')) {
+    detail.innerHTML = '<p class="placeholder">Đang tải lớp...</p>';
+  }
   const cls = await api('/classes/' + id);
   const approved = cls.submissions.filter((s) => s.status === 'approved');
   const pending = cls.submissions.filter((s) => s.status === 'pending');
-  const detail = $('#class-detail');
   if (!detail) return;
 
   let html = `<div class="detail-head">
@@ -461,8 +529,7 @@ async function openClass(id) {
     await saveBusyEdits(id, detail);
     editMode = false;
     editDirtyNames = new Set();
-    openClass(id);
-    loadClasses();
+    await refreshTeacherView(id);
   });
 
   detail.querySelectorAll('.busy-chk').forEach((checkbox) => {
@@ -497,8 +564,7 @@ async function openClass(id) {
         body: JSON.stringify({ studentName }),
       });
       if (addStudentInput) addStudentInput.value = '';
-      openClass(id);
-      loadClasses();
+      await refreshTeacherView(id);
     } catch (err) {
       addStudentBtn.disabled = false;
       if (addStudentMsg) {
@@ -517,31 +583,34 @@ async function openClass(id) {
     button.addEventListener('click', async () => {
       const name = decodeURIComponent(button.dataset.name);
       if (!confirm(`Xoá học sinh "${shortName(name)}" khỏi lớp?`)) return;
+      button.disabled = true;
+      button.textContent = '...';
       await api(`/classes/${id}/reject`, { method: 'POST', body: JSON.stringify({ studentName: name }) });
-      openClass(id);
-      loadClasses();
+      await refreshTeacherView(id);
     });
   });
 
   detail.querySelectorAll('.btn-approve').forEach((button) => {
     button.addEventListener('click', async () => {
+      button.disabled = true;
+      button.textContent = 'Đang duyệt...';
       await api(`/classes/${id}/approve`, {
         method: 'POST',
         body: JSON.stringify({ studentName: decodeURIComponent(button.dataset.name) }),
       });
-      openClass(id);
-      loadClasses();
+      await refreshTeacherView(id);
     });
   });
 
   detail.querySelectorAll('.btn-reject').forEach((button) => {
     button.addEventListener('click', async () => {
+      button.disabled = true;
+      button.textContent = 'Đang xoá...';
       await api(`/classes/${id}/reject`, {
         method: 'POST',
         body: JSON.stringify({ studentName: decodeURIComponent(button.dataset.name) }),
       });
-      openClass(id);
-      loadClasses();
+      await refreshTeacherView(id);
     });
   });
 
@@ -571,8 +640,7 @@ function scheduleClassRefresh(id) {
 
   classRefreshTimer = setTimeout(() => {
     if (selectedClassId === id) {
-      openClass(id);
-      loadClasses();
+      refreshTeacherView(id);
     }
   }, 60000);
 }
