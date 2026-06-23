@@ -192,6 +192,25 @@ app.post('/api/classes/:id/submit', wrap(async (req, res) => {
 }));
 
 // Giáo viên duyệt 1 đăng ký
+app.post('/api/classes/:id/add-student', wrap(async (req, res) => {
+  const { studentName } = req.body || {};
+  if (!studentName || !studentName.trim())
+    return res.status(400).json({ error: 'Thiáº¿u tÃªn há»c sinh' });
+  const cls = await classes.findOne({ id: req.params.id });
+  if (!cls) return res.status(404).json({ error: 'KhÃ´ng tÃ¬m tháº¥y lá»›p' });
+
+  const subs = cls.submissions || [];
+  const existing = subs.find((s) => sameName(s.studentName, studentName));
+  if (existing) {
+    existing.studentName = studentName.trim();
+    existing.status = 'approved';
+  } else {
+    subs.push({ studentName: studentName.trim(), busySlots: [], status: 'approved' });
+  }
+  await classes.updateOne({ id: req.params.id }, { $set: { submissions: subs } });
+  res.json({ ok: true });
+}));
+
 app.post('/api/classes/:id/approve', wrap(async (req, res) => {
   const { studentName } = req.body || {};
   const cls = await classes.findOne({ id: req.params.id });

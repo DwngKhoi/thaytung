@@ -56,6 +56,7 @@ function route_(params) {
     if (action === 'restoreClass') return setArchived_(params.classId, false);
     if (action === 'deleteClass') return deleteClass_(params.classId);
     if (action === 'clearArchived') return clearArchived_();
+    if (action === 'addStudent') return addStudent_(params);
     if (action === 'approve') return setSubmissionStatus_(params.classId, params.studentName, 'approved');
     if (action === 'reject') return deleteSubmission_(params.classId, params.studentName);
     if (action === 'updateBusy') return updateBusy_(params.classId, params.studentName, parseBusySlots_(params.busySlots));
@@ -189,6 +190,35 @@ function submit_(params) {
 
   sheet.appendRow([classId, studentName, busySlots, 'pending', new Date().toISOString()]);
   return { ok: true };
+}
+
+function addStudent_(params) {
+  if (!params.studentName || !String(params.studentName).trim()) throw new Error('Thieu ten hoc sinh');
+  const classId = params.classId;
+  if (!readRows_(SHEET_CLASSES).some((row) => row.id === classId && !toBool_(row.archived))) {
+    throw new Error('Khong tim thay lop');
+  }
+
+  const studentName = String(params.studentName).trim();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SUBMISSIONS);
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0];
+  const idxClass = headers.indexOf('classId');
+  const idxName = headers.indexOf('studentName');
+  const idxStatus = headers.indexOf('status');
+  const idxUpdated = headers.indexOf('updatedAt');
+
+  for (let i = 1; i < values.length; i++) {
+    if (values[i][idxClass] === classId && sameName_(values[i][idxName], studentName)) {
+      sheet.getRange(i + 1, idxName + 1).setValue(studentName);
+      sheet.getRange(i + 1, idxStatus + 1).setValue('approved');
+      sheet.getRange(i + 1, idxUpdated + 1).setValue(new Date().toISOString());
+      return { ok: true, updated: true };
+    }
+  }
+
+  sheet.appendRow([classId, studentName, JSON.stringify([]), 'approved', new Date().toISOString()]);
+  return { ok: true, created: true };
 }
 
 function setSubmissionStatus_(classId, studentName, status) {

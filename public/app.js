@@ -170,7 +170,7 @@ async function gasApi(path, opts = {}) {
     return gasRequest({ action: 'deleteClass', key: TEACHER_KEY, classId: match[1] });
   }
 
-  match = path.match(/^\/classes\/([^/]+)\/(archive|restore|submit|approve|reject|update-busy|bulk-update-busy)$/);
+  match = path.match(/^\/classes\/([^/]+)\/(archive|restore|submit|approve|reject|add-student|update-busy|bulk-update-busy)$/);
   if (match) {
     const classId = match[1];
     const action = match[2];
@@ -190,6 +190,9 @@ async function gasApi(path, opts = {}) {
     }
     if (action === 'reject') {
       return gasRequest({ action: 'reject', key: TEACHER_KEY, classId, studentName: body.studentName });
+    }
+    if (action === 'add-student') {
+      return gasRequest({ action: 'addStudent', key: TEACHER_KEY, classId, studentName: body.studentName });
     }
     if (action === 'update-busy') {
       return gasRequest({
@@ -418,6 +421,14 @@ async function openClass(id) {
     html += '</div>';
   }
 
+  if (!editMode) {
+    html += `<div class="teacher-add-student">
+      <input id="teacher-new-student" type="text" placeholder="Thêm học sinh vào lớp..." />
+      <button id="btn-teacher-add-student">+ Thêm học sinh</button>
+      <span id="teacher-add-student-msg" class="msg"></span>
+    </div>`;
+  }
+
   html += `<div class="pending-box"><h4>Chờ duyệt (${pending.length})</h4>`;
   if (pending.length === 0) {
     html += '<p class="placeholder">Không có đăng ký mới.</p>';
@@ -459,6 +470,47 @@ async function openClass(id) {
       editDirtyNames.add(checkbox.dataset.name);
       checkbox.closest('td')?.classList.toggle('busy', checkbox.checked);
     });
+  });
+
+  const addStudentInput = detail.querySelector('#teacher-new-student');
+  const addStudentBtn = detail.querySelector('#btn-teacher-add-student');
+  const addStudentMsg = detail.querySelector('#teacher-add-student-msg');
+  const addStudent = async () => {
+    const studentName = addStudentInput?.value.trim();
+    if (!studentName) {
+      if (addStudentMsg) {
+        addStudentMsg.textContent = 'Nhập tên học sinh';
+        addStudentMsg.className = 'msg err';
+      }
+      return;
+    }
+
+    addStudentBtn.disabled = true;
+    if (addStudentMsg) {
+      addStudentMsg.textContent = 'Đang thêm...';
+      addStudentMsg.className = 'msg';
+    }
+
+    try {
+      await api(`/classes/${id}/add-student`, {
+        method: 'POST',
+        body: JSON.stringify({ studentName }),
+      });
+      if (addStudentInput) addStudentInput.value = '';
+      openClass(id);
+      loadClasses();
+    } catch (err) {
+      addStudentBtn.disabled = false;
+      if (addStudentMsg) {
+        addStudentMsg.textContent = err.message;
+        addStudentMsg.className = 'msg err';
+      }
+    }
+  };
+
+  addStudentBtn?.addEventListener('click', addStudent);
+  addStudentInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') addStudent();
   });
 
   detail.querySelectorAll('.btn-del-stu').forEach((button) => {
