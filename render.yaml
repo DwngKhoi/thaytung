@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: student-schedule
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_NAME
+        value: lichlop
+      - key: CORS_ORIGIN
+        value: '*'
+      - key: MONGODB_URI
+        sync: false
+      - key: TEACHER_USERNAME
+        sync: false
+      - key: TEACHER_PASSWORD
+        sync: false
+      - key: TEACHER_NAME
+        sync: false

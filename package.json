@@ -1,0 +1,14 @@
+{
+  "name": "student-schedule",
+  "version": "1.0.0",
+  "description": "Web xếp lịch học cho lớp dựa trên lịch bận của học sinh",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^4.19.2",
+    "mongodb": "^7.3.0"
+  }
+}

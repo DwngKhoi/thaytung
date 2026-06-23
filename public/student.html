@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lịch lớp - Học sinh</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="student-page">
+  <header>
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">📅</div>
+        <div>
+          <h1>Lịch Lớp <span class="badge-soft">Học sinh</span></h1>
+          <p class="sub">Tích những buổi bạn bận để giáo viên chọn lịch học phù hợp.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <a class="student-link" href="index.html">Trang giáo viên</a>
+        <button id="btn-theme" class="theme-toggle" title="Chuyển Light/Dark">🌙</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="tab-panel active">
+    <div class="card student-card">
+      <h2>Đăng ký lịch bận</h2>
+      <p class="hint">Tích vào những buổi bạn <b>bận</b> hoặc không học được. Gửi lại cùng tên nếu cần sửa lịch cũ.</p>
+
+      <label>Chọn lớp
+        <select id="s-class"></select>
+      </label>
+      <label>Họ tên
+        <input id="s-name" type="text" placeholder="vd: Lê Đăng Khôi" />
+      </label>
+
+      <div id="s-grid" class="grid-wrap"></div>
+
+      <button id="btn-submit" class="primary">Gửi đăng ký</button>
+      <p id="submit-msg" class="msg"></p>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
