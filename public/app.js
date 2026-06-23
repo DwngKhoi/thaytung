@@ -114,43 +114,70 @@ function jsonp(params) {
   });
 }
 
+async function gasFetch(params) {
+  const url = new URL(GAS_API_URL);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) url.searchParams.set(key, value);
+  });
+
+  const res = await fetch(url.toString(), { method: 'GET', mode: 'cors' });
+  if (!res.ok) throw new Error('Không gọi được Google Apps Script.');
+
+  const data = await res.json();
+  if (data && data.error) {
+    const err = new Error(data.error);
+    err.apiError = true;
+    throw err;
+  }
+  return data;
+}
+
+async function gasRequest(params) {
+  try {
+    return await gasFetch(params);
+  } catch (err) {
+    if (err.apiError) throw err;
+    return jsonp(params);
+  }
+}
+
 async function gasApi(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
   const body = opts.body ? JSON.parse(opts.body) : {};
 
-  if (path === '/config') return jsonp({ action: 'config' });
+  if (path === '/config') return gasRequest({ action: 'config' });
   if (path === '/login' && method === 'POST') {
-    return jsonp({ action: 'login', username: body.username, password: body.password });
+    return gasRequest({ action: 'login', username: body.username, password: body.password });
   }
   if (path === '/classes' && method === 'GET') {
-    return jsonp({ action: 'classes', key: STUDENT_KEY });
+    return gasRequest({ action: 'classes', key: STUDENT_KEY });
   }
   if (path === '/classes' && method === 'POST') {
-    return jsonp({ action: 'addClass', key: TEACHER_KEY, name: body.name });
+    return gasRequest({ action: 'addClass', key: TEACHER_KEY, name: body.name });
   }
   if (path === '/archived-classes' && method === 'GET') {
-    return jsonp({ action: 'archivedClasses', key: TEACHER_KEY });
+    return gasRequest({ action: 'archivedClasses', key: TEACHER_KEY });
   }
   if (path === '/archived-classes' && method === 'DELETE') {
-    return jsonp({ action: 'clearArchived', key: TEACHER_KEY });
+    return gasRequest({ action: 'clearArchived', key: TEACHER_KEY });
   }
 
   let match = path.match(/^\/classes\/([^/]+)$/);
   if (match && method === 'GET') {
-    return jsonp({ action: 'class', key: TEACHER_KEY, classId: match[1] });
+    return gasRequest({ action: 'class', key: TEACHER_KEY, classId: match[1] });
   }
   if (match && method === 'DELETE') {
-    return jsonp({ action: 'deleteClass', key: TEACHER_KEY, classId: match[1] });
+    return gasRequest({ action: 'deleteClass', key: TEACHER_KEY, classId: match[1] });
   }
 
   match = path.match(/^\/classes\/([^/]+)\/(archive|restore|submit|approve|reject|update-busy|bulk-update-busy)$/);
   if (match) {
     const classId = match[1];
     const action = match[2];
-    if (action === 'archive') return jsonp({ action: 'archiveClass', key: TEACHER_KEY, classId });
-    if (action === 'restore') return jsonp({ action: 'restoreClass', key: TEACHER_KEY, classId });
+    if (action === 'archive') return gasRequest({ action: 'archiveClass', key: TEACHER_KEY, classId });
+    if (action === 'restore') return gasRequest({ action: 'restoreClass', key: TEACHER_KEY, classId });
     if (action === 'submit') {
-      return jsonp({
+      return gasRequest({
         action: 'submit',
         key: STUDENT_KEY,
         classId,
@@ -159,13 +186,13 @@ async function gasApi(path, opts = {}) {
       });
     }
     if (action === 'approve') {
-      return jsonp({ action: 'approve', key: TEACHER_KEY, classId, studentName: body.studentName });
+      return gasRequest({ action: 'approve', key: TEACHER_KEY, classId, studentName: body.studentName });
     }
     if (action === 'reject') {
-      return jsonp({ action: 'reject', key: TEACHER_KEY, classId, studentName: body.studentName });
+      return gasRequest({ action: 'reject', key: TEACHER_KEY, classId, studentName: body.studentName });
     }
     if (action === 'update-busy') {
-      return jsonp({
+      return gasRequest({
         action: 'updateBusy',
         key: TEACHER_KEY,
         classId,
@@ -174,7 +201,7 @@ async function gasApi(path, opts = {}) {
       });
     }
     if (action === 'bulk-update-busy') {
-      return jsonp({
+      return gasRequest({
         action: 'bulkUpdateBusy',
         key: TEACHER_KEY,
         classId,
