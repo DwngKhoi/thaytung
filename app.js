@@ -71,6 +71,23 @@ function displayName(item, counts) {
   return counts && counts[key] >= 2 && item.dob ? `${name} (${dobNote(item.dob)})` : name;
 }
 
+const viCollator = new Intl.Collator('vi', { numeric: true, sensitivity: 'base' });
+
+function compareText(a, b) {
+  return viCollator.compare(String(a || '').trim(), String(b || '').trim());
+}
+
+function sortClasses(classes) {
+  return [...(classes || [])].sort((a, b) => compareText(a.name, b.name) || compareText(a.id, b.id));
+}
+
+function sortSubmissions(submissions) {
+  return [...(submissions || [])].sort((a, b) =>
+    compareText(a.studentName || a.displayName, b.studentName || b.displayName) ||
+    compareText(a.dob, b.dob)
+  );
+}
+
 async function api(path, opts = {}) {
   if (SUPABASE_URL && SUPABASE_ANON_KEY) return supabaseApi(path, opts);
   if (GAS_API_URL) return gasApi(path, opts);
@@ -329,7 +346,7 @@ async function refreshTeacherView(id = selectedClassId) {
 }
 
 async function loadClasses() {
-  const classes = await api('/classes');
+  const classes = sortClasses(await api('/classes'));
   sessionStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(classes));
   renderClassList(classes);
 }
@@ -347,6 +364,7 @@ function renderCachedClasses() {
 function renderClassList(classes) {
   const ul = $('#class-list');
   if (!ul) return;
+  classes = sortClasses(classes);
   ul.innerHTML = '';
   if (classes.length === 0) {
     ul.innerHTML = '<li class="placeholder">Chưa có lớp nào.</li>';
@@ -399,8 +417,8 @@ async function openClass(id) {
   if (detail && !detail.querySelector('.schedule, .pending-box')) detail.innerHTML = '<p class="placeholder">Đang tải lớp...</p>';
   const cls = await api('/classes/' + id);
   const sessions = getSessions(cls);
-  const approved = cls.submissions.filter((s) => s.status === 'approved');
-  const pending = cls.submissions.filter((s) => s.status === 'pending');
+  const approved = sortSubmissions(cls.submissions.filter((s) => s.status === 'approved'));
+  const pending = sortSubmissions(cls.submissions.filter((s) => s.status === 'pending'));
   if (!detail) return;
 
   detail.innerHTML = renderTeacherClass(cls, sessions, approved, pending);
@@ -673,7 +691,7 @@ function initArchived() {
 async function loadArchived() {
   const ul = $('#archived-list');
   if (!ul) return;
-  const list = await api('/archived-classes');
+  const list = sortClasses(await api('/archived-classes'));
   ul.innerHTML = '';
   if ($('#btn-clear-archived')) $('#btn-clear-archived').style.display = list.length ? '' : 'none';
   if (list.length === 0) {
@@ -710,7 +728,7 @@ function initStudent() {
 async function loadStudentClasses() {
   const select = $('#s-class');
   if (!select) return;
-  studentClasses = await api('/classes');
+  studentClasses = sortClasses(await api('/classes'));
   select.innerHTML = '';
   studentClasses.forEach((cls) => {
     const option = document.createElement('option');
@@ -791,14 +809,15 @@ function renderLookupResult(changeMode) {
   if (!result || !lookupState) return;
   const sessions = getSessions(lookupState);
   const slots = buildSlots(sessions);
-  const nameCounts = countNames(lookupState.submissions);
+  const submissions = sortSubmissions(lookupState.submissions);
+  const nameCounts = countNames(submissions);
   let html = `<div class="lookup-head"><h3>${escapeHtml(lookupState.name)}</h3>`;
   if (lookupState.canRequestChange) {
     html += `<button id="btn-request-change" class="btn-edit${changeMode ? ' active' : ''}">${changeMode ? 'Đang sửa' : 'Yêu cầu đổi'}</button>`;
     if (changeMode) html += '<button id="btn-send-change" class="btn-edit active">Gửi yêu cầu</button>';
   }
   html += '</div>';
-  html += renderScheduleTable({ slots, sessions, submissions: lookupState.submissions, editable: changeMode, showDelete: false, nameCounts, studentLookup: true });
+  html += renderScheduleTable({ slots, sessions, submissions, editable: changeMode, showDelete: false, nameCounts, studentLookup: true });
   result.innerHTML = html;
   $('#btn-request-change')?.addEventListener('click', () => renderLookupResult(true));
   $('#btn-send-change')?.addEventListener('click', sendChangeRequest);
