@@ -170,7 +170,7 @@ set search_path = public
 as $$
 begin
   perform require_student(student_key);
-  return coalesce((select jsonb_agg(class_summary(c) order by c.created_at, c.name) from classes c where not c.archived), '[]'::jsonb);
+  return coalesce((select jsonb_agg(class_summary(c) order by lower(c.name), c.name, c.id) from classes c where not c.archived), '[]'::jsonb);
 end;
 $$;
 
@@ -183,7 +183,7 @@ set search_path = public
 as $$
 begin
   perform require_teacher(teacher_key);
-  return coalesce((select jsonb_agg(class_summary(c) order by c.created_at, c.name) from classes c where c.archived), '[]'::jsonb);
+  return coalesce((select jsonb_agg(class_summary(c) order by lower(c.name), c.name, c.id) from classes c where c.archived), '[]'::jsonb);
 end;
 $$;
 
@@ -220,7 +220,7 @@ begin
     'name', c.name,
     'archived', c.archived,
     'sessions', c.sessions,
-    'submissions', coalesce((select jsonb_agg(teacher_submission_json(s) order by s.student_name, s.dob) from submissions s where s.class_id = c.id), '[]'::jsonb)
+    'submissions', coalesce((select jsonb_agg(teacher_submission_json(s) order by lower(s.student_name), s.student_name, s.dob) from submissions s where s.class_id = c.id), '[]'::jsonb)
   );
 end;
 $$;
@@ -261,7 +261,7 @@ begin
         'busySlots', a.busy_slots,
         'status', a.status,
         'canEdit', a.name_key = target_key and a.dob = api_student_class.dob
-      ) order by a.student_name, a.dob)
+      ) order by lower(a.student_name), a.student_name, a.dob)
       from approved a
     ), '[]'::jsonb)
   );

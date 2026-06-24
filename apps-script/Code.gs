@@ -145,7 +145,7 @@ function ensureSubmissionColumns_(sheet) {
 function listClasses_(archived) {
   const classes = readRows_(SHEET_CLASSES).filter((row) => toBool_(row.archived) === archived);
   const submissions = readRows_(SHEET_SUBMISSIONS);
-  return classes.map((cls) => summarize_(cls, submissions));
+  return classes.map((cls) => summarize_(cls, submissions)).sort(compareClasses_);
 }
 
 function getClassDetail_(classId, includeDob) {
@@ -153,7 +153,8 @@ function getClassDetail_(classId, includeDob) {
   if (!cls) throw new Error('Không tìm thấy lớp');
   const submissions = readRows_(SHEET_SUBMISSIONS)
     .filter((row) => row.classId === classId)
-    .map((row) => submissionDto_(row, includeDob));
+    .map((row) => submissionDto_(row, includeDob))
+    .sort(compareSubmissions_);
   return {
     id: cls.id,
     name: cls.name,
@@ -177,7 +178,7 @@ function getStudentClass_(params) {
     busySlots: item.busySlots,
     status: item.status,
     canEdit: sameName_(item.studentName, name) && normalizeDob_(item.dob) === dob,
-  }));
+  })).sort(compareSubmissions_);
   detail.canRequestChange = detail.submissions.some((item) => item.canEdit);
   return detail;
 }
@@ -502,6 +503,18 @@ function countNames_(submissions) {
 function displayName_(name, dob, duplicateNames) {
   const key = cleanName_(name).toLowerCase();
   return duplicateNames[key] >= 2 ? `${name} (${dobNote_(dob)})` : name;
+}
+
+function compareText_(a, b) {
+  return cleanName_(a).localeCompare(cleanName_(b), 'vi', { numeric: true, sensitivity: 'base' });
+}
+
+function compareClasses_(a, b) {
+  return compareText_(a.name, b.name) || compareText_(a.id, b.id);
+}
+
+function compareSubmissions_(a, b) {
+  return compareText_(a.studentName || a.displayName, b.studentName || b.displayName) || compareText_(a.dob, b.dob);
 }
 
 function toBool_(value) {
