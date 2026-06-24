@@ -77,6 +77,8 @@ Link dùng sau khi publish:
 
 Khi sửa code Apps Script sau này: **Deploy → Manage deployments → Edit → Version: New version → Deploy**. Nếu không tạo version mới, web vẫn chạy code Apps Script cũ.
 
+Lưu ý migration: bản có ngày sinh sẽ tự đổi cấu trúc sheet `Submissions`. Dữ liệu học sinh cũ không có ngày sinh sẽ bị xoá, nhưng sheet `Classes` và các lớp đã thêm được giữ lại.
+
 Lưu ý: `public/config.js` chứa key cơ bản và có thể commit nếu publish bằng GitHub Pages public repo. Key này chỉ dùng để chặn truy cập vô tình, không phải bảo mật tuyệt đối.
 
 ## Tài khoản giáo viên demo
