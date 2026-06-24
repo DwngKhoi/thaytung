@@ -12,6 +12,8 @@ let lookupState = null;
 const $ = (sel) => document.querySelector(sel);
 const API_BASE = window.API_BASE || '';
 const GAS_API_URL = window.GAS_API_URL || '';
+const SUPABASE_URL = window.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
 const STUDENT_KEY = window.STUDENT_KEY || '';
 const TEACHER_KEY = window.TEACHER_KEY || '';
 const TEACHER_SESSION_KEY = 'lichlop-teacher-session';
@@ -70,6 +72,7 @@ function displayName(item, counts) {
 }
 
 async function api(path, opts = {}) {
+  if (SUPABASE_URL && SUPABASE_ANON_KEY) return supabaseApi(path, opts);
   if (GAS_API_URL) return gasApi(path, opts);
   const res = await fetch(API_BASE + '/api' + path, {
     headers: { 'Content-Type': 'application/json' },
@@ -78,6 +81,53 @@ async function api(path, opts = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Lỗi máy chủ');
   return data;
+}
+
+async function supabaseRpc(fn, body = {}) {
+  const res = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || 'Lỗi Supabase');
+  return data;
+}
+
+async function supabaseApi(path, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  const body = opts.body ? JSON.parse(opts.body) : {};
+  if (path === '/config') return supabaseRpc('api_config');
+  if (path === '/login' && method === 'POST') return supabaseRpc('api_login', { username: body.username, password: body.password });
+  if (path === '/classes' && method === 'GET') return supabaseRpc('api_classes', { student_key: STUDENT_KEY });
+  if (path === '/classes' && method === 'POST') return supabaseRpc('api_add_class', { teacher_key: TEACHER_KEY, name: body.name });
+  if (path === '/archived-classes' && method === 'GET') return supabaseRpc('api_archived_classes', { teacher_key: TEACHER_KEY });
+  if (path === '/archived-classes' && method === 'DELETE') return supabaseRpc('api_clear_archived', { teacher_key: TEACHER_KEY });
+
+  let match = path.match(/^\/classes\/([^/]+)$/);
+  if (match && method === 'GET') return supabaseRpc('api_class', { teacher_key: TEACHER_KEY, class_id: match[1] });
+  if (match && method === 'DELETE') return supabaseRpc('api_delete_class', { teacher_key: TEACHER_KEY, class_id: match[1] });
+
+  match = path.match(/^\/classes\/([^/]+)\/(.+)$/);
+  if (!match) throw new Error('API chưa hỗ trợ thao tác này.');
+  const class_id = match[1];
+  const action = match[2];
+  if (action === 'archive') return supabaseRpc('api_set_archived', { teacher_key: TEACHER_KEY, class_id, archived: true });
+  if (action === 'restore') return supabaseRpc('api_set_archived', { teacher_key: TEACHER_KEY, class_id, archived: false });
+  if (action === 'set-sessions') return supabaseRpc('api_set_class_sessions', { teacher_key: TEACHER_KEY, class_id, sessions: body.sessions || [] });
+  if (action === 'add-student') return supabaseRpc('api_add_student', { teacher_key: TEACHER_KEY, class_id, student_name: body.studentName, dob: body.dob });
+  if (action === 'approve') return supabaseRpc('api_set_submission_status', { teacher_key: TEACHER_KEY, class_id, student_name: body.studentName, dob: body.dob, status: 'approved' });
+  if (action === 'reject') return supabaseRpc('api_delete_submission', { teacher_key: TEACHER_KEY, class_id, student_name: body.studentName, dob: body.dob });
+  if (action === 'update-busy') return supabaseRpc('api_update_busy', { teacher_key: TEACHER_KEY, class_id, student_name: body.studentName, dob: body.dob, busy_slots: body.busySlots || [] });
+  if (action === 'bulk-update-busy') return supabaseRpc('api_bulk_update_busy', { teacher_key: TEACHER_KEY, class_id, updates: body.updates || [] });
+  if (action === 'submit') return supabaseRpc('api_submit', { student_key: STUDENT_KEY, class_id, student_name: body.studentName, dob: body.dob, busy_slots: body.busySlots || [] });
+  if (action === 'student-class') return supabaseRpc('api_student_class', { student_key: STUDENT_KEY, class_id, student_name: body.studentName, dob: body.dob });
+  if (action === 'request-change') return supabaseRpc('api_request_change', { student_key: STUDENT_KEY, class_id, student_name: body.studentName, dob: body.dob, busy_slots: body.busySlots || [] });
+  throw new Error('API chưa hỗ trợ thao tác này.');
 }
 
 async function gasFetch(params) {

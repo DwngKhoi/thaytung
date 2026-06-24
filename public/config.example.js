@@ -1,5 +1,12 @@
-// Copy file nay thanh config.js va dien URL Apps Script sau khi deploy.
-// Khi co GAS_API_URL, frontend se goi Google Sheet private thay cho Node/Mongo API.
+// Copy file nay thanh config.js.
+// Cach khuyen dung: Supabase. Khi co SUPABASE_URL + SUPABASE_ANON_KEY,
+// frontend se uu tien Supabase va khong goi Apps Script.
+window.SUPABASE_URL = 'https://PROJECT_REF.supabase.co';
+window.SUPABASE_ANON_KEY = 'SUPABASE_ANON_KEY';
+
+// Key co ban dung trong RPC Supabase hoac Apps Script.
+window.STUDENT_KEY = 'CHANGE_STUDENT_KEY';
+window.TEACHER_KEY = 'CHANGE_TEACHER_KEY';
+
+// Fallback cu: chi dung khi chua dien Supabase.
 window.GAS_API_URL = 'https://script.google.com/macros/s/DEPLOYMENT_ID/exec';
-window.STUDENT_KEY = 'doi-key-hoc-sinh';
-window.TEACHER_KEY = 'doi-key-giao-vien';

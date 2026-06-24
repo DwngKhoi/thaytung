@@ -81,6 +81,27 @@ Lưu ý migration: bản có ngày sinh sẽ tự đổi cấu trúc sheet `Subm
 
 Lưu ý: `public/config.js` chứa key cơ bản và có thể commit nếu publish bằng GitHub Pages public repo. Key này chỉ dùng để chặn truy cập vô tình, không phải bảo mật tuyệt đối.
 
+## Chuyển sang Supabase
+
+Supabase nhanh hơn Apps Script/Google Sheets vì dữ liệu nằm trong Postgres và frontend gọi RPC trực tiếp.
+
+1. Tạo project mới trên Supabase.
+2. Vào **SQL Editor**.
+3. Dán toàn bộ file `supabase/schema.sql` và bấm **Run**.
+4. Vào **Project Settings → API**, copy:
+   - Project URL
+   - anon public key
+5. Sửa `public/config.js`:
+   ```js
+   window.SUPABASE_URL = 'https://PROJECT_REF.supabase.co';
+   window.SUPABASE_ANON_KEY = 'anon public key';
+   window.STUDENT_KEY = 'CHANGE_STUDENT_KEY';
+   window.TEACHER_KEY = 'CHANGE_TEACHER_KEY';
+   ```
+6. Push lại `main` và `gh-pages`.
+
+Khi `SUPABASE_URL` và `SUPABASE_ANON_KEY` có giá trị, frontend sẽ ưu tiên Supabase và không gọi Apps Script nữa.
+
 ## Tài khoản giáo viên demo
 
 | Tài khoản | Mật khẩu |
@@ -103,6 +124,7 @@ public/
   app.js              Logic frontend dùng chung
 render.yaml           Cấu hình deploy Render
 apps-script/Code.gs   Backend Google Sheets + Apps Script
+supabase/schema.sql   Schema + RPC API Supabase
 ```
 
 ## Lưu ý deploy
