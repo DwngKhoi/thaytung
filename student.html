@@ -29,19 +29,25 @@
   <section class="tab-panel active">
     <div class="card student-card">
       <h2>Đăng ký lịch bận</h2>
-      <p class="hint">Tích vào những buổi bạn <b>bận</b> hoặc không học được. Gửi lại cùng tên nếu cần sửa lịch cũ.</p>
+      <p class="hint">Nhập đầy đủ họ tên và ngày tháng năm sinh để tránh nhầm học sinh trùng tên.</p>
 
       <label>Chọn lớp
         <select id="s-class"></select>
       </label>
-      <label>Họ tên
-        <input id="s-name" type="text" placeholder="vd: Lê Đăng Khôi" />
+      <label>Họ tên đầy đủ
+        <input id="s-name" type="text" placeholder="vd: Lê Đăng Khôi" autocomplete="name" />
+      </label>
+      <label>Ngày tháng năm sinh
+        <input id="s-dob" type="date" />
       </label>
 
       <div id="s-grid" class="grid-wrap"></div>
 
       <button id="btn-submit" class="primary">Gửi đăng ký</button>
+      <button id="btn-lookup" class="secondary">Tra cứu lịch lớp</button>
       <p id="submit-msg" class="msg"></p>
+      <p id="lookup-msg" class="msg"></p>
+      <div id="lookup-result" class="lookup-result"></div>
     </div>
   </section>
 

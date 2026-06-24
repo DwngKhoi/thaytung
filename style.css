@@ -123,6 +123,17 @@ button.primary:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(
 button.primary:active { transform: translateY(0); }
 button.link { background: none; border: none; color: var(--primary-dark); font-weight: 500; }
 button.link:hover { text-decoration: underline; }
+button.secondary {
+  background: var(--surface);
+  color: var(--primary-dark);
+  border: 1px solid #c7c9f7;
+  padding: 11px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 10px 0 0 8px;
+}
+button.secondary:hover { background: var(--primary-soft); }
 
 .hint { font-size: 13px; color: var(--muted); }
 .hint code, code { background: var(--primary-soft); color: var(--primary-dark); padding: 2px 7px; border-radius: 6px; font-size: 12px; }
@@ -189,6 +200,7 @@ button.link:hover { text-decoration: underline; }
 .placeholder { color: #9ca3af; }
 .detail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .detail-head h3 { margin: 0; font-size: 18px; }
+.detail-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .btn-del-class {
   background: var(--surface); color: var(--danger); border: 1px solid #fecaca;
   border-radius: 10px; padding: 7px 14px; font-size: 13px; font-weight: 500;
@@ -247,7 +259,7 @@ td.worst { color: #b91c1c; }
 /* ---- Chờ duyệt ---- */
 .teacher-add-student {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto;
+  grid-template-columns: minmax(180px, 1fr) 160px auto;
   gap: 8px;
   align-items: center;
   margin-top: 18px;
@@ -266,6 +278,26 @@ td.worst { color: #b91c1c; }
 .teacher-add-student button:hover { background: var(--primary-soft); }
 .teacher-add-student button:disabled { opacity: .65; cursor: wait; }
 .teacher-add-student .msg { grid-column: 1 / -1; margin: 0; }
+
+.class-sessions-editor {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fafbfe;
+}
+.class-sessions-editor label { margin: 0 0 8px; }
+.class-sessions-editor button {
+  border: 1px solid var(--primary);
+  background: #fff;
+  color: var(--primary-dark);
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-weight: 600;
+}
+.lookup-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.lookup-head h3 { margin: 0; }
+.lookup-result { margin-top: 12px; }
 
 .pending-box { margin-top: 22px; }
 .pending-box h4 { margin: 0 0 10px; font-size: 14px; }
@@ -328,6 +360,7 @@ body.dark .rec-title, body.dark .rec-line b { color: #6ee7b7; }
 body.dark .rec-line { color: #34d399; }
 body.dark .pending-item { background: #2a2515; border-color: #5a4a16; }
 body.dark .pending-item em { color: #fbbf24; }
+body.dark .class-sessions-editor { background: #12141c; }
 body.dark .btn-del-class:hover,
 body.dark .icon-btn:hover { background: #3a1f22; }
 body.dark .btn-del-stu { background: #2a1d20; }
