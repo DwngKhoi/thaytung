@@ -45,10 +45,43 @@ function normalizeDob(value) {
   if (!value) return '';
   const raw = String(value).trim();
   const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (iso) return `${iso[1]}-${String(iso[2]).padStart(2, '0')}-${String(iso[3]).padStart(2, '0')}`;
+  if (iso) return toIsoDate(iso[1], iso[2], iso[3]);
   const vn = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
-  if (vn) return `${vn[3]}-${String(vn[2]).padStart(2, '0')}-${String(vn[1]).padStart(2, '0')}`;
-  return raw;
+  if (vn) return toIsoDate(vn[3], vn[2], vn[1]);
+  const compact = raw.replace(/\D/g, '').match(/^(\d{2})(\d{2})(\d{4})$/);
+  if (compact) return toIsoDate(compact[3], compact[2], compact[1]);
+  return '';
+}
+
+function toIsoDate(yearValue, monthValue, dayValue) {
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+  if (!year || !month || !day) return '';
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return '';
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function formatDobText(value) {
+  const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function setupDobInput(input) {
+  if (!input || input.dataset.dobReady) return;
+  input.dataset.dobReady = '1';
+  input.placeholder = input.placeholder || 'dd/mm/yyyy';
+  input.inputMode = 'numeric';
+  input.maxLength = 10;
+  input.addEventListener('input', () => {
+    input.value = formatDobText(input.value);
+  });
+  input.addEventListener('blur', () => {
+    input.value = formatDobText(input.value);
+  });
 }
 
 function dobNote(dob) {
@@ -443,7 +476,7 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   if (!editMode) {
     html += `<div class="teacher-add-student">
       <input id="teacher-new-student" type="text" placeholder="Họ tên đầy đủ..." />
-      <input id="teacher-new-dob" type="date" />
+      <input id="teacher-new-dob" type="text" placeholder="dd/mm/yyyy" inputmode="numeric" maxlength="10" />
       <button id="btn-teacher-add-student">+ Thêm học sinh</button>
       <span id="teacher-add-student-msg" class="msg"></span>
     </div>
@@ -551,6 +584,8 @@ function decodeKey(key) {
 }
 
 function wireTeacherClassEvents(id, detail) {
+  setupDobInput($('#teacher-new-dob'));
+
   detail.querySelector('#btn-edit')?.addEventListener('click', async () => {
     if (!editMode) {
       editDirtyKeys = new Set();
@@ -719,6 +754,7 @@ async function loadArchived() {
 
 function initStudent() {
   if (!$('#btn-submit')) return;
+  setupDobInput($('#s-dob'));
   $('#btn-submit').addEventListener('click', submitSchedule);
   $('#btn-lookup')?.addEventListener('click', lookupClassSchedule);
   $('#s-class')?.addEventListener('change', renderStudentGrid);
