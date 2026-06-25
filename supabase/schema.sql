@@ -355,12 +355,12 @@ security definer
 set search_path = public
 as $$
 declare
-  clean text := clean_name(student_name);
+  clean text := clean_name(upsert_submission.student_name);
 begin
   if clean = '' then raise exception 'Thiếu họ tên học sinh'; end if;
-  if dob is null then raise exception 'Thiếu ngày sinh'; end if;
+  if upsert_submission.dob is null then raise exception 'Thiếu ngày sinh'; end if;
   insert into submissions (class_id, student_name, name_key, dob, busy_slots, status, updated_at)
-  values (class_id, clean, name_key(clean), dob, coalesce(busy_slots, '{}'), status, now())
+  values (upsert_submission.class_id, clean, name_key(clean), upsert_submission.dob, coalesce(upsert_submission.busy_slots, '{}'), upsert_submission.status, now())
   on conflict (class_id, name_key, dob)
   do update set student_name = excluded.student_name, busy_slots = excluded.busy_slots, status = excluded.status, updated_at = now();
   return jsonb_build_object('ok', true);
@@ -375,10 +375,10 @@ set search_path = public
 as $$
 begin
   perform require_student(student_key);
-  if exists (select 1 from submissions s where s.class_id = api_submit.class_id and s.name_key = name_key(student_name) and s.dob = api_submit.dob) then
+  if exists (select 1 from submissions s where s.class_id = api_submit.class_id and s.name_key = name_key(api_submit.student_name) and s.dob = api_submit.dob) then
     raise exception 'Học sinh này đã có trong lớp. Hãy dùng Tra cứu lịch lớp để yêu cầu đổi.';
   end if;
-  return upsert_submission(class_id, student_name, dob, busy_slots, 'pending');
+  return upsert_submission(api_submit.class_id, api_submit.student_name, api_submit.dob, api_submit.busy_slots, 'pending');
 end;
 $$;
 
@@ -390,10 +390,10 @@ set search_path = public
 as $$
 begin
   perform require_student(student_key);
-  if not exists (select 1 from submissions s where s.class_id = api_request_change.class_id and s.name_key = name_key(student_name) and s.dob = api_request_change.dob and s.status = 'approved') then
+  if not exists (select 1 from submissions s where s.class_id = api_request_change.class_id and s.name_key = name_key(api_request_change.student_name) and s.dob = api_request_change.dob and s.status = 'approved') then
     raise exception 'Không tìm thấy học sinh khớp họ tên và ngày sinh';
   end if;
-  return upsert_submission(class_id, student_name, dob, busy_slots, 'pending');
+  return upsert_submission(api_request_change.class_id, api_request_change.student_name, api_request_change.dob, api_request_change.busy_slots, 'pending');
 end;
 $$;
 
@@ -404,13 +404,13 @@ security definer
 set search_path = public
 as $$
 declare
-  clean text := clean_name(student_name);
+  clean text := clean_name(api_add_student.student_name);
 begin
   perform require_teacher(teacher_key);
   if clean = '' then raise exception 'Thiếu họ tên học sinh'; end if;
-  if dob is null then raise exception 'Thiếu ngày sinh'; end if;
+  if api_add_student.dob is null then raise exception 'Thiếu ngày sinh'; end if;
   insert into submissions (class_id, student_name, name_key, dob, busy_slots, status, updated_at)
-  values (class_id, clean, name_key(clean), dob, '{}', 'approved', now())
+  values (api_add_student.class_id, clean, name_key(clean), api_add_student.dob, '{}', 'approved', now())
   on conflict (class_id, name_key, dob)
   do update set student_name = excluded.student_name, status = 'approved', updated_at = now();
   return jsonb_build_object('ok', true);
