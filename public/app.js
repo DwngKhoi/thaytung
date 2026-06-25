@@ -7,7 +7,7 @@ let manageMode = false;
 let classRefreshTimer = null;
 let editDirtyKeys = new Set();
 let studentClasses = [];
-let lookupState = null;
+let lookupStates = [];
 
 const $ = (sel) => document.querySelector(sel);
 const API_BASE = window.API_BASE || '';
@@ -119,6 +119,43 @@ function sortSubmissions(submissions) {
     compareText(a.studentName || a.displayName, b.studentName || b.displayName) ||
     compareText(a.dob, b.dob)
   );
+}
+
+function sessionKey(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function selectedStudentClasses() {
+  const ids = [...document.querySelectorAll('#s-classes input[type=checkbox]:checked')].map((input) => input.value);
+  return ids.map((id) => studentClasses.find((cls) => cls.id === id)).filter(Boolean);
+}
+
+function selectedGridSessions(classes) {
+  const seen = {};
+  const sessions = [];
+  classes.forEach((cls) => getSessions(cls).forEach((session) => {
+    const key = sessionKey(session);
+    if (seen[key]) return;
+    seen[key] = true;
+    sessions.push(session);
+  }));
+  return sessions;
+}
+
+function busySlotsForClass(cls, rootSelector = '#s-grid') {
+  const checked = [...document.querySelectorAll(`${rootSelector} input:checked`)];
+  const selected = {};
+  checked.forEach((input) => {
+    selected[`${input.dataset.day}-${input.dataset.sessionKey}`] = true;
+  });
+  const busySlots = [];
+  getSessions(cls).forEach((session, sessionIdx) => {
+    const key = sessionKey(session);
+    DAYS.forEach((day, dayIdx) => {
+      if (selected[`${dayIdx}-${key}`]) busySlots.push(`${dayIdx}-${sessionIdx}`);
+    });
+  });
+  return busySlots;
 }
 
 async function api(path, opts = {}) {
@@ -757,40 +794,44 @@ function initStudent() {
   setupDobInput($('#s-dob'));
   $('#btn-submit').addEventListener('click', submitSchedule);
   $('#btn-lookup')?.addEventListener('click', lookupClassSchedule);
-  $('#s-class')?.addEventListener('change', renderStudentGrid);
   loadStudentClasses();
 }
 
 async function loadStudentClasses() {
-  const select = $('#s-class');
-  if (!select) return;
+  const wrap = $('#s-classes');
+  if (!wrap) return;
   studentClasses = sortClasses(await api('/classes'));
-  select.innerHTML = '';
+  wrap.innerHTML = '';
   studentClasses.forEach((cls) => {
-    const option = document.createElement('option');
-    option.value = cls.id;
-    option.textContent = cls.name;
-    select.appendChild(option);
+    const label = document.createElement('label');
+    label.className = 'class-check';
+    label.innerHTML = `<input type="checkbox" value="${escapeHtml(cls.id)}" /> <span>${escapeHtml(cls.name)}</span>`;
+    label.querySelector('input')?.addEventListener('change', () => {
+      lookupStates = [];
+      $('#lookup-result') && ($('#lookup-result').innerHTML = '');
+      $('#lookup-msg') && ($('#lookup-msg').textContent = '');
+      renderStudentGrid();
+    });
+    wrap.appendChild(label);
   });
   renderStudentGrid();
 }
 
-function selectedStudentClass() {
-  const id = $('#s-class')?.value;
-  return studentClasses.find((cls) => cls.id === id);
-}
-
 function renderStudentGrid() {
   const wrap = $('#s-grid');
-  const cls = selectedStudentClass();
-  if (!wrap || !cls) return;
-  const sessions = getSessions(cls);
+  if (!wrap) return;
+  const classes = selectedStudentClasses();
+  if (classes.length === 0) {
+    wrap.innerHTML = '<p class="placeholder">Tick một hoặc nhiều lớp để hiện bảng lịch.</p>';
+    return;
+  }
+  const sessions = selectedGridSessions(classes);
   let html = '<table class="grid"><thead><tr><th></th>';
   DAYS.forEach((day) => html += `<th>${escapeHtml(day)}</th>`);
   html += '</tr></thead><tbody>';
-  sessions.forEach((session, sessionIdx) => {
+  sessions.forEach((session) => {
     html += `<tr><th>${escapeHtml(session)}</th>`;
-    DAYS.forEach((day, dayIdx) => html += `<td><input type="checkbox" data-slot="${dayIdx}-${sessionIdx}" /></td>`);
+    DAYS.forEach((day, dayIdx) => html += `<td><input type="checkbox" data-day="${dayIdx}" data-session-key="${escapeHtml(sessionKey(session))}" /></td>`);
     html += '</tr>';
   });
   html += '</tbody></table>';
@@ -798,20 +839,36 @@ function renderStudentGrid() {
 }
 
 async function submitSchedule() {
-  const classId = $('#s-class')?.value;
+  const classes = selectedStudentClasses();
   const studentName = $('#s-name')?.value.trim();
   const dob = normalizeDob($('#s-dob')?.value);
   const msg = $('#submit-msg');
   msg.className = 'msg';
-  if (!classId) return showMsg(msg, 'Hãy chọn lớp', 'err');
+  if (classes.length === 0) return showMsg(msg, 'Hãy chọn ít nhất một lớp', 'err');
   if (!studentName) return showMsg(msg, 'Hãy nhập đầy đủ họ tên', 'err');
   if (!dob) return showMsg(msg, 'Hãy nhập ngày tháng năm sinh', 'err');
-  const busySlots = [...document.querySelectorAll('#s-grid input:checked')].map((input) => input.dataset.slot);
+  const btn = $('#btn-submit');
   try {
-    await api(`/classes/${classId}/submit`, { method: 'POST', body: JSON.stringify({ studentName, dob, busySlots }) });
-    showMsg(msg, 'Đã gửi! Chờ giáo viên duyệt.', 'ok');
+    if (btn) btn.disabled = true;
+    showMsg(msg, 'Đang gửi...', '');
+    const results = await Promise.allSettled(classes.map((cls) =>
+      api(`/classes/${cls.id}/submit`, {
+        method: 'POST',
+        body: JSON.stringify({ studentName, dob, busySlots: busySlotsForClass(cls) }),
+      }).then(() => cls.name)
+    ));
+    const ok = results.filter((item) => item.status === 'fulfilled').map((item) => item.value);
+    const failed = results.filter((item) => item.status === 'rejected');
+    if (failed.length) {
+      const firstError = failed[0].reason?.message || 'Không gửi được một số lớp';
+      const prefix = ok.length ? `Đã gửi ${ok.length}/${classes.length} lớp. ` : '';
+      return showMsg(msg, prefix + firstError, ok.length ? 'ok' : 'err');
+    }
+    showMsg(msg, `Đã gửi ${ok.length} lớp! Chờ giáo viên duyệt.`, 'ok');
   } catch (err) {
     showMsg(msg, err.message, 'err');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -822,58 +879,78 @@ function showMsg(el, text, type) {
 }
 
 async function lookupClassSchedule() {
-  const classId = $('#s-class')?.value;
+  const classes = selectedStudentClasses();
   const studentName = $('#s-name')?.value.trim();
   const dob = normalizeDob($('#s-dob')?.value);
   const msg = $('#lookup-msg');
   const result = $('#lookup-result');
   if (result) result.innerHTML = '';
-  if (!classId) return showMsg(msg, 'Hãy chọn lớp', 'err');
+  if (classes.length === 0) return showMsg(msg, 'Hãy chọn ít nhất một lớp', 'err');
   if (!studentName || !dob) return showMsg(msg, 'Nhập họ tên và ngày sinh để tra cứu', 'err');
   try {
     showMsg(msg, 'Đang tra cứu...', '');
-    lookupState = await api(`/classes/${classId}/student-class`, { method: 'POST', body: JSON.stringify({ studentName, dob }) });
-    showMsg(msg, lookupState.canRequestChange ? '' : 'Không tìm thấy học sinh khớp họ tên và ngày sinh trong danh sách đã duyệt.', lookupState.canRequestChange ? '' : 'err');
-    renderLookupResult(false);
+    const results = await Promise.all(classes.map((cls) =>
+      api(`/classes/${cls.id}/student-class`, { method: 'POST', body: JSON.stringify({ studentName, dob }) })
+    ));
+    lookupStates = results;
+    const editableCount = lookupStates.filter((item) => item.canRequestChange).length;
+    showMsg(
+      msg,
+      editableCount ? `Tìm thấy ${editableCount}/${lookupStates.length} lớp có học sinh khớp.` : 'Không tìm thấy học sinh khớp họ tên và ngày sinh trong các lớp đã chọn.',
+      editableCount ? 'ok' : 'err'
+    );
+    renderLookupResults();
   } catch (err) {
     showMsg(msg, err.message, 'err');
   }
 }
 
-function renderLookupResult(changeMode) {
+function renderLookupResults(changeClassId = null) {
   const result = $('#lookup-result');
-  if (!result || !lookupState) return;
-  const sessions = getSessions(lookupState);
-  const slots = buildSlots(sessions);
-  const submissions = sortSubmissions(lookupState.submissions);
-  const nameCounts = countNames(submissions);
-  let html = `<div class="lookup-head"><h3>${escapeHtml(lookupState.name)}</h3>`;
-  if (lookupState.canRequestChange) {
-    html += `<button id="btn-request-change" class="btn-edit${changeMode ? ' active' : ''}">${changeMode ? 'Đang sửa' : 'Yêu cầu đổi'}</button>`;
-    if (changeMode) html += '<button id="btn-send-change" class="btn-edit active">Gửi yêu cầu</button>';
-  }
-  html += '</div>';
-  html += renderScheduleTable({ slots, sessions, submissions, editable: changeMode, showDelete: false, nameCounts, studentLookup: true });
+  if (!result || !lookupStates.length) return;
+  let html = '';
+  lookupStates.forEach((state) => {
+    const changeMode = changeClassId === state.id;
+    const sessions = getSessions(state);
+    const slots = buildSlots(sessions);
+    const submissions = sortSubmissions(state.submissions);
+    const nameCounts = countNames(submissions);
+    html += `<div class="lookup-block" data-lookup-class="${escapeHtml(state.id)}">`;
+    html += `<div class="lookup-head"><h3>${escapeHtml(state.name)}</h3>`;
+    if (state.canRequestChange) {
+      html += `<button class="btn-edit btn-request-change${changeMode ? ' active' : ''}" data-id="${escapeHtml(state.id)}">${changeMode ? 'Đang sửa' : 'Yêu cầu đổi'}</button>`;
+      if (changeMode) html += `<button class="btn-edit active btn-send-change" data-id="${escapeHtml(state.id)}">Gửi yêu cầu</button>`;
+    }
+    html += '</div>';
+    html += renderScheduleTable({ slots, sessions, submissions, editable: changeMode, showDelete: false, nameCounts, studentLookup: true });
+    html += '</div>';
+  });
   result.innerHTML = html;
-  $('#btn-request-change')?.addEventListener('click', () => renderLookupResult(true));
-  $('#btn-send-change')?.addEventListener('click', sendChangeRequest);
+  result.querySelectorAll('.btn-request-change').forEach((button) => {
+    button.addEventListener('click', () => renderLookupResults(button.dataset.id));
+  });
+  result.querySelectorAll('.btn-send-change').forEach((button) => {
+    button.addEventListener('click', () => sendChangeRequest(button.dataset.id));
+  });
 }
 
-async function sendChangeRequest() {
-  if (!lookupState) return;
-  const target = lookupState.submissions.find((item) => item.canEdit);
+async function sendChangeRequest(classId) {
+  const state = lookupStates.find((item) => item.id === classId);
+  if (!state) return;
+  const target = state.submissions.find((item) => item.canEdit);
   if (!target) return;
   const key = encodeKey(target);
-  const busySlots = [...document.querySelectorAll(`#lookup-result .busy-chk[data-key="${key}"]`)]
+  const block = [...document.querySelectorAll('#lookup-result .lookup-block')].find((item) => item.dataset.lookupClass === classId);
+  const busySlots = [...(block?.querySelectorAll(`.busy-chk[data-key="${key}"]`) || [])]
     .filter((input) => input.checked)
     .map((input) => input.dataset.slot);
   const msg = $('#lookup-msg');
   try {
-    await api(`/classes/${lookupState.id}/request-change`, {
+    await api(`/classes/${state.id}/request-change`, {
       method: 'POST',
       body: JSON.stringify({ studentName: $('#s-name')?.value.trim(), dob: normalizeDob($('#s-dob')?.value), busySlots }),
     });
-    showMsg(msg, 'Đã gửi yêu cầu đổi. Chờ giáo viên duyệt.', 'ok');
+    showMsg(msg, `Đã gửi yêu cầu đổi cho lớp ${state.name}. Chờ giáo viên duyệt.`, 'ok');
     lookupClassSchedule();
   } catch (err) {
     showMsg(msg, err.message, 'err');
