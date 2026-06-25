@@ -135,6 +135,27 @@ button.secondary {
 }
 button.secondary:hover { background: var(--primary-soft); }
 
+.class-checklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 6px 0 14px;
+}
+.class-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fcfcfe;
+  cursor: pointer;
+}
+.class-check:hover { background: var(--primary-soft); border-color: #c7c9f7; }
+.class-check input[type=checkbox] { width: auto; margin: 0; accent-color: var(--primary); }
+.lookup-block { margin-top: 18px; }
+
 .hint { font-size: 13px; color: var(--muted); }
 .hint code, code { background: var(--primary-soft); color: var(--primary-dark); padding: 2px 7px; border-radius: 6px; font-size: 12px; }
 .error { color: var(--danger); font-size: 13px; min-height: 18px; }
@@ -346,6 +367,8 @@ body.dark {
   --shadow: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.55);
 }
 body.dark input, body.dark select { background: #12141c; color: var(--text); }
+body.dark .class-check { background: #12141c; }
+body.dark .class-check:hover { background: #20242f; }
 body.dark .tab:hover { background: #20242f; }
 body.dark #class-list li:hover { background: #20242f; }
 body.dark table.schedule thead th,
