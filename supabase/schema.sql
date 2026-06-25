@@ -348,20 +348,22 @@ begin
 end;
 $$;
 
-create or replace function upsert_submission(class_id text, student_name text, dob date, busy_slots text[], status text)
+drop function if exists upsert_submission(text, text, date, text[], text);
+
+create or replace function upsert_submission(p_class_id text, p_student_name text, p_dob date, p_busy_slots text[], p_status text)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  clean text := clean_name(upsert_submission.student_name);
+  clean text := clean_name(p_student_name);
 begin
   if clean = '' then raise exception 'Thiếu họ tên học sinh'; end if;
-  if upsert_submission.dob is null then raise exception 'Thiếu ngày sinh'; end if;
+  if p_dob is null then raise exception 'Thiếu ngày sinh'; end if;
   insert into submissions (class_id, student_name, name_key, dob, busy_slots, status, updated_at)
-  values (upsert_submission.class_id, clean, name_key(clean), upsert_submission.dob, coalesce(upsert_submission.busy_slots, '{}'), upsert_submission.status, now())
-  on conflict (class_id, name_key, dob)
+  values (p_class_id, clean, name_key(clean), p_dob, coalesce(p_busy_slots, '{}'), p_status, now())
+  on conflict on constraint submissions_class_id_name_key_dob_key
   do update set student_name = excluded.student_name, busy_slots = excluded.busy_slots, status = excluded.status, updated_at = now();
   return jsonb_build_object('ok', true);
 end;
@@ -411,7 +413,7 @@ begin
   if api_add_student.dob is null then raise exception 'Thiếu ngày sinh'; end if;
   insert into submissions (class_id, student_name, name_key, dob, busy_slots, status, updated_at)
   values (api_add_student.class_id, clean, name_key(clean), api_add_student.dob, '{}', 'approved', now())
-  on conflict (class_id, name_key, dob)
+  on conflict on constraint submissions_class_id_name_key_dob_key
   do update set student_name = excluded.student_name, status = 'approved', updated_at = now();
   return jsonb_build_object('ok', true);
 end;
