@@ -547,7 +547,7 @@ set search_path = public
 as $$
   select s.role
   from teacher_sessions s
-  where s.token_hash = encode(digest(coalesce(session_token, ''), 'sha256'), 'hex')
+  where s.token_hash = encode(extensions.digest(coalesce(session_token, ''), 'sha256'), 'hex')
     and s.expires_at > now();
 $$;
 
@@ -560,7 +560,7 @@ set search_path = public
 as $$
   select s.teacher_id
   from teacher_sessions s
-  where s.token_hash = encode(digest(coalesce(session_token, ''), 'sha256'), 'hex')
+  where s.token_hash = encode(extensions.digest(coalesce(session_token, ''), 'sha256'), 'hex')
     and s.expires_at > now();
 $$;
 
@@ -620,7 +620,7 @@ declare
   login_role text;
   login_name text;
   login_teacher_id uuid;
-  raw_token text := encode(gen_random_bytes(32), 'hex');
+  raw_token text := encode(extensions.gen_random_bytes(32), 'hex');
 begin
   if api_login.username = setting_value('TEACHER_USERNAME')
      and api_login.password = setting_value('TEACHER_PASSWORD') then
@@ -631,7 +631,7 @@ begin
     from teacher_accounts a
     where lower(a.username) = lower(clean_name(api_login.username)) and a.active;
 
-    if not found or account.password_hash <> crypt(api_login.password, account.password_hash) then
+    if not found or account.password_hash <> extensions.crypt(api_login.password, account.password_hash) then
       raise exception 'Sai tài khoản hoặc mật khẩu';
     end if;
     login_role := 'teacher';
@@ -641,7 +641,7 @@ begin
 
   delete from teacher_sessions where expires_at <= now();
   insert into teacher_sessions (token_hash, role, teacher_id, display_name, expires_at)
-  values (encode(digest(raw_token, 'sha256'), 'hex'), login_role, login_teacher_id, login_name, now() + interval '30 days');
+  values (encode(extensions.digest(raw_token, 'sha256'), 'hex'), login_role, login_teacher_id, login_name, now() + interval '30 days');
 
   return jsonb_build_object('ok', true, 'name', login_name, 'role', login_role, 'token', raw_token);
 end;
@@ -877,7 +877,7 @@ begin
     raise exception 'Nhập đủ tên, tài khoản và mật khẩu từ 6 ký tự';
   end if;
   insert into teacher_accounts (display_name, username, password_hash)
-  values (clean_name(api_add_teacher_account.display_name), clean_name(api_add_teacher_account.username), crypt(api_add_teacher_account.password, gen_salt('bf')))
+  values (clean_name(api_add_teacher_account.display_name), clean_name(api_add_teacher_account.username), extensions.crypt(api_add_teacher_account.password, extensions.gen_salt('bf')))
   returning id into new_id;
   return jsonb_build_object('ok', true, 'id', new_id);
 exception when unique_violation then
