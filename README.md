@@ -98,11 +98,21 @@ Supabase nhanh hơn Apps Script/Google Sheets vì dữ liệu nằm trong Postgr
    window.STUDENT_KEY = 'CHANGE_STUDENT_KEY';
    window.TEACHER_KEY = 'CHANGE_TEACHER_KEY';
    ```
-6. Push lại `main` và `gh-pages`.
+6. Push lại nhánh `main`; GitHub Actions sẽ tự deploy thư mục `public/`.
 
 Khi `SUPABASE_URL` và `SUPABASE_ANON_KEY` có giá trị, frontend sẽ ưu tiên Supabase và không gọi Apps Script nữa.
 
-## Tài khoản giáo viên demo
+Khi nâng cấp một database Supabase đã có, chạy lại toàn bộ `supabase/schema.sql`. Các lệnh migration dùng `if not exists`/`create or replace`, nên giữ nguyên lớp và học sinh hiện tại.
+
+### Quyền giáo viên trên Supabase
+
+- Tài khoản owner lấy từ `TEACHER_USERNAME`, `TEACHER_PASSWORD`, `TEACHER_NAME` trong bảng `app_settings`.
+- Owner tạo tài khoản giáo viên bộ môn và phân công lớp trong tab **Tài khoản giáo viên**.
+- Giáo viên bộ môn chỉ xem các lớp được phân công, không thể sửa, xoá hoặc duyệt yêu cầu.
+- Phiên đăng nhập có hạn 30 ngày. Mật khẩu giáo viên bộ môn được băm bằng `pgcrypto`, token phiên chỉ được lưu dạng hash trong database.
+- **Lịch hiện tại** được lưu riêng theo từng lớp. Ô này có màu hồng và bị khoá trên phiếu học sinh.
+
+## Tài khoản giáo viên demo (backend Express cũ)
 
 | Tài khoản | Mật khẩu |
 | --- | --- |
@@ -131,4 +141,4 @@ supabase/schema.sql   Schema + RPC API Supabase
 
 - `.env` chứa mật khẩu DB, không commit file này.
 - Nếu trang học sinh deploy ở host khác backend, đặt `CORS_ORIGIN` thành đúng domain trang học sinh.
-- Đây vẫn là bản đơn giản: mật khẩu giáo viên đang để demo trong code và chưa có phiên đăng nhập thật. Nên bổ sung bảo mật trước khi mở rộng.
+- Backend Supabase dùng phiên đăng nhập và kiểm tra quyền trong RPC; backend Express/Apps Script cũ chỉ còn là phương án dự phòng và không có mô hình giáo viên bộ môn mới.

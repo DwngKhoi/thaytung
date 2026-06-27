@@ -3,11 +3,15 @@ let DAYS_SHORT = [];
 let DEFAULT_SESSIONS = [];
 let selectedClassId = null;
 let editMode = false;
+let currentScheduleMode = false;
 let manageMode = false;
 let classRefreshTimer = null;
 let editDirtyKeys = new Set();
 let studentClasses = [];
 let lookupStates = [];
+let teacherSession = null;
+let teacherAccounts = [];
+let selectedTeacherAccountId = null;
 
 const $ = (sel) => document.querySelector(sel);
 const API_BASE = window.API_BASE || '';
@@ -19,6 +23,14 @@ const TEACHER_KEY = window.TEACHER_KEY || '';
 const TEACHER_SESSION_KEY = 'lichlop-teacher-session';
 const CLASSES_CACHE_KEY = 'lichlop-classes-cache';
 const SELECTED_CLASS_KEY = 'lichlop-selected-class';
+
+function teacherToken() {
+  return teacherSession?.token || '';
+}
+
+function isOwner() {
+  return teacherSession?.role === 'owner';
+}
 
 const escapeHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -142,6 +154,20 @@ function selectedGridSessions(classes) {
   return sessions;
 }
 
+function currentGridKeys(classes) {
+  const keys = new Set();
+  classes.forEach((cls) => {
+    getSessions(cls).forEach((session, sessionIdx) => {
+      DAYS.forEach((day, dayIdx) => {
+        if ((cls.currentSlots || []).includes(`${dayIdx}-${sessionIdx}`)) {
+          keys.add(`${dayIdx}-${sessionKey(session)}`);
+        }
+      });
+    });
+  });
+  return keys;
+}
+
 function busySlotsForClass(cls, rootSelector = '#s-grid') {
   const checked = [...document.querySelectorAll(`${rootSelector} input:checked`)];
   const selected = {};
@@ -191,26 +217,35 @@ async function supabaseApi(path, opts = {}) {
   if (path === '/config') return supabaseRpc('api_config');
   if (path === '/login' && method === 'POST') return supabaseRpc('api_login', { username: body.username, password: body.password });
   if (path === '/classes' && method === 'GET') return supabaseRpc('api_classes', { student_key: STUDENT_KEY });
-  if (path === '/classes' && method === 'POST') return supabaseRpc('api_add_class', { teacher_key: TEACHER_KEY, name: body.name });
-  if (path === '/archived-classes' && method === 'GET') return supabaseRpc('api_archived_classes', { teacher_key: TEACHER_KEY });
-  if (path === '/archived-classes' && method === 'DELETE') return supabaseRpc('api_clear_archived', { teacher_key: TEACHER_KEY });
+  if (path === '/teacher/classes' && method === 'GET') return supabaseRpc('api_teacher_classes', { teacher_key: teacherToken() });
+  if (path === '/classes' && method === 'POST') return supabaseRpc('api_add_class', { teacher_key: teacherToken(), name: body.name });
+  if (path === '/archived-classes' && method === 'GET') return supabaseRpc('api_archived_classes', { teacher_key: teacherToken() });
+  if (path === '/archived-classes' && method === 'DELETE') return supabaseRpc('api_clear_archived', { teacher_key: teacherToken() });
+  if (path === '/teacher-accounts' && method === 'GET') return supabaseRpc('api_teacher_accounts', { teacher_key: teacherToken() });
+  if (path === '/teacher-accounts' && method === 'POST') return supabaseRpc('api_add_teacher_account', { teacher_key: teacherToken(), display_name: body.name, username: body.username, password: body.password });
+
+  let accountMatch = path.match(/^\/teacher-accounts\/([^/]+)$/);
+  if (accountMatch && method === 'DELETE') return supabaseRpc('api_delete_teacher_account', { teacher_key: teacherToken(), teacher_id: accountMatch[1] });
+  accountMatch = path.match(/^\/teacher-accounts\/([^/]+)\/classes$/);
+  if (accountMatch && method === 'POST') return supabaseRpc('api_set_teacher_classes', { teacher_key: teacherToken(), teacher_id: accountMatch[1], class_ids: body.classIds || [] });
 
   let match = path.match(/^\/classes\/([^/]+)$/);
-  if (match && method === 'GET') return supabaseRpc('api_class', { teacher_key: TEACHER_KEY, class_id: match[1] });
-  if (match && method === 'DELETE') return supabaseRpc('api_delete_class', { teacher_key: TEACHER_KEY, class_id: match[1] });
+  if (match && method === 'GET') return supabaseRpc('api_class', { teacher_key: teacherToken(), class_id: match[1] });
+  if (match && method === 'DELETE') return supabaseRpc('api_delete_class', { teacher_key: teacherToken(), class_id: match[1] });
 
   match = path.match(/^\/classes\/([^/]+)\/(.+)$/);
   if (!match) throw new Error('API chưa hỗ trợ thao tác này.');
   const class_id = match[1];
   const action = match[2];
-  if (action === 'archive') return supabaseRpc('api_set_archived', { teacher_key: TEACHER_KEY, class_id, archived: true });
-  if (action === 'restore') return supabaseRpc('api_set_archived', { teacher_key: TEACHER_KEY, class_id, archived: false });
-  if (action === 'set-sessions') return supabaseRpc('api_set_class_sessions', { teacher_key: TEACHER_KEY, class_id, sessions: body.sessions || [] });
-  if (action === 'add-student') return supabaseRpc('api_add_student', { teacher_key: TEACHER_KEY, class_id, student_name: body.studentName, dob: body.dob });
-  if (action === 'approve') return supabaseRpc('api_set_submission_status', { teacher_key: TEACHER_KEY, class_id, student_name: body.studentName, dob: body.dob, status: 'approved' });
-  if (action === 'reject') return supabaseRpc('api_delete_submission', { teacher_key: TEACHER_KEY, class_id, student_name: body.studentName, dob: body.dob });
-  if (action === 'update-busy') return supabaseRpc('api_update_busy', { teacher_key: TEACHER_KEY, class_id, student_name: body.studentName, dob: body.dob, busy_slots: body.busySlots || [] });
-  if (action === 'bulk-update-busy') return supabaseRpc('api_bulk_update_busy', { teacher_key: TEACHER_KEY, class_id, updates: body.updates || [] });
+  if (action === 'archive') return supabaseRpc('api_set_archived', { teacher_key: teacherToken(), class_id, archived: true });
+  if (action === 'restore') return supabaseRpc('api_set_archived', { teacher_key: teacherToken(), class_id, archived: false });
+  if (action === 'set-sessions') return supabaseRpc('api_set_class_sessions', { teacher_key: teacherToken(), class_id, sessions: body.sessions || [] });
+  if (action === 'set-current-slots') return supabaseRpc('api_set_current_slots', { teacher_key: teacherToken(), class_id, current_slots: body.currentSlots || [] });
+  if (action === 'add-student') return supabaseRpc('api_add_student', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob });
+  if (action === 'approve') return supabaseRpc('api_set_submission_status', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob, status: 'approved' });
+  if (action === 'reject') return supabaseRpc('api_delete_submission', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob });
+  if (action === 'update-busy') return supabaseRpc('api_update_busy', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob, busy_slots: body.busySlots || [] });
+  if (action === 'bulk-update-busy') return supabaseRpc('api_bulk_update_busy', { teacher_key: teacherToken(), class_id, updates: body.updates || [] });
   if (action === 'submit') return supabaseRpc('api_submit', { student_key: STUDENT_KEY, class_id, student_name: body.studentName, dob: body.dob, busy_slots: body.busySlots || [] });
   if (action === 'student-class') return supabaseRpc('api_student_class', { student_key: STUDENT_KEY, class_id, student_name: body.studentName, dob: body.dob });
   if (action === 'request-change') return supabaseRpc('api_request_change', { student_key: STUDENT_KEY, class_id, student_name: body.studentName, dob: body.dob, busy_slots: body.busySlots || [] });
@@ -331,6 +366,7 @@ function initTabs() {
       btn.classList.add('active');
       $('#tab-' + btn.dataset.tab)?.classList.add('active');
       if (btn.dataset.tab === 'archived') loadArchived();
+      if (btn.dataset.tab === 'accounts') loadTeacherAccounts();
     });
   });
 }
@@ -345,9 +381,17 @@ function initTeacher() {
     clearTimeout(classRefreshTimer);
     localStorage.removeItem(TEACHER_SESSION_KEY);
     localStorage.removeItem(SELECTED_CLASS_KEY);
+    sessionStorage.removeItem(CLASSES_CACHE_KEY);
     $('#teacher-dashboard')?.classList.add('hidden');
     $('#teacher-login')?.classList.remove('hidden');
     selectedClassId = null;
+    teacherSession = null;
+    currentScheduleMode = false;
+    editMode = false;
+    manageMode = false;
+    document.querySelectorAll('.owner-only').forEach((el) => el.classList.add('hidden'));
+    document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === 'teacher'));
+    document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === 'tab-teacher'));
   });
   $('#btn-manage')?.addEventListener('click', () => {
     manageMode = !manageMode;
@@ -370,8 +414,9 @@ async function loginTeacher() {
     $('#btn-login').disabled = true;
     $('#btn-login').textContent = 'Đang đăng nhập...';
     const result = await api('/login', { method: 'POST', body: JSON.stringify({ username, password }) });
-    showTeacherDashboard(result.name);
-    localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify({ name: result.name, at: Date.now() }));
+    teacherSession = { name: result.name, role: result.role, token: result.token, at: Date.now() };
+    showTeacherDashboard(teacherSession);
+    localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(teacherSession));
     await loadClasses();
   } catch (err) {
     if (error) error.textContent = err.message;
@@ -386,8 +431,12 @@ function restoreTeacherSession() {
   if (!raw) return;
   try {
     const session = JSON.parse(raw);
-    if (!session?.name) return;
-    showTeacherDashboard(session.name);
+    if (!session?.name || !session?.token || !session?.role) {
+      localStorage.removeItem(TEACHER_SESSION_KEY);
+      return;
+    }
+    teacherSession = session;
+    showTeacherDashboard(session);
     renderCachedClasses();
     loadClasses().catch((err) => {
       const ul = $('#class-list');
@@ -403,8 +452,9 @@ function restoreTeacherSession() {
   }
 }
 
-function showTeacherDashboard(name) {
-  if ($('#teacher-name')) $('#teacher-name').textContent = name;
+function showTeacherDashboard(session) {
+  if ($('#teacher-name')) $('#teacher-name').textContent = session.name;
+  document.querySelectorAll('.owner-only').forEach((el) => el.classList.toggle('hidden', session.role !== 'owner'));
   $('#teacher-login')?.classList.add('hidden');
   $('#teacher-dashboard')?.classList.remove('hidden');
 }
@@ -416,7 +466,7 @@ async function refreshTeacherView(id = selectedClassId) {
 }
 
 async function loadClasses() {
-  const classes = sortClasses(await api('/classes'));
+  const classes = sortClasses(await api('/teacher/classes'));
   sessionStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(classes));
   renderClassList(classes);
 }
@@ -453,6 +503,7 @@ function renderClassList(classes) {
       selectedClassId = cls.id;
       localStorage.setItem(SELECTED_CLASS_KEY, cls.id);
       editMode = false;
+      currentScheduleMode = false;
       loadClasses();
       openClass(cls.id);
     });
@@ -473,6 +524,7 @@ function renderClassList(classes) {
 }
 
 async function addClass() {
+  if (!isOwner()) return;
   const input = $('#new-class-name');
   const name = input?.value.trim();
   if (!name) return;
@@ -498,19 +550,26 @@ async function openClass(id) {
 
 function renderTeacherClass(cls, sessions, approved, pending) {
   const slots = buildSlots(sessions);
+  const currentSlots = cls.currentSlots || [];
   const nameCounts = countNames([...approved, ...pending]);
-  let html = `<div class="detail-head"><div class="detail-title"><h3>${escapeHtml(cls.name)}</h3>
-    <button id="btn-edit" class="btn-edit${editMode ? ' active' : ''}">${editMode ? '✓ Xong' : 'Chỉnh sửa'}</button></div></div>`;
+  let html = `<div class="detail-head"><div class="detail-title"><h3>${escapeHtml(cls.name)}</h3>`;
+  if (isOwner()) {
+    html += `<button id="btn-edit" class="btn-edit${editMode ? ' active' : ''}">${editMode ? '✓ Xong' : 'Chỉnh sửa'}</button>
+      <button id="btn-current-schedule" class="btn-current${currentScheduleMode ? ' active' : ''}">${currentScheduleMode ? '✓ Lưu lịch hiện tại' : 'Lịch hiện tại'}</button>`;
+  }
+  html += '</div></div>';
   if (editMode) html += '<p class="hint">Đang chỉnh sửa: tick/bỏ tick các ô rồi bấm Xong để lưu một lần.</p>';
+  if (currentScheduleMode) html += '<p class="hint current-hint">Tick các buổi lớp đang học. Các ô này sẽ bị khóa trên phiếu học sinh.</p>';
+  if (!isOwner()) html += '<p class="hint readonly-note">Chế độ chỉ xem. Tài khoản owner quản lý lịch và duyệt yêu cầu.</p>';
 
-  if (approved.length === 0) {
+  if (approved.length === 0 && !currentScheduleMode && currentSlots.length === 0) {
     html += '<p class="placeholder">Chưa có học sinh nào được duyệt.</p>';
   } else {
-    html += renderScheduleTable({ slots, sessions, submissions: approved, editable: editMode, showDelete: true, nameCounts });
-    html += renderRecommendation(slots, approved);
+    html += renderScheduleTable({ slots, sessions, submissions: approved, editable: editMode, showDelete: isOwner(), nameCounts, currentSlots, currentEditable: currentScheduleMode });
+    if (approved.length) html += renderRecommendation(slots, approved, currentSlots);
   }
 
-  if (!editMode) {
+  if (isOwner() && !editMode && !currentScheduleMode) {
     html += `<div class="teacher-add-student">
       <input id="teacher-new-student" type="text" placeholder="Họ tên đầy đủ..." />
       <input id="teacher-new-dob" type="text" placeholder="dd/mm/yyyy" inputmode="numeric" maxlength="10" />
@@ -532,23 +591,37 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   pending.forEach((item) => {
     const key = encodeKey(item);
     html += `<div class="pending-item"><span>${escapeHtml(displayName(item, nameCounts))} <small>(${(item.busySlots || []).length} buổi bận)</small></span>
-      <span class="acts">
-        <button class="btn-approve" data-key="${key}">Duyệt</button>
-        <button class="btn-reject" data-key="${key}">Xoá</button>
-      </span></div>`;
+      ${isOwner() ? `<span class="acts"><button class="btn-approve" data-key="${key}">Duyệt</button><button class="btn-reject" data-key="${key}">Xoá</button></span>` : ''}</div>`;
   });
   html += '</div>';
   return html;
 }
 
-function renderScheduleTable({ slots, sessions, submissions, editable, showDelete, nameCounts, studentLookup }) {
+function renderScheduleTable({ slots, sessions, submissions, editable, showDelete, nameCounts, studentLookup, currentSlots = [], currentEditable = false }) {
   let html = '<div class="schedule-scroll"><table class="schedule"><thead><tr><th rowspan="2">STT</th><th rowspan="2">Học sinh</th>';
   DAYS.forEach((day) => html += `<th colspan="${sessions.length}">${escapeHtml(day)}</th>`);
   html += showDelete ? '<th rowspan="2">Xoá HS</th>' : '</tr>';
   if (showDelete) html += '</tr>';
   html += '<tr>';
-  DAYS.forEach(() => sessions.forEach((session) => html += `<th>${escapeHtml(session)}</th>`));
+  DAYS.forEach((day, dayIdx) => sessions.forEach((session, sessionIdx) => {
+    const slotId = `${dayIdx}-${sessionIdx}`;
+    html += `<th class="${currentSlots.includes(slotId) ? 'current-slot' : ''}" data-slot="${slotId}">${escapeHtml(session)}</th>`;
+  }));
   html += '</tr></thead><tbody>';
+
+  if (currentSlots.length || currentEditable) {
+    html += '<tr class="current-row"><td></td><td class="name">Lịch hiện tại</td>';
+    slots.forEach((slot) => {
+      const current = currentSlots.includes(slot.id);
+      if (currentEditable) {
+        html += `<td class="current-picker${current ? ' current-slot' : ''}" data-slot="${slot.id}"><input type="checkbox" class="current-chk" data-slot="${slot.id}" ${current ? 'checked' : ''}></td>`;
+      } else {
+        html += `<td class="${current ? 'current-slot' : 'free'}" data-slot="${slot.id}">${current ? '●' : '·'}</td>`;
+      }
+    });
+    if (showDelete) html += '<td></td>';
+    html += '</tr>';
+  }
 
   submissions.forEach((student, idx) => {
     const key = encodeKey(student);
@@ -556,10 +629,13 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
     html += `<tr><td>${idx + 1}</td><td class="name">${escapeHtml(displayName(student, nameCounts))}</td>`;
     slots.forEach((slot) => {
       const busy = (student.busySlots || []).includes(slot.id);
-      if (canEdit) {
-        html += `<td class="cell-edit${busy ? ' busy' : ''}"><input type="checkbox" class="busy-chk" data-key="${key}" data-slot="${slot.id}" ${busy ? 'checked' : ''}></td>`;
+      const current = currentSlots.includes(slot.id);
+      if (canEdit && !current) {
+        html += `<td class="cell-edit${busy ? ' busy' : ''}" data-slot="${slot.id}"><input type="checkbox" class="busy-chk" data-key="${key}" data-slot="${slot.id}" ${busy ? 'checked' : ''}></td>`;
       } else {
-        html += busy ? '<td class="busy">×</td>' : '<td class="free">·</td>';
+        html += current
+          ? `<td class="current-slot" data-slot="${slot.id}" title="Lịch học hiện tại">●</td>`
+          : busy ? `<td class="busy" data-slot="${slot.id}">×</td>` : `<td class="free" data-slot="${slot.id}">·</td>`;
       }
     });
     if (showDelete) html += `<td class="act-cell"><button class="btn-del-stu" data-key="${key}" title="Xoá học sinh">×</button></td>`;
@@ -574,9 +650,10 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
   slots.forEach((slot) => {
     const n = busyCount[slot.id];
     let className = '';
-    if (n === minBusy) className = 'best';
+    if (currentSlots.includes(slot.id)) className = 'current-slot';
+    else if (n === minBusy) className = 'best';
     else if (n === maxBusy && maxBusy > 0) className = 'worst';
-    html += `<td class="${className}">${n}</td>`;
+    html += `<td class="${className}" data-slot="${slot.id}">${n}</td>`;
   });
   if (showDelete) html += '<td></td>';
   html += '</tr></tbody></table></div>';
@@ -592,10 +669,12 @@ function countBusy(slots, submissions) {
   return busyCount;
 }
 
-function renderRecommendation(slots, approved) {
+function renderRecommendation(slots, approved, currentSlots = []) {
   const busyCount = countBusy(slots, approved);
-  const minBusy = Math.min(...slots.map((slot) => busyCount[slot.id]));
-  const best = slots.filter((slot) => busyCount[slot.id] === minBusy);
+  const availableSlots = slots.filter((slot) => !currentSlots.includes(slot.id));
+  if (!availableSlots.length) return '<div class="recommend"><div class="rec-title">Tất cả buổi đã nằm trong lịch hiện tại.</div></div>';
+  const minBusy = Math.min(...availableSlots.map((slot) => busyCount[slot.id]));
+  const best = availableSlots.filter((slot) => busyCount[slot.id] === minBusy);
   const byDay = {};
   best.forEach((slot) => {
     byDay[slot.dayIdx] = byDay[slot.dayIdx] || [];
@@ -627,6 +706,7 @@ function wireTeacherClassEvents(id, detail) {
     if (!editMode) {
       editDirtyKeys = new Set();
       editMode = true;
+      currentScheduleMode = false;
       openClass(id);
       return;
     }
@@ -634,6 +714,34 @@ function wireTeacherClassEvents(id, detail) {
     editMode = false;
     editDirtyKeys = new Set();
     await refreshTeacherView(id);
+  });
+
+  detail.querySelector('#btn-current-schedule')?.addEventListener('click', async () => {
+    if (!currentScheduleMode) {
+      currentScheduleMode = true;
+      editMode = false;
+      openClass(id);
+      return;
+    }
+    const currentSlots = [...detail.querySelectorAll('.current-chk:checked')].map((input) => input.dataset.slot);
+    const button = detail.querySelector('#btn-current-schedule');
+    if (button) { button.disabled = true; button.textContent = 'Đang lưu...'; }
+    try {
+      await api(`/classes/${id}/set-current-slots`, { method: 'POST', body: JSON.stringify({ currentSlots }) });
+      currentScheduleMode = false;
+      await refreshTeacherView(id);
+    } catch (err) {
+      if (button) { button.disabled = false; button.textContent = 'Lưu lại lịch hiện tại'; }
+      alert(err.message);
+    }
+  });
+
+  detail.querySelectorAll('.current-chk').forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      detail.querySelectorAll(`[data-slot="${checkbox.dataset.slot}"]`).forEach((cell) => {
+        cell.classList.toggle('current-slot', checkbox.checked);
+      });
+    });
   });
 
   detail.querySelectorAll('.busy-chk').forEach((checkbox) => {
@@ -746,7 +854,7 @@ async function saveBusyEdits(id, detail) {
 function scheduleClassRefresh(id) {
   const teacherTabIsOpen = $('#tab-teacher')?.classList.contains('active');
   const dashboardIsOpen = !$('#teacher-dashboard')?.classList.contains('hidden');
-  if (!teacherTabIsOpen || !dashboardIsOpen || editMode) return;
+  if (!teacherTabIsOpen || !dashboardIsOpen || editMode || currentScheduleMode) return;
   classRefreshTimer = setTimeout(() => {
     if (selectedClassId === id) refreshTeacherView(id);
   }, 60000);
@@ -789,6 +897,119 @@ async function loadArchived() {
   });
 }
 
+function initTeacherAccounts() {
+  $('#btn-add-account')?.addEventListener('click', addTeacherAccount);
+  ['#account-name', '#account-username', '#account-password'].forEach((selector) => {
+    $(selector)?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') addTeacherAccount();
+    });
+  });
+}
+
+async function addTeacherAccount() {
+  if (!isOwner()) return;
+  const name = $('#account-name')?.value.trim();
+  const username = $('#account-username')?.value.trim();
+  const password = $('#account-password')?.value || '';
+  const msg = $('#account-create-msg');
+  if (!name || !username || password.length < 6) {
+    return showMsg(msg, 'Nhập đủ tên, tài khoản và mật khẩu từ 6 ký tự.', 'err');
+  }
+  const button = $('#btn-add-account');
+  try {
+    button.disabled = true;
+    showMsg(msg, 'Đang tạo tài khoản...', '');
+    const created = await api('/teacher-accounts', { method: 'POST', body: JSON.stringify({ name, username, password }) });
+    $('#account-name').value = '';
+    $('#account-username').value = '';
+    $('#account-password').value = '';
+    selectedTeacherAccountId = created.id;
+    showMsg(msg, 'Đã tạo tài khoản giáo viên.', 'ok');
+    await loadTeacherAccounts();
+  } catch (err) {
+    showMsg(msg, err.message, 'err');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function loadTeacherAccounts() {
+  if (!isOwner()) return;
+  const list = $('#teacher-account-list');
+  if (!list) return;
+  list.innerHTML = '<li class="placeholder">Đang tải...</li>';
+  try {
+    const [accounts, classes] = await Promise.all([api('/teacher-accounts'), api('/teacher/classes')]);
+    teacherAccounts = [...accounts].sort((a, b) => compareText(a.name, b.name) || compareText(a.username, b.username));
+    studentClasses = sortClasses(classes);
+    renderTeacherAccountList();
+    if (selectedTeacherAccountId) renderTeacherAssignment(selectedTeacherAccountId);
+  } catch (err) {
+    list.innerHTML = `<li class="placeholder">${escapeHtml(err.message)}</li>`;
+  }
+}
+
+function renderTeacherAccountList() {
+  const list = $('#teacher-account-list');
+  if (!list) return;
+  if (!teacherAccounts.length) {
+    list.innerHTML = '<li class="placeholder">Chưa có tài khoản giáo viên bộ môn.</li>';
+    $('#account-assignment').innerHTML = '<p class="placeholder">Tạo tài khoản đầu tiên để phân công lớp.</p>';
+    return;
+  }
+  list.innerHTML = '';
+  teacherAccounts.forEach((account) => {
+    const item = document.createElement('li');
+    item.classList.toggle('selected', account.id === selectedTeacherAccountId);
+    item.innerHTML = `<strong>${escapeHtml(account.name)}</strong><small>@${escapeHtml(account.username)} · ${(account.classIds || []).length} lớp</small>`;
+    item.addEventListener('click', () => {
+      selectedTeacherAccountId = account.id;
+      renderTeacherAccountList();
+      renderTeacherAssignment(account.id);
+    });
+    list.appendChild(item);
+  });
+}
+
+function renderTeacherAssignment(accountId) {
+  const account = teacherAccounts.find((item) => item.id === accountId);
+  const wrap = $('#account-assignment');
+  if (!account || !wrap) return;
+  let html = `<div class="assignment-head"><div><h2>${escapeHtml(account.name)}</h2><p>@${escapeHtml(account.username)}</p></div><button id="btn-delete-account" class="btn-del-class">Xóa tài khoản</button></div>`;
+  html += '<h3>Các lớp phụ trách</h3><div class="assignment-classes">';
+  if (!studentClasses.length) html += '<p class="placeholder">Chưa có lớp học nào.</p>';
+  studentClasses.forEach((cls) => {
+    const checked = (account.classIds || []).includes(cls.id);
+    html += `<label class="class-check"><input type="checkbox" value="${escapeHtml(cls.id)}" ${checked ? 'checked' : ''}><span>${escapeHtml(cls.name)}</span></label>`;
+  });
+  html += '</div><button id="btn-save-assignment" class="primary">Lưu phân công</button><p id="assignment-msg" class="msg"></p>';
+  wrap.innerHTML = html;
+
+  $('#btn-save-assignment')?.addEventListener('click', async () => {
+    const classIds = [...wrap.querySelectorAll('.assignment-classes input:checked')].map((input) => input.value);
+    const button = $('#btn-save-assignment');
+    try {
+      button.disabled = true;
+      showMsg($('#assignment-msg'), 'Đang lưu...', '');
+      await api(`/teacher-accounts/${account.id}/classes`, { method: 'POST', body: JSON.stringify({ classIds }) });
+      showMsg($('#assignment-msg'), 'Đã lưu phân công lớp.', 'ok');
+      account.classIds = classIds;
+      renderTeacherAccountList();
+    } catch (err) {
+      showMsg($('#assignment-msg'), err.message, 'err');
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  $('#btn-delete-account')?.addEventListener('click', async () => {
+    if (!confirm(`Xóa tài khoản giáo viên "${account.name}"?`)) return;
+    await api(`/teacher-accounts/${account.id}`, { method: 'DELETE' });
+    selectedTeacherAccountId = null;
+    await loadTeacherAccounts();
+  });
+}
+
 function initStudent() {
   if (!$('#btn-submit')) return;
   setupDobInput($('#s-dob'));
@@ -826,12 +1047,17 @@ function renderStudentGrid() {
     return;
   }
   const sessions = selectedGridSessions(classes);
+  const currentKeys = currentGridKeys(classes);
   let html = '<table class="grid"><thead><tr><th></th>';
   DAYS.forEach((day) => html += `<th>${escapeHtml(day)}</th>`);
   html += '</tr></thead><tbody>';
   sessions.forEach((session) => {
     html += `<tr><th>${escapeHtml(session)}</th>`;
-    DAYS.forEach((day, dayIdx) => html += `<td><input type="checkbox" data-day="${dayIdx}" data-session-key="${escapeHtml(sessionKey(session))}" /></td>`);
+    DAYS.forEach((day, dayIdx) => {
+      const key = `${dayIdx}-${sessionKey(session)}`;
+      const current = currentKeys.has(key);
+      html += `<td class="${current ? 'current-slot student-current-slot' : ''}" ${current ? 'title="Lịch học hiện tại của lớp đã chọn"' : ''}><input type="checkbox" data-day="${dayIdx}" data-session-key="${escapeHtml(sessionKey(session))}" ${current ? 'disabled' : ''} /></td>`;
+    });
     html += '</tr>';
   });
   html += '</tbody></table>';
@@ -922,7 +1148,7 @@ function renderLookupResults(changeClassId = null) {
       if (changeMode) html += `<button class="btn-edit active btn-send-change" data-id="${escapeHtml(state.id)}">Gửi yêu cầu</button>`;
     }
     html += '</div>';
-    html += renderScheduleTable({ slots, sessions, submissions, editable: changeMode, showDelete: false, nameCounts, studentLookup: true });
+    html += renderScheduleTable({ slots, sessions, submissions, editable: changeMode, showDelete: false, nameCounts, studentLookup: true, currentSlots: state.currentSlots || [] });
     html += '</div>';
   });
   result.innerHTML = html;
@@ -962,6 +1188,7 @@ async function sendChangeRequest(classId) {
   initTabs();
   initTeacher();
   initArchived();
+  initTeacherAccounts();
   const cfg = await api('/config');
   DAYS = cfg.days;
   DAYS_SHORT = cfg.daysShort || cfg.days;

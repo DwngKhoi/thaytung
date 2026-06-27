@@ -27,7 +27,8 @@
 
     <nav class="tabs">
       <button class="tab active" data-tab="teacher">Lớp học</button>
-      <button class="tab" data-tab="archived">Lớp cũ</button>
+      <button class="tab owner-only hidden" data-tab="archived">Lớp cũ</button>
+      <button class="tab owner-only hidden" data-tab="accounts">Tài khoản giáo viên</button>
     </nav>
   </header>
 
@@ -42,7 +43,6 @@
       </label>
       <button id="btn-login" class="primary">Đăng nhập</button>
       <p id="login-error" class="error"></p>
-      <p class="hint">Tài khoản demo: <code>gv / 123456</code></p>
     </div>
 
     <div id="teacher-dashboard" class="hidden">
@@ -55,10 +55,10 @@
         <aside class="classes-panel">
           <div class="panel-head">
             <h3>Lớp học</h3>
-            <button id="btn-manage" class="icon-btn" title="Quản lý / xoá lớp">🗑</button>
+            <button id="btn-manage" class="icon-btn owner-only" title="Quản lý / xoá lớp">🗑</button>
           </div>
           <ul id="class-list"></ul>
-          <div class="add-class">
+          <div class="add-class owner-only">
             <input id="new-class-name" type="text" placeholder="Tên lớp mới..." />
             <button id="btn-add-class">+ Thêm</button>
           </div>
@@ -79,6 +79,30 @@
       </div>
       <p class="hint">Lớp bị xoá sẽ nằm ở đây. Bạn có thể khôi phục lại hoặc xoá vĩnh viễn.</p>
       <ul id="archived-list" class="archived-list"></ul>
+    </div>
+  </section>
+
+  <section id="tab-accounts" class="tab-panel">
+    <div class="accounts-layout">
+      <aside class="card accounts-list-card">
+        <h2>Tài khoản giáo viên</h2>
+        <ul id="teacher-account-list" class="account-list"></ul>
+      </aside>
+      <main class="card account-detail-card">
+        <div class="account-create">
+          <h2>Thêm giáo viên bộ môn</h2>
+          <div class="account-create-fields">
+            <label>Tên hiển thị<input id="account-name" type="text" placeholder="vd: Cô Nguyễn Thu Hà" /></label>
+            <label>Tài khoản<input id="account-username" type="text" autocomplete="off" placeholder="vd: nguyenthuha" /></label>
+            <label>Mật khẩu<input id="account-password" type="password" autocomplete="new-password" placeholder="Từ 6 ký tự" /></label>
+          </div>
+          <button id="btn-add-account" class="primary">Thêm tài khoản</button>
+          <p id="account-create-msg" class="msg"></p>
+        </div>
+        <div id="account-assignment" class="account-assignment">
+          <p class="placeholder">Chọn một giáo viên để phân công lớp.</p>
+        </div>
+      </main>
     </div>
   </section>
 
