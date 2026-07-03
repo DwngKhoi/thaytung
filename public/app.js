@@ -239,6 +239,7 @@ async function supabaseApi(path, opts = {}) {
   const action = match[2];
   if (action === 'archive') return supabaseRpc('api_set_archived', { teacher_key: teacherToken(), class_id, archived: true });
   if (action === 'restore') return supabaseRpc('api_set_archived', { teacher_key: teacherToken(), class_id, archived: false });
+  if (action === 'rename') return supabaseRpc('api_rename_class', { teacher_key: teacherToken(), class_id, name: body.name });
   if (action === 'set-sessions') return supabaseRpc('api_set_class_sessions', { teacher_key: teacherToken(), class_id, sessions: body.sessions || [] });
   if (action === 'set-current-slots') return supabaseRpc('api_set_current_slots', { teacher_key: teacherToken(), class_id, current_slots: body.currentSlots || [] });
   if (action === 'add-student') return supabaseRpc('api_add_student', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob });
@@ -329,6 +330,7 @@ async function gasApi(path, opts = {}) {
 
   if (action === 'archive') return gasRequest({ action: 'archiveClass', ...teacherBase });
   if (action === 'restore') return gasRequest({ action: 'restoreClass', ...teacherBase });
+  if (action === 'rename') return gasRequest({ action: 'renameClass', ...teacherBase, name: body.name });
   if (action === 'set-sessions') return gasRequest({ action: 'setClassSessions', ...teacherBase, sessions: JSON.stringify(body.sessions || []) });
   if (action === 'add-student') return gasRequest({ action: 'addStudent', ...teacherBase, studentName: body.studentName, dob: body.dob });
   if (action === 'approve') return gasRequest({ action: 'approve', ...teacherBase, studentName: body.studentName, dob: body.dob });
@@ -494,7 +496,7 @@ function renderClassList(classes) {
     const li = document.createElement('li');
     if (cls.id === selectedClassId) li.classList.add('selected');
     const right = manageMode
-      ? '<button class="cls-del" title="Xoá lớp">×</button>'
+      ? '<button class="cls-edit" title="Đổi tên lớp">&#9998;</button><button class="cls-del" title="Xóa lớp">&times;</button>'
       : cls.pendingCount
       ? `<span class="badge">${cls.pendingCount} chờ</span>`
       : '';
@@ -506,6 +508,10 @@ function renderClassList(classes) {
       currentScheduleMode = false;
       loadClasses();
       openClass(cls.id);
+    });
+    li.querySelector('.cls-edit')?.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      await renameClass(cls);
     });
     li.querySelector('.cls-del')?.addEventListener('click', async (event) => {
       event.stopPropagation();
@@ -521,6 +527,17 @@ function renderClassList(classes) {
     });
     ul.appendChild(li);
   });
+}
+
+async function renameClass(cls) {
+  if (!isOwner() || !cls) return;
+  const name = prompt('Nhập tên lớp mới:', cls.name);
+  if (name === null) return;
+  const cleaned = name.trim();
+  if (!cleaned || cleaned === cls.name) return;
+  await api('/classes/' + cls.id + '/rename', { method: 'POST', body: JSON.stringify({ name: cleaned }) });
+  await loadClasses();
+  if (selectedClassId === cls.id) await openClass(cls.id);
 }
 
 async function addClass() {

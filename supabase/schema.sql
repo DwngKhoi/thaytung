@@ -797,6 +797,24 @@ begin
 end;
 $$;
 
+create or replace function api_rename_class(teacher_key text, class_id text, name text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare cleaned text := clean_name(name);
+begin
+  perform require_owner(teacher_key);
+  if cleaned = '' then raise exception 'Thiếu tên lớp'; end if;
+  update classes
+  set name = cleaned
+  where id = api_rename_class.class_id;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+  return jsonb_build_object('ok', true, 'id', api_rename_class.class_id, 'name', cleaned);
+end;
+$$;
+
 create or replace function api_set_class_sessions(teacher_key text, class_id text, sessions text[])
 returns jsonb
 language plpgsql
