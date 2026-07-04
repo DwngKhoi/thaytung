@@ -26,8 +26,8 @@ const TEACHER_KEY = window.TEACHER_KEY || '';
 const TEACHER_SESSION_KEY = 'lichlop-teacher-session';
 const CLASSES_CACHE_KEY = 'lichlop-classes-cache';
 const SELECTED_CLASS_KEY = 'lichlop-selected-class';
-const COLLAPSED_SECTORS_KEY = 'lichlop-collapsed-sectors';
-const STUDENT_COLLAPSED_SECTORS_KEY = 'lichlop-student-collapsed-sectors';
+const EXPANDED_SECTORS_KEY = 'lichlop-expanded-sectors';
+const STUDENT_EXPANDED_SECTORS_KEY = 'lichlop-student-expanded-sectors';
 const UNCATEGORIZED_SECTOR_ID = '__uncategorized__';
 
 function teacherToken() {
@@ -176,7 +176,7 @@ function setSectorToolsVisible() {
 
 function collapsedSectorIds() {
   try {
-    const raw = localStorage.getItem(COLLAPSED_SECTORS_KEY);
+    const raw = localStorage.getItem(EXPANDED_SECTORS_KEY);
     const ids = JSON.parse(raw || '[]');
     return new Set(Array.isArray(ids) ? ids.map(String) : []);
   } catch (err) {
@@ -185,11 +185,11 @@ function collapsedSectorIds() {
 }
 
 function saveCollapsedSectorIds(ids) {
-  localStorage.setItem(COLLAPSED_SECTORS_KEY, JSON.stringify([...ids]));
+  localStorage.setItem(EXPANDED_SECTORS_KEY, JSON.stringify([...ids]));
 }
 
 function isSectorCollapsed(sectorId) {
-  return collapsedSectorIds().has(String(sectorId));
+  return !collapsedSectorIds().has(String(sectorId));
 }
 
 function toggleSectorCollapsed(sectorId) {
@@ -203,7 +203,7 @@ function toggleSectorCollapsed(sectorId) {
 
 function collapsedStudentSectorIds() {
   try {
-    const raw = localStorage.getItem(STUDENT_COLLAPSED_SECTORS_KEY);
+    const raw = localStorage.getItem(STUDENT_EXPANDED_SECTORS_KEY);
     const ids = JSON.parse(raw || '[]');
     return new Set(Array.isArray(ids) ? ids.map(String) : []);
   } catch (err) {
@@ -212,11 +212,11 @@ function collapsedStudentSectorIds() {
 }
 
 function saveCollapsedStudentSectorIds(ids) {
-  localStorage.setItem(STUDENT_COLLAPSED_SECTORS_KEY, JSON.stringify([...ids]));
+  localStorage.setItem(STUDENT_EXPANDED_SECTORS_KEY, JSON.stringify([...ids]));
 }
 
 function isStudentSectorCollapsed(sectorId) {
-  return collapsedStudentSectorIds().has(String(sectorId));
+  return !collapsedStudentSectorIds().has(String(sectorId));
 }
 
 function toggleStudentSectorCollapsed(sectorId) {
