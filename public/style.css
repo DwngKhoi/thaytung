@@ -255,9 +255,9 @@ button.secondary:hover { background: var(--primary-soft); }
   border-color: #dcdcfb; font-weight: 600;
 }
 .sector-title {
-  cursor: default !important;
+  cursor: pointer !important;
   margin: 12px 0 5px !important;
-  padding: 0 2px !important;
+  padding: 3px 2px !important;
   border: none !important;
   background: transparent !important;
   color: var(--muted);
@@ -266,8 +266,26 @@ button.secondary:hover { background: var(--primary-soft); }
   text-transform: uppercase;
   letter-spacing: .06em;
 }
+.sector-title:hover { color: var(--primary-dark); }
+.sector-title.collapsed { margin-bottom: 6px !important; }
 .sector-title:first-child { margin-top: 0 !important; }
 .sector-title .sector-title-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sector-toggle {
+  border: none;
+  background: transparent;
+  color: var(--primary-dark);
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background .15s, transform .12s;
+}
+.sector-title:hover .sector-toggle { background: var(--primary-soft); }
 .sector-title .sector-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sector-count {
   color: var(--primary-dark);

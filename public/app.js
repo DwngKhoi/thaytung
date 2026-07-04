@@ -25,6 +25,7 @@ const TEACHER_KEY = window.TEACHER_KEY || '';
 const TEACHER_SESSION_KEY = 'lichlop-teacher-session';
 const CLASSES_CACHE_KEY = 'lichlop-classes-cache';
 const SELECTED_CLASS_KEY = 'lichlop-selected-class';
+const COLLAPSED_SECTORS_KEY = 'lichlop-collapsed-sectors';
 const UNCATEGORIZED_SECTOR_ID = '__uncategorized__';
 
 function teacherToken() {
@@ -169,6 +170,33 @@ function setSectorToolsVisible() {
   const addBtn = $('#btn-add-sector');
   if (!addBtn) return;
   addBtn.classList.toggle('hidden', !manageMode || !isOwner());
+}
+
+function collapsedSectorIds() {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_SECTORS_KEY);
+    const ids = JSON.parse(raw || '[]');
+    return new Set(Array.isArray(ids) ? ids.map(String) : []);
+  } catch (err) {
+    return new Set();
+  }
+}
+
+function saveCollapsedSectorIds(ids) {
+  localStorage.setItem(COLLAPSED_SECTORS_KEY, JSON.stringify([...ids]));
+}
+
+function isSectorCollapsed(sectorId) {
+  return collapsedSectorIds().has(String(sectorId));
+}
+
+function toggleSectorCollapsed(sectorId) {
+  const ids = collapsedSectorIds();
+  const key = String(sectorId);
+  if (ids.has(key)) ids.delete(key);
+  else ids.add(key);
+  saveCollapsedSectorIds(ids);
+  renderClassList(teacherClasses);
 }
 
 function sortSubmissions(submissions) {
@@ -578,23 +606,32 @@ function renderClassList(classes) {
 
   groups.forEach((sector) => {
     ul.appendChild(createSectorTitle(sector));
+    if (isSectorCollapsed(sector.id)) return;
     sector.classes.forEach((cls) => ul.appendChild(createClassListItem(cls)));
   });
 }
 
 function createSectorTitle(sector) {
   const li = document.createElement('li');
+  const collapsed = isSectorCollapsed(sector.id);
   li.className = 'sector-title';
+  li.classList.toggle('collapsed', collapsed);
   const editButton = manageMode && isOwner() && !sector.system
     ? '<button class="sector-edit" title="Chinh muc">&#9998;</button>'
     : '';
   li.innerHTML = `
     <span class="sector-title-main">
+      <button class="sector-toggle" title="${collapsed ? 'Mo rong' : 'Thu gon'}">${collapsed ? '&#9654;' : '&#9662;'}</button>
       <span class="sector-name">${escapeHtml(sector.name)}</span>
       <span class="sector-count">${sector.classes.length}</span>
     </span>
     ${editButton}
   `;
+  li.querySelector('.sector-toggle')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleSectorCollapsed(sector.id);
+  });
+  li.addEventListener('click', () => toggleSectorCollapsed(sector.id));
   li.querySelector('.sector-edit')?.addEventListener('click', (event) => {
     event.stopPropagation();
     showSectorEditor(sector);
