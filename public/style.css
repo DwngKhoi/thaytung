@@ -176,6 +176,32 @@ button.secondary:hover { background: var(--primary-soft); }
   gap: 8px;
   margin: 6px 0 14px;
 }
+.class-checklist.has-sectors { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+.student-sector-title {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+.student-sector-title:first-child { margin-top: 0; }
+.student-sector-title:hover {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  border-color: #c7c9f7;
+}
+.student-sector-title .sector-title-main { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.student-sector-title .sector-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .class-check {
   display: flex;
   align-items: center;
@@ -562,6 +588,8 @@ body.dark::before { opacity: .075; }
 body.dark input, body.dark select { background: #12141c; color: var(--text); }
 body.dark .class-check { background: #12141c; }
 body.dark .class-check:hover { background: #20242f; }
+body.dark .student-sector-title { background: #12141c; }
+body.dark .student-sector-title:hover { background: var(--primary-soft); border-color: #3d4361; }
 body.dark .tab:hover { background: #20242f; }
 body.dark #class-list li:hover { background: #20242f; }
 body.dark table.schedule thead th,

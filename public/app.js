@@ -8,6 +8,7 @@ let manageMode = false;
 let classRefreshTimer = null;
 let editDirtyKeys = new Set();
 let studentClasses = [];
+let selectedStudentClassIds = new Set();
 let lookupStates = [];
 let teacherSession = null;
 let teacherAccounts = [];
@@ -26,6 +27,7 @@ const TEACHER_SESSION_KEY = 'lichlop-teacher-session';
 const CLASSES_CACHE_KEY = 'lichlop-classes-cache';
 const SELECTED_CLASS_KEY = 'lichlop-selected-class';
 const COLLAPSED_SECTORS_KEY = 'lichlop-collapsed-sectors';
+const STUDENT_COLLAPSED_SECTORS_KEY = 'lichlop-student-collapsed-sectors';
 const UNCATEGORIZED_SECTOR_ID = '__uncategorized__';
 
 function teacherToken() {
@@ -199,6 +201,33 @@ function toggleSectorCollapsed(sectorId) {
   renderClassList(teacherClasses);
 }
 
+function collapsedStudentSectorIds() {
+  try {
+    const raw = localStorage.getItem(STUDENT_COLLAPSED_SECTORS_KEY);
+    const ids = JSON.parse(raw || '[]');
+    return new Set(Array.isArray(ids) ? ids.map(String) : []);
+  } catch (err) {
+    return new Set();
+  }
+}
+
+function saveCollapsedStudentSectorIds(ids) {
+  localStorage.setItem(STUDENT_COLLAPSED_SECTORS_KEY, JSON.stringify([...ids]));
+}
+
+function isStudentSectorCollapsed(sectorId) {
+  return collapsedStudentSectorIds().has(String(sectorId));
+}
+
+function toggleStudentSectorCollapsed(sectorId) {
+  const ids = collapsedStudentSectorIds();
+  const key = String(sectorId);
+  if (ids.has(key)) ids.delete(key);
+  else ids.add(key);
+  saveCollapsedStudentSectorIds(ids);
+  renderStudentClassList();
+}
+
 function sortSubmissions(submissions) {
   return [...(submissions || [])].sort((a, b) =>
     compareText(a.studentName || a.displayName, b.studentName || b.displayName) ||
@@ -211,8 +240,7 @@ function sessionKey(value) {
 }
 
 function selectedStudentClasses() {
-  const ids = [...document.querySelectorAll('#s-classes input[type=checkbox]:checked')].map((input) => input.value);
-  return ids.map((id) => studentClasses.find((cls) => cls.id === id)).filter(Boolean);
+  return [...selectedStudentClassIds].map((id) => studentClasses.find((cls) => cls.id === id)).filter(Boolean);
 }
 
 function selectedGridSessions(classes) {
@@ -1262,20 +1290,69 @@ async function loadStudentClasses() {
   const wrap = $('#s-classes');
   if (!wrap) return;
   studentClasses = sortClasses(await api('/classes'));
-  wrap.innerHTML = '';
-  studentClasses.forEach((cls) => {
-    const label = document.createElement('label');
-    label.className = 'class-check';
-    label.innerHTML = `<input type="checkbox" value="${escapeHtml(cls.id)}" /> <span>${escapeHtml(cls.name)}</span>`;
-    label.querySelector('input')?.addEventListener('change', () => {
-      lookupStates = [];
-      $('#lookup-result') && ($('#lookup-result').innerHTML = '');
-      $('#lookup-msg') && ($('#lookup-msg').textContent = '');
-      renderStudentGrid();
-    });
-    wrap.appendChild(label);
-  });
+  const validIds = new Set(studentClasses.map((cls) => cls.id));
+  selectedStudentClassIds = new Set([...selectedStudentClassIds].filter((id) => validIds.has(id)));
+  renderStudentClassList();
   renderStudentGrid();
+}
+
+function renderStudentClassList() {
+  const wrap = $('#s-classes');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  wrap.classList.toggle('has-sectors', studentClasses.some((cls) => cls.sectorId));
+  if (!studentClasses.length) {
+    wrap.innerHTML = '<p class="placeholder">Ch&#432;a c&#243; l&#7899;p h&#7885;c n&#224;o.</p>';
+    return;
+  }
+
+  const groups = buildSectorGroups(studentClasses);
+  const hasRealSector = groups.some((group) => !group.system);
+  if (!hasRealSector) {
+    studentClasses.forEach((cls) => wrap.appendChild(createStudentClassCheck(cls)));
+    return;
+  }
+
+  groups.forEach((sector) => {
+    wrap.appendChild(createStudentSectorTitle(sector));
+    if (isStudentSectorCollapsed(sector.id)) return;
+    sector.classes.forEach((cls) => wrap.appendChild(createStudentClassCheck(cls)));
+  });
+}
+
+function createStudentSectorTitle(sector) {
+  const collapsed = isStudentSectorCollapsed(sector.id);
+  const div = document.createElement('div');
+  div.className = 'student-sector-title';
+  div.classList.toggle('collapsed', collapsed);
+  div.innerHTML = `
+    <span class="sector-title-main">
+      <button class="sector-toggle" type="button" title="${collapsed ? 'Mo rong' : 'Thu gon'}">${collapsed ? '&#9654;' : '&#9662;'}</button>
+      <span class="sector-name">${escapeHtml(sector.name)}</span>
+      <span class="sector-count">${sector.classes.length}</span>
+    </span>
+  `;
+  div.addEventListener('click', () => toggleStudentSectorCollapsed(sector.id));
+  div.querySelector('.sector-toggle')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleStudentSectorCollapsed(sector.id);
+  });
+  return div;
+}
+
+function createStudentClassCheck(cls) {
+  const label = document.createElement('label');
+  label.className = 'class-check';
+  label.innerHTML = `<input type="checkbox" value="${escapeHtml(cls.id)}" ${selectedStudentClassIds.has(cls.id) ? 'checked' : ''} /> <span>${escapeHtml(cls.name)}</span>`;
+  label.querySelector('input')?.addEventListener('change', (event) => {
+    if (event.target.checked) selectedStudentClassIds.add(cls.id);
+    else selectedStudentClassIds.delete(cls.id);
+    lookupStates = [];
+    $('#lookup-result') && ($('#lookup-result').innerHTML = '');
+    $('#lookup-msg') && ($('#lookup-msg').textContent = '');
+    renderStudentGrid();
+  });
+  return label;
 }
 
 function renderStudentGrid() {
