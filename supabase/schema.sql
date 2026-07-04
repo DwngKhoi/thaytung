@@ -500,6 +500,15 @@ grant execute on all functions in schema public to anon;
 -- This section is also safe to run as a migration on an existing database.
 alter table classes add column if not exists current_slots text[] not null default '{}';
 
+create table if not exists class_sectors (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz not null default now()
+);
+
+alter table classes add column if not exists sector_id uuid references class_sectors(id) on delete set null;
+create index if not exists classes_sector_id_idx on classes(sector_id);
+
 create table if not exists teacher_accounts (
   id uuid primary key default gen_random_uuid(),
   display_name text not null,
@@ -530,13 +539,16 @@ create table if not exists teacher_sessions (
 alter table teacher_accounts enable row level security;
 alter table teacher_class_assignments enable row level security;
 alter table teacher_sessions enable row level security;
+alter table class_sectors enable row level security;
 
 drop policy if exists "deny direct teacher_accounts" on teacher_accounts;
 drop policy if exists "deny direct teacher_class_assignments" on teacher_class_assignments;
 drop policy if exists "deny direct teacher_sessions" on teacher_sessions;
+drop policy if exists "deny direct class_sectors" on class_sectors;
 create policy "deny direct teacher_accounts" on teacher_accounts for all using (false) with check (false);
 create policy "deny direct teacher_class_assignments" on teacher_class_assignments for all using (false) with check (false);
 create policy "deny direct teacher_sessions" on teacher_sessions for all using (false) with check (false);
+create policy "deny direct class_sectors" on class_sectors for all using (false) with check (false);
 
 create or replace function session_role(session_token text)
 returns text
@@ -659,6 +671,8 @@ as $$
     'name', c.name,
     'sessions', c.sessions,
     'currentSlots', c.current_slots,
+    'sectorId', c.sector_id,
+    'sectorName', (select cs.name from class_sectors cs where cs.id = c.sector_id),
     'approvedCount', (select count(*) from submissions s where s.class_id = c.id and s.status = 'approved'),
     'pendingCount', (select count(*) from submissions s where s.class_id = c.id and s.status = 'pending')
   );
@@ -707,6 +721,8 @@ begin
     'archived', c.archived,
     'sessions', c.sessions,
     'currentSlots', c.current_slots,
+    'sectorId', c.sector_id,
+    'sectorName', (select cs.name from class_sectors cs where cs.id = c.sector_id),
     'submissions', coalesce((select jsonb_agg(teacher_submission_json(s) order by lower(s.student_name), s.student_name, s.dob) from submissions s where s.class_id = c.id), '[]'::jsonb)
   );
 end;
@@ -812,6 +828,81 @@ begin
   where id = api_rename_class.class_id;
   if not found then raise exception 'Không tìm thấy lớp'; end if;
   return jsonb_build_object('ok', true, 'id', api_rename_class.class_id, 'name', cleaned);
+end;
+$$;
+
+create or replace function api_class_sectors(teacher_key text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform require_owner(teacher_key);
+  return coalesce((
+    select jsonb_agg(
+      jsonb_build_object(
+        'id', s.id,
+        'name', s.name,
+        'classIds', coalesce((select jsonb_agg(c.id order by lower(c.name), c.name, c.id) from classes c where c.sector_id = s.id and not c.archived), '[]'::jsonb)
+      )
+      order by lower(s.name), s.name, s.id
+    )
+    from class_sectors s
+  ), '[]'::jsonb);
+end;
+$$;
+
+create or replace function api_add_class_sector(teacher_key text, name text, class_ids text[])
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  cleaned text := clean_name(name);
+  new_id uuid;
+begin
+  perform require_owner(teacher_key);
+  if cleaned = '' then raise exception 'Thiếu tên sector'; end if;
+  insert into class_sectors (name) values (cleaned) returning id into new_id;
+  update classes c
+  set sector_id = new_id
+  where not c.archived
+    and c.sector_id is null
+    and c.id = any(coalesce(api_add_class_sector.class_ids, '{}'));
+  return jsonb_build_object('ok', true, 'id', new_id, 'name', cleaned);
+end;
+$$;
+
+create or replace function api_update_class_sector(teacher_key text, sector_id uuid, name text, class_ids text[])
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  cleaned text := clean_name(name);
+  wanted text[] := coalesce(api_update_class_sector.class_ids, '{}');
+begin
+  perform require_owner(teacher_key);
+  if cleaned = '' then raise exception 'Thiếu tên sector'; end if;
+  update class_sectors s set name = cleaned where s.id = api_update_class_sector.sector_id;
+  if not found then raise exception 'Không tìm thấy sector'; end if;
+
+  update classes c
+  set sector_id = null
+  where c.sector_id = api_update_class_sector.sector_id
+    and not (c.id = any(wanted));
+
+  update classes c
+  set sector_id = api_update_class_sector.sector_id
+  where not c.archived
+    and (c.sector_id is null or c.sector_id = api_update_class_sector.sector_id)
+    and c.id = any(wanted);
+
+  return jsonb_build_object('ok', true, 'id', api_update_class_sector.sector_id, 'name', cleaned);
 end;
 $$;
 

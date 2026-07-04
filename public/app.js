@@ -12,6 +12,8 @@ let lookupStates = [];
 let teacherSession = null;
 let teacherAccounts = [];
 let selectedTeacherAccountId = null;
+let teacherClasses = [];
+let teacherClassSectors = [];
 
 const $ = (sel) => document.querySelector(sel);
 const API_BASE = window.API_BASE || '';
@@ -23,6 +25,7 @@ const TEACHER_KEY = window.TEACHER_KEY || '';
 const TEACHER_SESSION_KEY = 'lichlop-teacher-session';
 const CLASSES_CACHE_KEY = 'lichlop-classes-cache';
 const SELECTED_CLASS_KEY = 'lichlop-selected-class';
+const UNCATEGORIZED_SECTOR_ID = '__uncategorized__';
 
 function teacherToken() {
   return teacherSession?.token || '';
@@ -126,6 +129,48 @@ function sortClasses(classes) {
   return [...(classes || [])].sort((a, b) => compareText(a.name, b.name) || compareText(a.id, b.id));
 }
 
+function sortSectors(sectors) {
+  return [...(sectors || [])].sort((a, b) => compareText(a.name, b.name) || compareText(a.id, b.id));
+}
+
+function buildSectorGroups(classes) {
+  const sortedClasses = sortClasses(classes);
+  const sectorMap = new Map();
+  teacherClassSectors.forEach((sector) => {
+    if (sector?.id) sectorMap.set(String(sector.id), { id: String(sector.id), name: sector.name || '', classes: [] });
+  });
+  sortedClasses.forEach((cls) => {
+    const sectorId = cls.sectorId ? String(cls.sectorId) : '';
+    if (sectorId) {
+      if (!sectorMap.has(sectorId)) {
+        sectorMap.set(sectorId, { id: sectorId, name: cls.sectorName || '', classes: [] });
+      }
+      sectorMap.get(sectorId).classes.push(cls);
+    }
+  });
+  let sectors = sortSectors([...sectorMap.values()]).map((sector) => ({
+    ...sector,
+    classes: sortClasses(sector.classes)
+  }));
+  if (!manageMode) sectors = sectors.filter((sector) => sector.classes.length);
+  const uncategorized = sortedClasses.filter((cls) => !cls.sectorId);
+  if (uncategorized.length || manageMode) {
+    sectors.push({
+      id: UNCATEGORIZED_SECTOR_ID,
+      name: 'Ch\u01b0a ph\u00e2n m\u1ee5c',
+      system: true,
+      classes: uncategorized
+    });
+  }
+  return sectors;
+}
+
+function setSectorToolsVisible() {
+  const addBtn = $('#btn-add-sector');
+  if (!addBtn) return;
+  addBtn.classList.toggle('hidden', !manageMode || !isOwner());
+}
+
 function sortSubmissions(submissions) {
   return [...(submissions || [])].sort((a, b) =>
     compareText(a.studentName || a.displayName, b.studentName || b.displayName) ||
@@ -218,6 +263,8 @@ async function supabaseApi(path, opts = {}) {
   if (path === '/login' && method === 'POST') return supabaseRpc('api_login', { username: body.username, password: body.password });
   if (path === '/classes' && method === 'GET') return supabaseRpc('api_classes', { student_key: STUDENT_KEY });
   if (path === '/teacher/classes' && method === 'GET') return supabaseRpc('api_teacher_classes', { teacher_key: teacherToken() });
+  if (path === '/class-sectors' && method === 'GET') return supabaseRpc('api_class_sectors', { teacher_key: teacherToken() });
+  if (path === '/class-sectors' && method === 'POST') return supabaseRpc('api_add_class_sector', { teacher_key: teacherToken(), name: body.name, class_ids: body.classIds || [] });
   if (path === '/classes' && method === 'POST') return supabaseRpc('api_add_class', { teacher_key: teacherToken(), name: body.name });
   if (path === '/archived-classes' && method === 'GET') return supabaseRpc('api_archived_classes', { teacher_key: teacherToken() });
   if (path === '/archived-classes' && method === 'DELETE') return supabaseRpc('api_clear_archived', { teacher_key: teacherToken() });
@@ -228,6 +275,9 @@ async function supabaseApi(path, opts = {}) {
   if (accountMatch && method === 'DELETE') return supabaseRpc('api_delete_teacher_account', { teacher_key: teacherToken(), teacher_id: accountMatch[1] });
   accountMatch = path.match(/^\/teacher-accounts\/([^/]+)\/classes$/);
   if (accountMatch && method === 'POST') return supabaseRpc('api_set_teacher_classes', { teacher_key: teacherToken(), teacher_id: accountMatch[1], class_ids: body.classIds || [] });
+
+  let sectorMatch = path.match(/^\/class-sectors\/([^/]+)$/);
+  if (sectorMatch && method === 'POST') return supabaseRpc('api_update_class_sector', { teacher_key: teacherToken(), sector_id: sectorMatch[1], name: body.name, class_ids: body.classIds || [] });
 
   let match = path.match(/^\/classes\/([^/]+)$/);
   if (match && method === 'GET') return supabaseRpc('api_class', { teacher_key: teacherToken(), class_id: match[1] });
@@ -314,6 +364,8 @@ async function gasApi(path, opts = {}) {
   if (path === '/config') return gasRequest({ action: 'config' });
   if (path === '/login' && method === 'POST') return gasRequest({ action: 'login', username: body.username, password: body.password });
   if (path === '/classes' && method === 'GET') return gasRequest({ action: 'classes', key: STUDENT_KEY });
+  if (path === '/class-sectors' && method === 'GET') return gasRequest({ action: 'classSectors', key: TEACHER_KEY });
+  if (path === '/class-sectors' && method === 'POST') return gasRequest({ action: 'addClassSector', key: TEACHER_KEY, name: body.name, classIds: JSON.stringify(body.classIds || []) });
   if (path === '/classes' && method === 'POST') return gasRequest({ action: 'addClass', key: TEACHER_KEY, name: body.name });
   if (path === '/archived-classes' && method === 'GET') return gasRequest({ action: 'archivedClasses', key: TEACHER_KEY });
   if (path === '/archived-classes' && method === 'DELETE') return gasRequest({ action: 'clearArchived', key: TEACHER_KEY });
@@ -321,6 +373,9 @@ async function gasApi(path, opts = {}) {
   let match = path.match(/^\/classes\/([^/]+)$/);
   if (match && method === 'GET') return gasRequest({ action: 'class', key: TEACHER_KEY, classId: match[1] });
   if (match && method === 'DELETE') return gasRequest({ action: 'deleteClass', key: TEACHER_KEY, classId: match[1] });
+
+  let sectorMatch = path.match(/^\/class-sectors\/([^/]+)$/);
+  if (sectorMatch && method === 'POST') return gasRequest({ action: 'updateClassSector', key: TEACHER_KEY, sectorId: sectorMatch[1], name: body.name, classIds: JSON.stringify(body.classIds || []) });
 
   match = path.match(/^\/classes\/([^/]+)\/(.+)$/);
   if (!match) throw new Error('API chưa hỗ trợ thao tác này.');
@@ -388,9 +443,13 @@ function initTeacher() {
     $('#teacher-login')?.classList.remove('hidden');
     selectedClassId = null;
     teacherSession = null;
+    teacherClasses = [];
+    teacherClassSectors = [];
     currentScheduleMode = false;
     editMode = false;
     manageMode = false;
+    setSectorToolsVisible();
+    hideSectorEditor();
     document.querySelectorAll('.owner-only').forEach((el) => el.classList.add('hidden'));
     document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === 'teacher'));
     document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === 'tab-teacher'));
@@ -398,8 +457,11 @@ function initTeacher() {
   $('#btn-manage')?.addEventListener('click', () => {
     manageMode = !manageMode;
     $('#btn-manage')?.classList.toggle('active', manageMode);
+    setSectorToolsVisible();
+    if (!manageMode) hideSectorEditor();
     loadClasses();
   });
+  $('#btn-add-sector')?.addEventListener('click', () => showSectorEditor());
   $('#btn-add-class')?.addEventListener('click', addClass);
   $('#new-class-name')?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') addClass();
@@ -457,6 +519,7 @@ function restoreTeacherSession() {
 function showTeacherDashboard(session) {
   if ($('#teacher-name')) $('#teacher-name').textContent = session.name;
   document.querySelectorAll('.owner-only').forEach((el) => el.classList.toggle('hidden', session.role !== 'owner'));
+  setSectorToolsVisible();
   $('#teacher-login')?.classList.add('hidden');
   $('#teacher-dashboard')?.classList.remove('hidden');
 }
@@ -469,6 +532,17 @@ async function refreshTeacherView(id = selectedClassId) {
 
 async function loadClasses() {
   const classes = sortClasses(await api('/teacher/classes'));
+  teacherClasses = classes;
+  if (isOwner()) {
+    try {
+      teacherClassSectors = sortSectors(await api('/class-sectors'));
+    } catch (err) {
+      console.warn('Không tải được sector:', err);
+      teacherClassSectors = [];
+    }
+  } else {
+    teacherClassSectors = [];
+  }
   sessionStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(classes));
   renderClassList(classes);
 }
@@ -487,46 +561,146 @@ function renderClassList(classes) {
   const ul = $('#class-list');
   if (!ul) return;
   classes = sortClasses(classes);
+  teacherClasses = classes;
   ul.innerHTML = '';
-  if (classes.length === 0) {
-    ul.innerHTML = '<li class="placeholder">Chưa có lớp nào.</li>';
+  setSectorToolsVisible();
+  if (classes.length === 0 && !teacherClassSectors.length) {
+    ul.innerHTML = '<li class="placeholder">Ch&#432;a c&#243; l&#7899;p n&#224;o.</li>';
     return;
   }
-  classes.forEach((cls) => {
-    const li = document.createElement('li');
-    if (cls.id === selectedClassId) li.classList.add('selected');
-    const right = manageMode
-      ? '<button class="cls-edit" title="Đổi tên lớp">&#9998;</button><button class="cls-del" title="Xóa lớp">&times;</button>'
-      : cls.pendingCount
-      ? `<span class="badge">${cls.pendingCount} chờ</span>`
-      : '';
-    li.innerHTML = `<span class="cls-name">${escapeHtml(cls.name)}</span><span class="cls-right">${right}</span>`;
-    li.addEventListener('click', () => {
-      selectedClassId = cls.id;
-      localStorage.setItem(SELECTED_CLASS_KEY, cls.id);
-      editMode = false;
-      currentScheduleMode = false;
-      loadClasses();
-      openClass(cls.id);
-    });
-    li.querySelector('.cls-edit')?.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      await renameClass(cls);
-    });
-    li.querySelector('.cls-del')?.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      if (!confirm(`Xoá lớp "${cls.name}"? Lớp sẽ chuyển vào mục "Lớp cũ".`)) return;
-      await api('/classes/' + cls.id + '/archive', { method: 'POST' });
-      if (selectedClassId === cls.id) {
-        selectedClassId = null;
-        localStorage.removeItem(SELECTED_CLASS_KEY);
-        const detail = $('#class-detail');
-        if (detail) detail.innerHTML = '<p class="placeholder">← Chọn một lớp để xem lịch</p>';
-      }
-      loadClasses();
-    });
-    ul.appendChild(li);
+
+  const groups = buildSectorGroups(classes);
+  const hasRealSector = groups.some((group) => !group.system);
+  if (!hasRealSector && !manageMode) {
+    classes.forEach((cls) => ul.appendChild(createClassListItem(cls)));
+    return;
+  }
+
+  groups.forEach((sector) => {
+    ul.appendChild(createSectorTitle(sector));
+    sector.classes.forEach((cls) => ul.appendChild(createClassListItem(cls)));
   });
+}
+
+function createSectorTitle(sector) {
+  const li = document.createElement('li');
+  li.className = 'sector-title';
+  const editButton = manageMode && isOwner() && !sector.system
+    ? '<button class="sector-edit" title="Chinh muc">&#9998;</button>'
+    : '';
+  li.innerHTML = `
+    <span class="sector-title-main">
+      <span class="sector-name">${escapeHtml(sector.name)}</span>
+      <span class="sector-count">${sector.classes.length}</span>
+    </span>
+    ${editButton}
+  `;
+  li.querySelector('.sector-edit')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    showSectorEditor(sector);
+  });
+  return li;
+}
+
+function createClassListItem(cls) {
+  const li = document.createElement('li');
+  if (cls.id === selectedClassId) li.classList.add('selected');
+  const right = manageMode
+    ? '<button class="cls-edit" title="Doi ten lop">&#9998;</button><button class="cls-del" title="Xoa lop">&times;</button>'
+    : cls.pendingCount
+    ? `<span class="badge">${cls.pendingCount} ch&#7901;</span>`
+    : '';
+  li.innerHTML = `<span class="cls-name">${escapeHtml(cls.name)}</span><span class="cls-right">${right}</span>`;
+  li.addEventListener('click', () => {
+    selectedClassId = cls.id;
+    localStorage.setItem(SELECTED_CLASS_KEY, cls.id);
+    editMode = false;
+    currentScheduleMode = false;
+    loadClasses();
+    openClass(cls.id);
+  });
+  li.querySelector('.cls-edit')?.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    await renameClass(cls);
+  });
+  li.querySelector('.cls-del')?.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    if (!confirm(`Xoa lop "${cls.name}"? Lop se chuyen vao muc "Lop cu".`)) return;
+    await api('/classes/' + cls.id + '/archive', { method: 'POST' });
+    if (selectedClassId === cls.id) {
+      selectedClassId = null;
+      localStorage.removeItem(SELECTED_CLASS_KEY);
+      const detail = $('#class-detail');
+      if (detail) detail.innerHTML = '<p class="placeholder">&larr; Ch&#7885;n m&#7897;t l&#7899;p &#273;&#7875; xem l&#7883;ch</p>';
+    }
+    loadClasses();
+  });
+  return li;
+}
+
+function hideSectorEditor() {
+  const editor = $('#sector-editor');
+  if (!editor) return;
+  editor.classList.add('hidden');
+  editor.innerHTML = '';
+}
+
+function sectorEligibleClasses(sector) {
+  const sectorId = sector?.id && sector.id !== UNCATEGORIZED_SECTOR_ID ? String(sector.id) : '';
+  return sortClasses(teacherClasses.filter((cls) => {
+    const currentSectorId = cls.sectorId ? String(cls.sectorId) : '';
+    if (!sectorId) return !currentSectorId;
+    return !currentSectorId || currentSectorId === sectorId;
+  }));
+}
+
+function showSectorEditor(sector = null) {
+  if (!isOwner()) return;
+  const editor = $('#sector-editor');
+  if (!editor) return;
+  const isEdit = Boolean(sector?.id && sector.id !== UNCATEGORIZED_SECTOR_ID);
+  const eligible = sectorEligibleClasses(sector);
+  const selectedIds = new Set(isEdit ? teacherClasses.filter((cls) => String(cls.sectorId || '') === String(sector.id)).map((cls) => cls.id) : []);
+  const title = isEdit ? 'Ch&#7881;nh m&#7909;c' : 'Th&#234;m m&#7909;c';
+  const classListHtml = eligible.length
+    ? eligible.map((cls) => `
+      <label class="sector-class-check">
+        <input type="checkbox" value="${escapeHtml(cls.id)}" ${selectedIds.has(cls.id) ? 'checked' : ''} />
+        <span>${escapeHtml(cls.name)}</span>
+      </label>
+    `).join('')
+    : '<p class="hint">Kh&#244;ng c&#243; l&#7899;p ch&#432;a ph&#226;n m&#7909;c &#273;&#7875; th&#234;m.</p>';
+
+  editor.innerHTML = `
+    <h4>${title}</h4>
+    <label>T&#234;n sector
+      <input id="sector-name-input" type="text" value="${escapeHtml(isEdit ? sector.name : '')}" placeholder="vd: IELTS Foundation" />
+    </label>
+    <div class="sector-class-list">${classListHtml}</div>
+    <p class="hint">Khi th&#234;m m&#7909;c m&#7899;i ch&#7881; tick &#273;&#432;&#7907;c l&#7899;p ch&#432;a ph&#226;n m&#7909;c. Khi ch&#7881;nh m&#7909;c c&#243; th&#7875; tick th&#234;m ho&#7863;c b&#7887; tick c&#225;c l&#7899;p trong m&#7909;c &#273;&#243;.</p>
+    <div class="sector-editor-actions">
+      <button class="sector-cancel" type="button">H&#7911;y</button>
+      <button class="sector-save" type="button">L&#432;u</button>
+    </div>
+  `;
+  editor.classList.remove('hidden');
+  editor.querySelector('.sector-cancel')?.addEventListener('click', hideSectorEditor);
+  editor.querySelector('.sector-save')?.addEventListener('click', async () => {
+    const name = editor.querySelector('#sector-name-input')?.value.trim() || '';
+    const classIds = [...editor.querySelectorAll('input[type=checkbox]:checked')].map((input) => input.value);
+    if (!name) {
+      alert('Nhap ten sector');
+      return;
+    }
+    if (isEdit) {
+      await api('/class-sectors/' + sector.id, { method: 'POST', body: JSON.stringify({ name, classIds }) });
+    } else {
+      await api('/class-sectors', { method: 'POST', body: JSON.stringify({ name, classIds }) });
+    }
+    hideSectorEditor();
+    await loadClasses();
+  });
+  editor.querySelector('#sector-name-input')?.focus();
 }
 
 async function renameClass(cls) {

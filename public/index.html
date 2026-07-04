@@ -54,10 +54,14 @@
       <div class="dash-body">
         <aside class="classes-panel">
           <div class="panel-head">
-            <h3>Lớp học</h3>
-            <button id="btn-manage" class="icon-btn owner-only" title="Quản lý / xoá lớp">🗑</button>
+            <h3>L&#7899;p h&#7885;c</h3>
+            <div class="panel-tools owner-only">
+              <button id="btn-add-sector" class="sector-add-btn hidden" title="Them nhom lop">+ Th&#234;m m&#7909;c</button>
+              <button id="btn-manage" class="icon-btn" title="Quan ly nhom / lop">&#9881;</button>
+            </div>
           </div>
           <ul id="class-list"></ul>
+          <div id="sector-editor" class="sector-editor hidden"></div>
           <div class="add-class owner-only">
             <input id="new-class-name" type="text" placeholder="Tên lớp mới..." />
             <button id="btn-add-class">+ Thêm</button>
