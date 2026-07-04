@@ -826,25 +826,36 @@ function renderTeacherClass(cls, sessions, approved, pending) {
 }
 
 function renderScheduleTable({ slots, sessions, submissions, editable, showDelete, nameCounts, studentLookup, currentSlots = [], currentEditable = false }) {
-  let html = '<div class="schedule-scroll"><table class="schedule"><thead><tr><th rowspan="2">STT</th><th rowspan="2">Học sinh</th>';
+  const busyCount = countBusy(slots, submissions);
+  const zeroSlotIds = new Set(slots
+    .filter((slot) => busyCount[slot.id] === 0 && !currentSlots.includes(slot.id))
+    .map((slot) => slot.id));
+  const slotClass = (slotId, base = '') => {
+    const parts = base ? [base] : [];
+    if (currentSlots.includes(slotId)) parts.push('current-slot');
+    else if (zeroSlotIds.has(slotId)) parts.push('zero-slot');
+    return parts.join(' ');
+  };
+
+  let html = '<div class="schedule-scroll"><table class="schedule"><thead><tr><th rowspan="2">STT</th><th rowspan="2">H&#7885;c sinh</th>';
   DAYS.forEach((day) => html += `<th colspan="${sessions.length}">${escapeHtml(day)}</th>`);
-  html += showDelete ? '<th rowspan="2">Xoá HS</th>' : '</tr>';
+  html += showDelete ? '<th rowspan="2">X&#243;a HS</th>' : '</tr>';
   if (showDelete) html += '</tr>';
   html += '<tr>';
   DAYS.forEach((day, dayIdx) => sessions.forEach((session, sessionIdx) => {
     const slotId = `${dayIdx}-${sessionIdx}`;
-    html += `<th class="${currentSlots.includes(slotId) ? 'current-slot' : ''}" data-slot="${slotId}">${escapeHtml(session)}</th>`;
+    html += `<th class="${slotClass(slotId)}" data-slot="${slotId}">${escapeHtml(session)}</th>`;
   }));
   html += '</tr></thead><tbody>';
 
   if (currentSlots.length || currentEditable) {
-    html += '<tr class="current-row"><td></td><td class="name">Lịch hiện tại</td>';
+    html += '<tr class="current-row"><td></td><td class="name">L&#7883;ch hi&#7879;n t&#7841;i</td>';
     slots.forEach((slot) => {
       const current = currentSlots.includes(slot.id);
       if (currentEditable) {
-        html += `<td class="current-picker${current ? ' current-slot' : ''}" data-slot="${slot.id}"><input type="checkbox" class="current-chk" data-slot="${slot.id}" ${current ? 'checked' : ''}></td>`;
+        html += `<td class="${slotClass(slot.id, 'current-picker')}" data-slot="${slot.id}"><input type="checkbox" class="current-chk" data-slot="${slot.id}" ${current ? 'checked' : ''}></td>`;
       } else {
-        html += `<td class="${current ? 'current-slot' : 'free'}" data-slot="${slot.id}">${current ? '●' : '·'}</td>`;
+        html += `<td class="${slotClass(slot.id, current ? '' : 'free')}" data-slot="${slot.id}">${current ? '&#9679;' : '&middot;'}</td>`;
       }
     });
     if (showDelete) html += '<td></td>';
@@ -859,19 +870,19 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
       const busy = (student.busySlots || []).includes(slot.id);
       const current = currentSlots.includes(slot.id);
       if (canEdit && !current) {
-        html += `<td class="cell-edit${busy ? ' busy' : ''}" data-slot="${slot.id}"><input type="checkbox" class="busy-chk" data-key="${key}" data-slot="${slot.id}" ${busy ? 'checked' : ''}></td>`;
+        const editBase = busy ? 'cell-edit busy' : 'cell-edit';
+        html += `<td class="${slotClass(slot.id, editBase)}" data-slot="${slot.id}"><input type="checkbox" class="busy-chk" data-key="${key}" data-slot="${slot.id}" ${busy ? 'checked' : ''}></td>`;
       } else {
         html += current
-          ? `<td class="current-slot" data-slot="${slot.id}" title="Lịch học hiện tại">●</td>`
-          : busy ? `<td class="busy" data-slot="${slot.id}">×</td>` : `<td class="free" data-slot="${slot.id}">·</td>`;
+          ? `<td class="current-slot" data-slot="${slot.id}" title="Lich hoc hien tai">&#9679;</td>`
+          : busy ? `<td class="busy" data-slot="${slot.id}">&times;</td>` : `<td class="${slotClass(slot.id, 'free')}" data-slot="${slot.id}">&middot;</td>`;
       }
     });
-    if (showDelete) html += `<td class="act-cell"><button class="btn-del-stu" data-key="${key}" title="Xoá học sinh">×</button></td>`;
+    if (showDelete) html += `<td class="act-cell"><button class="btn-del-stu" data-key="${key}" title="Xoa hoc sinh">&times;</button></td>`;
     html += '</tr>';
   });
 
-  html += '<tr class="summary"><td></td><td class="name">Số người bận</td>';
-  const busyCount = countBusy(slots, submissions);
+  html += '<tr class="summary"><td></td><td class="name">S&#7889; ng&#432;&#7901;i b&#7853;n</td>';
   const values = slots.map((slot) => busyCount[slot.id]);
   const minBusy = Math.min(...values);
   const maxBusy = Math.max(...values);
@@ -879,6 +890,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
     const n = busyCount[slot.id];
     let className = '';
     if (currentSlots.includes(slot.id)) className = 'current-slot';
+    else if (n === 0) className = 'best zero-slot';
     else if (n === minBusy) className = 'best';
     else if (n === maxBusy && maxBusy > 0) className = 'worst';
     html += `<td class="${className}" data-slot="${slot.id}">${n}</td>`;

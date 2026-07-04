@@ -428,6 +428,12 @@ table.schedule td.name { text-align: left; font-weight: 600; white-space: nowrap
 .current-row td { border-top: 2px solid #f472b6; border-bottom-color: #f472b6 !important; }
 tr.summary td { background: #f3f4f6; font-weight: 700; }
 td.best { background: #d1fae5 !important; color: #065f46; }
+table.schedule th.zero-slot,
+table.schedule td.zero-slot {
+  background: #d1fae5;
+  color: #065f46;
+  font-weight: 700;
+}
 td.worst { color: #b91c1c; }
 
 /* ---- Gợi ý ---- */
@@ -566,6 +572,8 @@ body.dark .current-slot, body.dark td.current-slot, body.dark tr.summary td.curr
 body.dark .free { color: #3a3f4f; }
 body.dark tr.summary td { background: #20242f; }
 body.dark td.best { background: #10362a !important; color: #6ee7b7; }
+body.dark table.schedule th.zero-slot,
+body.dark table.schedule td.zero-slot { background: #10362a; color: #6ee7b7; }
 body.dark .recommend { background: #0f2a20; border-color: #1f6f54; }
 body.dark .rec-title, body.dark .rec-line b { color: #6ee7b7; }
 body.dark .rec-line { color: #34d399; }
