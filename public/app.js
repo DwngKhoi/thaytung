@@ -909,7 +909,7 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   const slots = buildSlots(sessions);
   const currentSlots = cls.currentSlots || [];
   const nameCounts = countNames([...approved, ...pending]);
-  const hasScheduleTable = approved.length > 0 || currentSlots.length > 0 || currentScheduleMode;
+  const hasScheduleTable = !isOwner() || approved.length > 0 || currentSlots.length > 0 || currentScheduleMode;
   let html = `<div class="detail-head"><div class="detail-title"><h3>${escapeHtml(cls.name)}</h3>`;
   if (isOwner()) {
     html += `<button id="btn-edit" class="btn-edit${editMode ? ' active' : ''}">${editMode ? '✓ Xong' : 'Chỉnh sửa'}</button>
@@ -922,9 +922,7 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   html += '</div></div>';
   if (editMode) html += '<p class="hint">Đang chỉnh sửa: tick/bỏ tick các ô rồi bấm Xong để lưu một lần.</p>';
   if (currentScheduleMode) html += '<p class="hint current-hint">Tick các buổi lớp đang học. Các ô này sẽ bị khóa trên phiếu học sinh.</p>';
-  if (!isOwner()) html += '<p class="hint readonly-note">Chế độ chỉ xem. Tài khoản owner quản lý lịch và duyệt yêu cầu.</p>';
-
-  if (approved.length === 0 && !currentScheduleMode && currentSlots.length === 0) {
+  if (isOwner() && approved.length === 0 && !currentScheduleMode && currentSlots.length === 0) {
     html += '<p class="placeholder">Chưa có học sinh nào được duyệt.</p>';
   } else {
     html += renderScheduleTable({ slots, sessions, submissions: approved, editable: editMode, showDelete: isOwner(), nameCounts, currentSlots, currentEditable: currentScheduleMode });
@@ -948,14 +946,16 @@ function renderTeacherClass(cls, sessions, approved, pending) {
     </div>`;
   }
 
-  html += `<div class="pending-box"><h4>Chờ duyệt (${pending.length})</h4>`;
-  if (pending.length === 0) html += '<p class="placeholder">Không có đăng ký mới.</p>';
-  pending.forEach((item) => {
-    const key = encodeKey(item);
-    html += `<div class="pending-item"><span>${escapeHtml(displayName(item, nameCounts))} <small>(${(item.busySlots || []).length} buổi bận)</small></span>
-      ${isOwner() ? `<span class="acts"><button class="btn-approve" data-key="${key}">Duyệt</button><button class="btn-reject" data-key="${key}">Xoá</button></span>` : ''}</div>`;
-  });
-  html += '</div>';
+  if (isOwner()) {
+    html += `<div class="pending-box"><h4>Chờ duyệt (${pending.length})</h4>`;
+    if (pending.length === 0) html += '<p class="placeholder">Không có đăng ký mới.</p>';
+    pending.forEach((item) => {
+      const key = encodeKey(item);
+      html += `<div class="pending-item"><span>${escapeHtml(displayName(item, nameCounts))} <small>(${(item.busySlots || []).length} buổi bận)</small></span>
+        <span class="acts"><button class="btn-approve" data-key="${key}">Duyệt</button><button class="btn-reject" data-key="${key}">Xoá</button></span></div>`;
+    });
+    html += '</div>';
+  }
   return html;
 }
 
