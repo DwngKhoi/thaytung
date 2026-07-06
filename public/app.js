@@ -1101,9 +1101,12 @@ function fitExportColumnWidths(table) {
     if (columnIndex === 1 && table.tHead?.rows[0]?.cells[1]?.classList.contains('image-class-title')) {
       contentWidth = Math.max(contentWidth, measureExportText(table.tHead.rows[0].cells[1].textContent.trim(), '900 16px Arial, sans-serif'));
     }
-    if (columnIndex === 0) return Math.ceil(Math.max(38, contentWidth + 16));
-    if (columnIndex === 1) return Math.ceil(Math.max(110, contentWidth + 22));
-    return Math.ceil(Math.max(34, contentWidth + 16));
+    if (columnIndex === 0) return Math.ceil(Math.max(36, contentWidth + 12));
+    if (columnIndex === 1) {
+      const longestLength = Math.max(0, ...values.map((value) => [...String(value)].length));
+      return Math.ceil(Math.max(130, contentWidth + 30, (longestLength * 8.5) + 28));
+    }
+    return Math.ceil(Math.max(28, contentWidth + 12));
   });
 
   let logicalColumn = 2;
@@ -1121,26 +1124,41 @@ function fitExportColumnWidths(table) {
   const colgroup = document.createElement('colgroup');
   widths.forEach((width) => {
     const col = document.createElement('col');
-    col.style.width = `${width}px`;
-    col.style.minWidth = `${width}px`;
+    col.style.cssText = `width:${width}px;min-width:${width}px;max-width:${width}px;mso-width-source:userset;mso-width-alt:${Math.round(width * 48)};`;
     col.setAttribute('width', String(width));
     colgroup.appendChild(col);
   });
   table.insertBefore(colgroup, table.firstChild);
-  table.style.width = `${widths.reduce((sum, width) => sum + width, 0)}px`;
+  const tableWidth = widths.reduce((sum, width) => sum + width, 0);
+  table.style.width = `${tableWidth}px`;
   table.style.minWidth = '0';
   table.style.tableLayout = 'fixed';
+  table.setAttribute('width', String(tableWidth));
+
+  const applyWidth = (cell, width) => {
+    if (!cell || !width) return;
+    cell.style.width = `${width}px`;
+    cell.style.minWidth = `${width}px`;
+    cell.style.maxWidth = `${width}px`;
+    cell.style.setProperty('mso-width-source', 'userset');
+    cell.style.setProperty('mso-width-alt', String(Math.round(width * 48)));
+    cell.setAttribute('width', String(width));
+  };
 
   bodyRows.forEach((row) => [...row.cells].forEach((cell, index) => {
-    cell.style.width = `${widths[index]}px`;
-    cell.style.minWidth = `${widths[index]}px`;
+    applyWidth(cell, widths[index]);
   }));
   const firstHeaderRow = table.tHead?.rows[0];
-  if (firstHeaderRow?.cells[0]) firstHeaderRow.cells[0].style.width = `${widths[0]}px`;
-  if (firstHeaderRow?.cells[1]) firstHeaderRow.cells[1].style.width = `${widths[1]}px`;
+  applyWidth(firstHeaderRow?.cells[0], widths[0]);
+  applyWidth(firstHeaderRow?.cells[1], widths[1]);
+  let dayColumn = 2;
+  [...(firstHeaderRow?.cells || [])].slice(2).forEach((cell) => {
+    const span = Number(cell.colSpan || 1);
+    applyWidth(cell, widths.slice(dayColumn, dayColumn + span).reduce((sum, width) => sum + width, 0));
+    dayColumn += span;
+  });
   [...(table.tHead?.rows[1]?.cells || [])].forEach((cell, index) => {
-    cell.style.width = `${widths[index + 2]}px`;
-    cell.style.minWidth = `${widths[index + 2]}px`;
+    applyWidth(cell, widths[index + 2]);
   });
 }
 
@@ -1255,11 +1273,11 @@ function fallbackCopyHtml(table) {
   if (!ok) throw new Error('Tr\u00ecnh duy\u1ec7t kh\u00f4ng cho ph\u00e9p copy.');
 }
 
-async function copyScheduleToExcel(detail, button) {
+async function copyScheduleToExcel(detail, button, titleOptions) {
   const source = detail.querySelector('table.schedule');
   if (!source) return;
-  const table = buildLightExportTable(source);
-  const html = `<meta charset="utf-8">${table.outerHTML}`;
+  const table = buildLightExportTable(source, titleOptions);
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>table{border-collapse:collapse;table-layout:fixed}col,td,th{mso-width-source:userset;white-space:nowrap}</style></head><body>${table.outerHTML}</body></html>`;
   const textValue = exportTableText(table);
   try {
     if (navigator.clipboard?.write && window.ClipboardItem) {
@@ -1372,8 +1390,9 @@ async function copyScheduleAsImage(detail, button, titleOptions) {
   }
 }
 
-function openImageExportDialog(detail, button) {
+function openExportStyleDialog(detail, button, exportType) {
   document.querySelector('.image-export-overlay')?.remove();
+  const isExcel = exportType === 'excel';
   const className = detail.querySelector('.detail-title h3')?.textContent.trim() || 'L\u1ecbch l\u1edbp';
   const presets = {
     orange: { backgroundColor: '#f59e0b', textColor: '#111827' },
@@ -1387,9 +1406,9 @@ function openImageExportDialog(detail, button) {
   const overlay = document.createElement('div');
   overlay.className = 'image-export-overlay';
   overlay.innerHTML = `
-    <div class="image-export-dialog" role="dialog" aria-modal="true" aria-label="T&#249;y ch&#7881;nh &#7843;nh">
-      <h3>T&#249;y ch&#7881;nh &#7843;nh</h3>
-      <p class="hint">Khi xu&#7845;t &#7843;nh, &#244; H&#7885;c sinh s&#7869; hi&#7875;n th&#7883; t&#234;n l&#7899;p v&#7899;i m&#224;u &#273;&#227; ch&#7885;n.</p>
+    <div class="image-export-dialog" role="dialog" aria-modal="true" aria-label="T&#249;y ch&#7881;nh ${isExcel ? 'Excel' : '&#7843;nh'}">
+      <h3>T&#249;y ch&#7881;nh ${isExcel ? 'Excel' : '&#7843;nh'}</h3>
+      <p class="hint">Khi ${isExcel ? 'copy Excel' : 'xu&#7845;t &#7843;nh'}, &#244; H&#7885;c sinh s&#7869; hi&#7875;n th&#7883; t&#234;n l&#7899;p v&#7899;i m&#224;u &#273;&#227; ch&#7885;n.</p>
       <label>M&#7851;u m&#224;u
         <select class="image-color-preset">
           <option value="orange">Cam / &#273;en</option>
@@ -1414,7 +1433,7 @@ function openImageExportDialog(detail, button) {
       <div class="image-day-preview">Th&#7913; Hai &middot; Th&#7913; Ba &middot; Th&#7913; T&#432;</div>
       <div class="image-export-actions">
         <button class="image-export-cancel" type="button">H&#7911;y</button>
-        <button class="image-export-confirm primary" type="button">Copy &#7843;nh</button>
+        <button class="image-export-confirm primary" type="button">${isExcel ? 'Copy Excel' : 'Copy &#7843;nh'}</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -1472,7 +1491,8 @@ function openImageExportDialog(detail, button) {
     };
     try { localStorage.setItem('lichlop-image-title-colors', JSON.stringify({ preset: presetSelect.value, dayColorChoice, ...options })); } catch (err) { /* Continue without persistence. */ }
     close();
-    await copyScheduleAsImage(detail, button, options);
+    if (isExcel) await copyScheduleToExcel(detail, button, options);
+    else await copyScheduleAsImage(detail, button, options);
   });
   updatePreview();
   presetSelect.focus();
@@ -1480,8 +1500,8 @@ function openImageExportDialog(detail, button) {
 
 function wireTeacherClassEvents(id, detail) {
   setupDobInput($('#teacher-new-dob'));
-  detail.querySelector('#btn-copy-excel')?.addEventListener('click', (event) => copyScheduleToExcel(detail, event.currentTarget));
-  detail.querySelector('#btn-copy-image')?.addEventListener('click', (event) => openImageExportDialog(detail, event.currentTarget));
+  detail.querySelector('#btn-copy-excel')?.addEventListener('click', (event) => openExportStyleDialog(detail, event.currentTarget, 'excel'));
+  detail.querySelector('#btn-copy-image')?.addEventListener('click', (event) => openExportStyleDialog(detail, event.currentTarget, 'image'));
 
   detail.querySelector('#btn-edit')?.addEventListener('click', async () => {
     if (!editMode) {
