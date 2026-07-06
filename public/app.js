@@ -1163,7 +1163,7 @@ function buildLightExportTable(sourceTable) {
     }
     if (cell.classList.contains('worst')) color = '#b91c1c';
     if (cell.classList.contains('current-slot')) {
-      background = '#f9a8d4'; color = '#831843'; weight = '700';
+      background = '#fef3c7'; color = '#92400e'; weight = '700';
     }
     if (cell.classList.contains('free') && !cell.classList.contains('zero-slot')) color = '#d1d5db';
     cell.style.cssText = `box-sizing:border-box;border:1px solid #d1d5db;padding:7px 9px;text-align:${cell.classList.contains('name') ? 'left' : 'center'};vertical-align:middle;background:${background};color:${color};font-weight:${weight};white-space:nowrap;`;

@@ -406,10 +406,10 @@ button.secondary:hover { background: var(--primary-soft); }
 .btn-edit:hover { background: var(--primary-soft); }
 .btn-edit.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .btn-current {
-  background: var(--surface); color: #be185d; border: 1px solid #f9a8d4;
+  background: var(--surface); color: #a16207; border: 1px solid #fde68a;
   border-radius: 10px; padding: 7px 14px; font-size: 13px; font-weight: 600;
 }
-.btn-current:hover, .btn-current.active { background: #db2777; color: #fff; border-color: #db2777; }
+.btn-current:hover, .btn-current.active { background: #f59e0b; color: #fff; border-color: #f59e0b; }
 .btn-export {
   background: var(--surface); color: #047857; border: 1px solid #a7f3d0;
   border-radius: 10px; padding: 7px 14px; font-size: 13px; font-weight: 600;
@@ -419,7 +419,7 @@ button.secondary:hover { background: var(--primary-soft); }
 .btn-export-image:hover { background: #fffbeb; border-color: #f59e0b; }
 .btn-export.export-error { color: var(--danger); border-color: #fecaca; background: #fef2f2; }
 .btn-export:disabled { opacity: .65; cursor: wait; }
-.current-hint { color: #be185d; }
+.current-hint { color: #a16207; }
 .readonly-note { padding: 9px 12px; border-left: 3px solid var(--primary); background: var(--primary-soft); }
 
 /* Cột thao tác + nút xoá học sinh */
@@ -453,14 +453,14 @@ table.schedule td.name { text-align: left; font-weight: 600; white-space: nowrap
 .busy { background: #fee2e2; color: #b91c1c; font-weight: 700; }
 .free { color: #d1d5db; }
 .current-slot, td.current-slot, tr.summary td.current-slot {
-  background: #f9a8d4 !important;
-  color: #831843 !important;
+  background: #fef3c7 !important;
+  color: #92400e !important;
   font-weight: 700;
 }
 .current-picker { cursor: pointer; }
-.current-picker input, .student-current-slot input { width: auto; margin: 0; accent-color: #be185d; }
+.current-picker input, .student-current-slot input { width: auto; margin: 0; accent-color: #d97706; }
 .student-current-slot input:disabled { opacity: .55; cursor: not-allowed; }
-.current-row td { border-top: 2px solid #f472b6; border-bottom-color: #f472b6 !important; }
+.current-row td { border-top: 2px solid #fbbf24; border-bottom-color: #fbbf24 !important; }
 tr.summary td { background: #f3f4f6; font-weight: 700; }
 td.best { background: #d1fae5 !important; color: #065f46; }
 table.schedule th.zero-slot,
@@ -647,7 +647,7 @@ body.dark table.schedule thead th,
 body.dark table.grid th { background: #20242f; color: #cbd5e1; }
 body.dark table.grid tbody th { background: var(--surface); color: var(--text); }
 body.dark .busy { background: #43232a; color: #fca5a5; }
-body.dark .current-slot, body.dark td.current-slot, body.dark tr.summary td.current-slot { background: #831843 !important; color: #fce7f3 !important; }
+body.dark .current-slot, body.dark td.current-slot, body.dark tr.summary td.current-slot { background: #713f12 !important; color: #fef3c7 !important; }
 body.dark .free { color: #3a3f4f; }
 body.dark tr.summary td { background: #20242f; }
 body.dark td.best { background: #10362a !important; color: #6ee7b7; }
