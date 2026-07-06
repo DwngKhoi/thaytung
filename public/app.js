@@ -930,8 +930,10 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   if (currentScheduleMode) html += '<p class="hint current-hint">Tick các buổi lớp đang học. Các ô này sẽ bị khóa trên phiếu học sinh.</p>';
   if (canManage && approved.length === 0 && !currentScheduleMode && currentSlots.length === 0) {
     html += '<p class="placeholder">Chưa có học sinh nào được duyệt.</p>';
+    html += renderPendingBox(pending, nameCounts);
   } else {
     html += renderScheduleTable({ slots, sessions, submissions: approved, editable: editMode, showDelete: canManage, nameCounts, currentSlots, currentEditable: currentScheduleMode });
+    if (canManage) html += renderPendingBox(pending, nameCounts);
     if (approved.length) html += renderRecommendation(slots, approved, currentSlots);
   }
 
@@ -952,16 +954,18 @@ function renderTeacherClass(cls, sessions, approved, pending) {
     </div>`;
   }
 
-  if (canManage) {
-    html += `<div class="pending-box"><h4>Chờ duyệt (${pending.length})</h4>`;
-    if (pending.length === 0) html += '<p class="placeholder">Không có đăng ký mới.</p>';
-    pending.forEach((item) => {
-      const key = encodeKey(item);
-      html += `<div class="pending-item"><span>${escapeHtml(displayName(item, nameCounts))} <small>(${(item.busySlots || []).length} buổi bận)</small></span>
-        <span class="acts"><button class="btn-approve" data-key="${key}">Duyệt</button><button class="btn-reject" data-key="${key}">Xoá</button></span></div>`;
-    });
-    html += '</div>';
-  }
+  return html;
+}
+
+function renderPendingBox(pending, nameCounts) {
+  let html = `<div class="pending-box pending-box-above-recommend"><h4>Chờ duyệt (${pending.length})</h4>`;
+  if (pending.length === 0) html += '<p class="placeholder">Không có đăng ký mới.</p>';
+  pending.forEach((item) => {
+    const key = encodeKey(item);
+    html += `<div class="pending-item"><span>${escapeHtml(displayName(item, nameCounts))} <small>(${(item.busySlots || []).length} buổi bận)</small></span>
+      <span class="acts"><button class="btn-approve" data-key="${key}">Duyệt</button><button class="btn-reject" data-key="${key}">Xoá</button></span></div>`;
+  });
+  html += '</div>';
   return html;
 }
 
