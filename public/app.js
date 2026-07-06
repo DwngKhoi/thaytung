@@ -1144,6 +1144,27 @@ function fitExportColumnWidths(table) {
   });
 }
 
+const IMAGE_DAY_COLORS = {
+  blue: '#16afe5',
+  yellow: '#ffc20e',
+  green: '#8bd34a'
+};
+
+function colorDistance(first, second) {
+  const parse = (value) => {
+    const hex = String(value || '').replace('#', '');
+    return [0, 2, 4].map((index) => Number.parseInt(hex.slice(index, index + 2), 16) || 0);
+  };
+  const a = parse(first);
+  const b = parse(second);
+  return Math.sqrt(a.reduce((sum, channel, index) => sum + ((channel - b[index]) ** 2), 0));
+}
+
+function automaticDayColor(classColor) {
+  return Object.values(IMAGE_DAY_COLORS)
+    .sort((first, second) => colorDistance(second, classColor) - colorDistance(first, classColor))[0];
+}
+
 function buildLightExportTable(sourceTable, imageTitleOptions = null) {
   const table = sourceTable.cloneNode(true);
   table.querySelectorAll('.schedule-actions').forEach((cell) => cell.remove());
@@ -1151,6 +1172,7 @@ function buildLightExportTable(sourceTable, imageTitleOptions = null) {
   if (studentHeader && imageTitleOptions) {
     studentHeader.textContent = imageTitleOptions.className;
     studentHeader.classList.add('image-class-title');
+    [...(table.tHead?.rows[0]?.cells || [])].slice(2).forEach((cell) => cell.classList.add('image-day-title'));
   }
   table.querySelectorAll('input[type="checkbox"]').forEach((input) => {
     const mark = document.createTextNode(input.checked ? (input.classList.contains('current-chk') ? '\u25cf' : '\u00d7') : '\u00b7');
@@ -1181,6 +1203,12 @@ function buildLightExportTable(sourceTable, imageTitleOptions = null) {
       weight = '900';
       fontSize = '16px';
       textShadow = '0 1px 0 rgba(255,255,255,.35), 0 2px 3px rgba(0,0,0,.22)';
+    }
+    if (cell.classList.contains('image-day-title') && imageTitleOptions) {
+      background = imageTitleOptions.dayColor;
+      color = '#111827';
+      weight = '900';
+      fontSize = '14px';
     }
     if (cell.classList.contains('free') && !cell.classList.contains('zero-slot')) color = '#d1d5db';
     cell.style.cssText = `box-sizing:border-box;border:1px solid #d1d5db;padding:7px 9px;text-align:${cell.classList.contains('name') ? 'left' : 'center'};vertical-align:middle;background:${background};color:${color};font-size:${fontSize};font-weight:${weight};text-shadow:${textShadow};white-space:nowrap;`;
@@ -1374,7 +1402,16 @@ function openImageExportDialog(detail, button) {
         <label>M&#224;u n&#7873;n<input class="image-bg-color" type="color" /></label>
         <label>M&#224;u ch&#7919;<input class="image-text-color" type="color" /></label>
       </div>
+      <label>M&#224;u c&#225;c &#244; Th&#7913;
+        <select class="image-day-color">
+          <option value="auto">T&#7921; &#273;&#7897;ng ch&#7885;n m&#224;u kh&#225;c &#244; l&#7899;p</option>
+          <option value="blue">Xanh d&#432;&#417;ng</option>
+          <option value="yellow">V&#224;ng</option>
+          <option value="green">Xanh l&#225;</option>
+        </select>
+      </label>
       <div class="image-title-preview"></div>
+      <div class="image-day-preview">Th&#7913; Hai &middot; Th&#7913; Ba &middot; Th&#7913; T&#432;</div>
       <div class="image-export-actions">
         <button class="image-export-cancel" type="button">H&#7911;y</button>
         <button class="image-export-confirm primary" type="button">Copy &#7843;nh</button>
@@ -1384,15 +1421,25 @@ function openImageExportDialog(detail, button) {
   const presetSelect = overlay.querySelector('.image-color-preset');
   const bgInput = overlay.querySelector('.image-bg-color');
   const textInput = overlay.querySelector('.image-text-color');
+  const dayColorSelect = overlay.querySelector('.image-day-color');
   const preview = overlay.querySelector('.image-title-preview');
+  const dayPreview = overlay.querySelector('.image-day-preview');
   presetSelect.value = saved.preset || initialPreset;
   bgInput.value = saved.backgroundColor || initial.backgroundColor;
   textInput.value = saved.textColor || initial.textColor;
+  dayColorSelect.value = saved.dayColorChoice && (saved.dayColorChoice === 'auto' || IMAGE_DAY_COLORS[saved.dayColorChoice])
+    ? saved.dayColorChoice
+    : 'auto';
 
   const updatePreview = () => {
     preview.textContent = className;
     preview.style.backgroundColor = bgInput.value;
     preview.style.color = textInput.value;
+    const dayColor = dayColorSelect.value === 'auto'
+      ? automaticDayColor(bgInput.value)
+      : IMAGE_DAY_COLORS[dayColorSelect.value];
+    dayPreview.style.backgroundColor = dayColor;
+    dayPreview.style.color = '#111827';
   };
   presetSelect.addEventListener('change', () => {
     const colors = presets[presetSelect.value];
@@ -1406,6 +1453,7 @@ function openImageExportDialog(detail, button) {
     presetSelect.value = 'custom';
     updatePreview();
   }));
+  dayColorSelect.addEventListener('change', updatePreview);
   const close = () => {
     document.removeEventListener('keydown', onKeydown);
     overlay.remove();
@@ -1415,8 +1463,14 @@ function openImageExportDialog(detail, button) {
   overlay.querySelector('.image-export-cancel').addEventListener('click', close);
   overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
   overlay.querySelector('.image-export-confirm').addEventListener('click', async () => {
-    const options = { className, backgroundColor: bgInput.value, textColor: textInput.value };
-    try { localStorage.setItem('lichlop-image-title-colors', JSON.stringify({ preset: presetSelect.value, ...options })); } catch (err) { /* Continue without persistence. */ }
+    const dayColorChoice = dayColorSelect.value;
+    const options = {
+      className,
+      backgroundColor: bgInput.value,
+      textColor: textInput.value,
+      dayColor: dayColorChoice === 'auto' ? automaticDayColor(bgInput.value) : IMAGE_DAY_COLORS[dayColorChoice]
+    };
+    try { localStorage.setItem('lichlop-image-title-colors', JSON.stringify({ preset: presetSelect.value, dayColorChoice, ...options })); } catch (err) { /* Continue without persistence. */ }
     close();
     await copyScheduleAsImage(detail, button, options);
   });
