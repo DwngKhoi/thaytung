@@ -38,6 +38,10 @@ function isOwner() {
   return teacherSession?.role === 'owner';
 }
 
+function canManageAssignedClass() {
+  return teacherSession?.role === 'owner' || teacherSession?.role === 'teacher';
+}
+
 const escapeHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -909,9 +913,10 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   const slots = buildSlots(sessions);
   const currentSlots = cls.currentSlots || [];
   const nameCounts = countNames([...approved, ...pending]);
-  const hasScheduleTable = !isOwner() || approved.length > 0 || currentSlots.length > 0 || currentScheduleMode;
+  const canManage = canManageAssignedClass();
+  const hasScheduleTable = approved.length > 0 || currentSlots.length > 0 || currentScheduleMode;
   let html = `<div class="detail-head"><div class="detail-title"><h3>${escapeHtml(cls.name)}</h3>`;
-  if (isOwner()) {
+  if (canManage) {
     html += `<button id="btn-edit" class="btn-edit${editMode ? ' active' : ''}">${editMode ? '✓ Xong' : 'Chỉnh sửa'}</button>
       <button id="btn-current-schedule" class="btn-current${currentScheduleMode ? ' active' : ''}">${currentScheduleMode ? '✓ Lưu lịch hiện tại' : 'Lịch hiện tại'}</button>`;
   }
@@ -922,14 +927,14 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   html += '</div></div>';
   if (editMode) html += '<p class="hint">Đang chỉnh sửa: tick/bỏ tick các ô rồi bấm Xong để lưu một lần.</p>';
   if (currentScheduleMode) html += '<p class="hint current-hint">Tick các buổi lớp đang học. Các ô này sẽ bị khóa trên phiếu học sinh.</p>';
-  if (isOwner() && approved.length === 0 && !currentScheduleMode && currentSlots.length === 0) {
+  if (canManage && approved.length === 0 && !currentScheduleMode && currentSlots.length === 0) {
     html += '<p class="placeholder">Chưa có học sinh nào được duyệt.</p>';
   } else {
-    html += renderScheduleTable({ slots, sessions, submissions: approved, editable: editMode, showDelete: isOwner(), nameCounts, currentSlots, currentEditable: currentScheduleMode });
+    html += renderScheduleTable({ slots, sessions, submissions: approved, editable: editMode, showDelete: canManage, nameCounts, currentSlots, currentEditable: currentScheduleMode });
     if (approved.length) html += renderRecommendation(slots, approved, currentSlots);
   }
 
-  if (isOwner() && !editMode && !currentScheduleMode) {
+  if (canManage && !editMode && !currentScheduleMode) {
     html += `<div class="teacher-add-student">
       <input id="teacher-new-student" type="text" placeholder="Họ tên đầy đủ..." />
       <input id="teacher-new-dob" type="text" placeholder="dd/mm/yyyy" inputmode="numeric" maxlength="10" />
@@ -946,7 +951,7 @@ function renderTeacherClass(cls, sessions, approved, pending) {
     </div>`;
   }
 
-  if (isOwner()) {
+  if (canManage) {
     html += `<div class="pending-box"><h4>Chờ duyệt (${pending.length})</h4>`;
     if (pending.length === 0) html += '<p class="placeholder">Không có đăng ký mới.</p>';
     pending.forEach((item) => {

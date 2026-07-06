@@ -621,6 +621,21 @@ as $$
   end;
 $$;
 
+create or replace function require_class_manager(teacher_key text, target_class_id text)
+returns void
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform require_teacher(teacher_key);
+  if not can_access_class(teacher_key, target_class_id) then
+    raise exception 'Khong co quyen quan ly lop nay';
+  end if;
+end;
+$$;
+
 create or replace function api_login(username text, password text)
 returns jsonb
 language plpgsql
@@ -781,7 +796,7 @@ declare
   c classes;
   cleaned text[];
 begin
-  perform require_owner(teacher_key);
+  perform require_class_manager(teacher_key, api_set_current_slots.class_id);
   select * into c from classes where id = api_set_current_slots.class_id;
   if not found then raise exception 'Không tìm thấy lớp'; end if;
 
@@ -914,7 +929,7 @@ set search_path = public
 as $$
 declare cleaned text[];
 begin
-  perform require_owner(teacher_key);
+  perform require_class_manager(teacher_key, api_set_class_sessions.class_id);
   select array_agg(session_name order by first_seen) into cleaned
   from (
     select clean_name(x) as session_name, min(ord) as first_seen
@@ -1027,7 +1042,7 @@ begin
 end;
 $$;
 
--- Every existing write RPC is owner-only from this point onward.
+-- Global administration stays owner-only; assigned teachers can manage their own classes.
 create or replace function api_set_archived(teacher_key text, class_id text, archived boolean)
 returns jsonb language plpgsql security definer set search_path = public as $$
 begin
@@ -1053,7 +1068,7 @@ create or replace function api_add_student(teacher_key text, class_id text, stud
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare clean text := clean_name(api_add_student.student_name);
 begin
-  perform require_owner(teacher_key);
+  perform require_class_manager(teacher_key, api_add_student.class_id);
   if clean = '' then raise exception 'Thiếu họ tên học sinh'; end if;
   if api_add_student.dob is null then raise exception 'Thiếu ngày sinh'; end if;
   insert into submissions (class_id, student_name, name_key, dob, busy_slots, status, updated_at)
@@ -1066,7 +1081,7 @@ end; $$;
 create or replace function api_set_submission_status(teacher_key text, class_id text, student_name text, dob date, status text)
 returns jsonb language plpgsql security definer set search_path = public as $$
 begin
-  perform require_owner(teacher_key);
+  perform require_class_manager(teacher_key, api_set_submission_status.class_id);
   update submissions set student_name = clean_name(api_set_submission_status.student_name), name_key = name_key(api_set_submission_status.student_name), status = api_set_submission_status.status, updated_at = now()
   where submissions.class_id = api_set_submission_status.class_id and submissions.name_key = name_key(api_set_submission_status.student_name) and submissions.dob = api_set_submission_status.dob;
   if not found then raise exception 'Không tìm thấy đăng ký'; end if;
@@ -1075,12 +1090,12 @@ end; $$;
 
 create or replace function api_delete_submission(teacher_key text, class_id text, student_name text, dob date)
 returns jsonb language plpgsql security definer set search_path = public as $$
-begin perform require_owner(teacher_key); delete from submissions where submissions.class_id = api_delete_submission.class_id and submissions.name_key = name_key(api_delete_submission.student_name) and submissions.dob = api_delete_submission.dob; return jsonb_build_object('ok', true); end; $$;
+begin perform require_class_manager(teacher_key, api_delete_submission.class_id); delete from submissions where submissions.class_id = api_delete_submission.class_id and submissions.name_key = name_key(api_delete_submission.student_name) and submissions.dob = api_delete_submission.dob; return jsonb_build_object('ok', true); end; $$;
 
 create or replace function api_update_busy(teacher_key text, class_id text, student_name text, dob date, busy_slots text[])
 returns jsonb language plpgsql security definer set search_path = public as $$
 begin
-  perform require_owner(teacher_key);
+  perform require_class_manager(teacher_key, api_update_busy.class_id);
   update submissions set busy_slots = coalesce(api_update_busy.busy_slots, '{}'), updated_at = now()
   where submissions.class_id = api_update_busy.class_id and submissions.name_key = name_key(api_update_busy.student_name) and submissions.dob = api_update_busy.dob;
   if not found then raise exception 'Không tìm thấy học sinh'; end if;
@@ -1091,7 +1106,7 @@ create or replace function api_bulk_update_busy(teacher_key text, class_id text,
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare item jsonb; count_updated int := 0;
 begin
-  perform require_owner(teacher_key);
+  perform require_class_manager(teacher_key, api_bulk_update_busy.class_id);
   for item in select * from jsonb_array_elements(coalesce(updates, '[]'::jsonb)) loop
     update submissions set busy_slots = coalesce(array(select jsonb_array_elements_text(item->'busySlots')), '{}'), updated_at = now()
     where submissions.class_id = api_bulk_update_busy.class_id and submissions.name_key = name_key(item->>'studentName') and submissions.dob = (item->>'dob')::date;
