@@ -1078,11 +1078,11 @@ function decodeKey(key) {
   return JSON.parse(decodeURIComponent(key));
 }
 
-function measureExportText(value) {
+function measureExportText(value, font = '700 13px Arial, sans-serif') {
   const canvas = measureExportText.canvas || (measureExportText.canvas = document.createElement('canvas'));
   const context = canvas.getContext('2d');
   if (!context) return String(value || '').length * 7.5;
-  context.font = '700 13px Arial, sans-serif';
+  context.font = font;
   return context.measureText(String(value || '')).width;
 }
 
@@ -1092,12 +1092,15 @@ function fitExportColumnWidths(table) {
   const widths = Array.from({ length: columnCount }, (_, columnIndex) => {
     const values = bodyRows.map((row) => row.cells[columnIndex]?.textContent.trim() || '');
     if (columnIndex === 0) values.push('STT');
-    if (columnIndex === 1) values.push('H\u1ecdc sinh');
+    if (columnIndex === 1) values.push(table.tHead?.rows[0]?.cells[1]?.textContent.trim() || 'H\u1ecdc sinh');
     if (columnIndex >= 2) {
       const sessionHeader = table.tHead?.rows[1]?.cells[columnIndex - 2];
       if (sessionHeader) values.push(sessionHeader.textContent.trim());
     }
-    const contentWidth = Math.max(0, ...values.map(measureExportText));
+    let contentWidth = Math.max(0, ...values.map((value) => measureExportText(value)));
+    if (columnIndex === 1 && table.tHead?.rows[0]?.cells[1]?.classList.contains('image-class-title')) {
+      contentWidth = Math.max(contentWidth, measureExportText(table.tHead.rows[0].cells[1].textContent.trim(), '900 16px Arial, sans-serif'));
+    }
     if (columnIndex === 0) return Math.ceil(Math.max(38, contentWidth + 16));
     if (columnIndex === 1) return Math.ceil(Math.max(110, contentWidth + 22));
     return Math.ceil(Math.max(34, contentWidth + 16));
@@ -1141,9 +1144,14 @@ function fitExportColumnWidths(table) {
   });
 }
 
-function buildLightExportTable(sourceTable) {
+function buildLightExportTable(sourceTable, imageTitleOptions = null) {
   const table = sourceTable.cloneNode(true);
   table.querySelectorAll('.schedule-actions').forEach((cell) => cell.remove());
+  const studentHeader = table.tHead?.rows[0]?.cells[1];
+  if (studentHeader && imageTitleOptions) {
+    studentHeader.textContent = imageTitleOptions.className;
+    studentHeader.classList.add('image-class-title');
+  }
   table.querySelectorAll('input[type="checkbox"]').forEach((input) => {
     const mark = document.createTextNode(input.checked ? (input.classList.contains('current-chk') ? '\u25cf' : '\u00d7') : '\u00b7');
     input.replaceWith(mark);
@@ -1153,6 +1161,8 @@ function buildLightExportTable(sourceTable) {
     let background = '#ffffff';
     let color = '#111827';
     let weight = cell.tagName === 'TH' || cell.closest('tr')?.classList.contains('summary') ? '700' : '400';
+    let fontSize = '13px';
+    let textShadow = 'none';
     if (cell.tagName === 'TH') background = '#fafbfe';
     if (cell.closest('tr')?.classList.contains('summary')) background = '#f3f4f6';
     if (cell.classList.contains('zero-slot') || cell.classList.contains('best')) {
@@ -1165,8 +1175,15 @@ function buildLightExportTable(sourceTable) {
     if (cell.classList.contains('current-slot')) {
       background = '#fdfd0a'; color = '#3f3f00'; weight = '700';
     }
+    if (cell.classList.contains('image-class-title') && imageTitleOptions) {
+      background = imageTitleOptions.backgroundColor;
+      color = imageTitleOptions.textColor;
+      weight = '900';
+      fontSize = '16px';
+      textShadow = '0 1px 0 rgba(255,255,255,.35), 0 2px 3px rgba(0,0,0,.22)';
+    }
     if (cell.classList.contains('free') && !cell.classList.contains('zero-slot')) color = '#d1d5db';
-    cell.style.cssText = `box-sizing:border-box;border:1px solid #d1d5db;padding:7px 9px;text-align:${cell.classList.contains('name') ? 'left' : 'center'};vertical-align:middle;background:${background};color:${color};font-weight:${weight};white-space:nowrap;`;
+    cell.style.cssText = `box-sizing:border-box;border:1px solid #d1d5db;padding:7px 9px;text-align:${cell.classList.contains('name') ? 'left' : 'center'};vertical-align:middle;background:${background};color:${color};font-size:${fontSize};font-weight:${weight};text-shadow:${textShadow};white-space:nowrap;`;
   });
   fitExportColumnWidths(table);
   return table;
@@ -1246,19 +1263,14 @@ function canvasBlob(canvas, type, quality) {
 }
 
 async function renderScheduleImage(source, titleOptions) {
-  const table = buildLightExportTable(source);
+  const table = buildLightExportTable(source, titleOptions);
   const stage = document.createElement('div');
   stage.style.cssText = 'position:fixed;left:-10000px;top:0;width:max-content;background:#fff;z-index:-1;';
-  const title = document.createElement('div');
-  title.textContent = titleOptions.className;
-  title.style.cssText = `box-sizing:border-box;width:100%;height:32px;display:flex;align-items:center;justify-content:center;border:1px solid #d1d5db;border-bottom:0;background:${titleOptions.backgroundColor};color:${titleOptions.textColor};font:700 14px Arial,sans-serif;white-space:nowrap;overflow:hidden;`;
-  stage.appendChild(title);
   stage.appendChild(table);
   document.body.appendChild(stage);
   await document.fonts?.ready;
   stage.style.width = `${table.getBoundingClientRect().width}px`;
   const stageRect = stage.getBoundingClientRect();
-  const titleRect = title.getBoundingClientRect();
   const width = Math.ceil(stageRect.width);
   const height = Math.ceil(stageRect.height);
   const maxPixels = 30000000;
@@ -1270,16 +1282,6 @@ async function renderScheduleImage(source, titleOptions) {
   context.scale(scale, scale);
   context.fillStyle = '#ffffff';
   context.fillRect(0, 0, width, height);
-  context.fillStyle = titleOptions.backgroundColor;
-  context.fillRect(0, 0, width, titleRect.height);
-  context.strokeStyle = '#d1d5db';
-  context.lineWidth = 1;
-  context.strokeRect(.5, .5, Math.max(0, width - 1), Math.max(0, titleRect.height - 1));
-  context.fillStyle = titleOptions.textColor;
-  context.font = '700 14px Arial, sans-serif';
-  context.textAlign = 'center';
-  context.textBaseline = 'middle';
-  context.fillText(titleOptions.className, width / 2, titleRect.height / 2, Math.max(0, width - 20));
 
   table.querySelectorAll('th,td').forEach((cell) => {
     const rect = cell.getBoundingClientRect();
@@ -1298,7 +1300,12 @@ async function renderScheduleImage(source, titleOptions) {
     context.rect(x + 2, y + 2, Math.max(0, rect.width - 4), Math.max(0, rect.height - 4));
     context.clip();
     context.fillStyle = style.color || '#111827';
-    context.font = `${style.fontWeight || '400'} 13px Arial, sans-serif`;
+    context.font = `${style.fontWeight || '400'} ${style.fontSize || '13px'} Arial, sans-serif`;
+    if (cell.classList.contains('image-class-title')) {
+      context.shadowColor = 'rgba(0,0,0,.28)';
+      context.shadowBlur = 2;
+      context.shadowOffsetY = 1;
+    }
     context.textBaseline = 'middle';
     context.textAlign = cell.classList.contains('name') ? 'left' : 'center';
     const textX = cell.classList.contains('name') ? x + 9 : x + rect.width / 2;
@@ -1354,7 +1361,7 @@ function openImageExportDialog(detail, button) {
   overlay.innerHTML = `
     <div class="image-export-dialog" role="dialog" aria-modal="true" aria-label="T&#249;y ch&#7881;nh &#7843;nh">
       <h3>T&#249;y ch&#7881;nh &#7843;nh</h3>
-      <p class="hint">H&#224;ng nh&#7887; ph&#237;a tr&#234;n &#7843;nh s&#7869; hi&#7875;n th&#7883; t&#234;n l&#7899;p.</p>
+      <p class="hint">Khi xu&#7845;t &#7843;nh, &#244; H&#7885;c sinh s&#7869; hi&#7875;n th&#7883; t&#234;n l&#7899;p v&#7899;i m&#224;u &#273;&#227; ch&#7885;n.</p>
       <label>M&#7851;u m&#224;u
         <select class="image-color-preset">
           <option value="orange">Cam / &#273;en</option>
