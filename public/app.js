@@ -1073,6 +1073,69 @@ function decodeKey(key) {
   return JSON.parse(decodeURIComponent(key));
 }
 
+function measureExportText(value) {
+  const canvas = measureExportText.canvas || (measureExportText.canvas = document.createElement('canvas'));
+  const context = canvas.getContext('2d');
+  if (!context) return String(value || '').length * 7.5;
+  context.font = '700 13px Arial, sans-serif';
+  return context.measureText(String(value || '')).width;
+}
+
+function fitExportColumnWidths(table) {
+  const bodyRows = [...(table.tBodies[0]?.rows || [])];
+  const columnCount = Math.max(2, ...bodyRows.map((row) => row.cells.length));
+  const widths = Array.from({ length: columnCount }, (_, columnIndex) => {
+    const values = bodyRows.map((row) => row.cells[columnIndex]?.textContent.trim() || '');
+    if (columnIndex === 0) values.push('STT');
+    if (columnIndex === 1) values.push('H\u1ecdc sinh');
+    if (columnIndex >= 2) {
+      const sessionHeader = table.tHead?.rows[1]?.cells[columnIndex - 2];
+      if (sessionHeader) values.push(sessionHeader.textContent.trim());
+    }
+    const contentWidth = Math.max(0, ...values.map(measureExportText));
+    if (columnIndex === 0) return Math.ceil(Math.max(38, contentWidth + 16));
+    if (columnIndex === 1) return Math.ceil(Math.max(110, contentWidth + 22));
+    return Math.ceil(Math.max(34, contentWidth + 16));
+  });
+
+  let logicalColumn = 2;
+  [...(table.tHead?.rows[0]?.cells || [])].slice(2).forEach((dayCell) => {
+    const span = Number(dayCell.colSpan || 1);
+    const required = measureExportText(dayCell.textContent.trim()) + 20;
+    const current = widths.slice(logicalColumn, logicalColumn + span).reduce((sum, width) => sum + width, 0);
+    if (required > current && span > 0) {
+      const extra = Math.ceil((required - current) / span);
+      for (let index = logicalColumn; index < logicalColumn + span; index++) widths[index] += extra;
+    }
+    logicalColumn += span;
+  });
+
+  const colgroup = document.createElement('colgroup');
+  widths.forEach((width) => {
+    const col = document.createElement('col');
+    col.style.width = `${width}px`;
+    col.style.minWidth = `${width}px`;
+    col.setAttribute('width', String(width));
+    colgroup.appendChild(col);
+  });
+  table.insertBefore(colgroup, table.firstChild);
+  table.style.width = `${widths.reduce((sum, width) => sum + width, 0)}px`;
+  table.style.minWidth = '0';
+  table.style.tableLayout = 'fixed';
+
+  bodyRows.forEach((row) => [...row.cells].forEach((cell, index) => {
+    cell.style.width = `${widths[index]}px`;
+    cell.style.minWidth = `${widths[index]}px`;
+  }));
+  const firstHeaderRow = table.tHead?.rows[0];
+  if (firstHeaderRow?.cells[0]) firstHeaderRow.cells[0].style.width = `${widths[0]}px`;
+  if (firstHeaderRow?.cells[1]) firstHeaderRow.cells[1].style.width = `${widths[1]}px`;
+  [...(table.tHead?.rows[1]?.cells || [])].forEach((cell, index) => {
+    cell.style.width = `${widths[index + 2]}px`;
+    cell.style.minWidth = `${widths[index + 2]}px`;
+  });
+}
+
 function buildLightExportTable(sourceTable) {
   const table = sourceTable.cloneNode(true);
   table.querySelectorAll('.schedule-actions').forEach((cell) => cell.remove());
@@ -1098,8 +1161,9 @@ function buildLightExportTable(sourceTable) {
       background = '#f9a8d4'; color = '#831843'; weight = '700';
     }
     if (cell.classList.contains('free') && !cell.classList.contains('zero-slot')) color = '#d1d5db';
-    cell.style.cssText = `border:1px solid #d1d5db;padding:7px 9px;text-align:${cell.classList.contains('name') ? 'left' : 'center'};vertical-align:middle;background:${background};color:${color};font-weight:${weight};white-space:nowrap;`;
+    cell.style.cssText = `box-sizing:border-box;border:1px solid #d1d5db;padding:7px 9px;text-align:${cell.classList.contains('name') ? 'left' : 'center'};vertical-align:middle;background:${background};color:${color};font-weight:${weight};white-space:nowrap;`;
   });
+  fitExportColumnWidths(table);
   return table;
 }
 
