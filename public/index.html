@@ -27,6 +27,7 @@
 
     <nav class="tabs">
       <button class="tab active" data-tab="teacher">Lớp học</button>
+      <button class="tab owner-only hidden" data-tab="sync-sessions">Ch&#7881;nh ca &#273;&#7891;ng b&#7897;</button>
       <button class="tab owner-only hidden" data-tab="archived">Lớp cũ</button>
       <button class="tab owner-only hidden" data-tab="accounts">Tài khoản giáo viên</button>
     </nav>
@@ -71,6 +72,30 @@
         <main id="class-detail" class="class-detail">
           <p class="placeholder">← Chọn một lớp để xem lịch</p>
         </main>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-sync-sessions" class="tab-panel">
+    <div class="card bulk-sessions-card">
+      <div class="bulk-sessions-head">
+        <div>
+          <h2>Ch&#7881;nh ca &#273;&#7891;ng b&#7897;</h2>
+          <p class="hint">Nh&#7853;p danh s&#225;ch ca v&#224; ch&#7885;n c&#225;c l&#7899;p c&#7847;n &#225;p d&#7909;ng. L&#7899;p &#273;&#432;&#7907;c s&#7855;p x&#7871;p theo sector.</p>
+        </div>
+        <div class="bulk-select-actions">
+          <button id="btn-bulk-select-all" type="button">Ch&#7885;n t&#7845;t c&#7843;</button>
+          <button id="btn-bulk-clear" type="button">B&#7887; ch&#7885;n</button>
+        </div>
+      </div>
+      <label>C&#225;c ca &#225;p d&#7909;ng
+        <input id="bulk-sessions-input" type="text" placeholder="S1, S2, C, 57, T" />
+      </label>
+      <p class="hint">Format: <code>Bu&#7893;i1, Bu&#7893;i2, ...</code>. V&#237; d&#7909;: <code>S1, S2, C, 57, T</code>. L&#7883;ch hi&#7879;n t&#7841;i c&#7911;a c&#225;c l&#7899;p &#273;&#432;&#7907;c ch&#7885;n s&#7869; &#273;&#432;&#7907;c &#273;&#7863;t l&#7841;i.</p>
+      <div id="bulk-class-list" class="bulk-class-list"></div>
+      <div class="bulk-save-row">
+        <button id="btn-bulk-save" class="primary" type="button">&#193;p d&#7909;ng cho c&#225;c l&#7899;p &#273;&#227; ch&#7885;n</button>
+        <span id="bulk-sessions-msg" class="msg"></span>
       </div>
     </div>
   </section>

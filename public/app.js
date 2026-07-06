@@ -480,6 +480,7 @@ function initTabs() {
       $('#tab-' + btn.dataset.tab)?.classList.add('active');
       if (btn.dataset.tab === 'archived') loadArchived();
       if (btn.dataset.tab === 'accounts') loadTeacherAccounts();
+      if (btn.dataset.tab === 'sync-sessions') renderBulkSessions();
     });
   });
 }
@@ -519,6 +520,9 @@ function initTeacher() {
   });
   $('#btn-add-sector')?.addEventListener('click', () => showSectorEditor());
   $('#btn-add-class')?.addEventListener('click', addClass);
+  $('#btn-bulk-select-all')?.addEventListener('click', () => setBulkClassSelection(true));
+  $('#btn-bulk-clear')?.addEventListener('click', () => setBulkClassSelection(false));
+  $('#btn-bulk-save')?.addEventListener('click', saveBulkSessions);
   $('#new-class-name')?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') addClass();
   });
@@ -601,6 +605,103 @@ async function loadClasses() {
   }
   sessionStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(classes));
   renderClassList(classes);
+  if ($('#tab-sync-sessions')?.classList.contains('active')) renderBulkSessions();
+}
+
+function renderBulkSessions() {
+  const container = $('#bulk-class-list');
+  const input = $('#bulk-sessions-input');
+  if (!container || !isOwner()) return;
+  if (input && !input.value.trim()) input.value = (DEFAULT_SESSIONS.length ? DEFAULT_SESSIONS : ['S1', 'S2', 'C', '57', 'T']).join(', ');
+
+  const checkedIds = new Set([...container.querySelectorAll('.bulk-class-check:checked')].map((item) => item.value));
+  const groups = buildSectorGroups(teacherClasses).filter((group) => group.classes.length);
+  if (!groups.length) {
+    container.innerHTML = '<p class="placeholder">Ch&#432;a c&#243; l&#7899;p &#273;&#7875; &#225;p d&#7909;ng.</p>';
+    return;
+  }
+
+  container.innerHTML = groups.map((group) => `
+    <section class="bulk-sector">
+      <label class="bulk-sector-title">
+        <input class="bulk-sector-check" type="checkbox" data-sector="${escapeHtml(group.id)}" />
+        <span>${escapeHtml(group.name)}</span>
+        <small>${group.classes.length} l&#7899;p</small>
+      </label>
+      <div class="bulk-sector-classes">
+        ${group.classes.map((cls) => `
+          <label class="bulk-class-item">
+            <input class="bulk-class-check" type="checkbox" value="${escapeHtml(cls.id)}" data-sector="${escapeHtml(group.id)}" ${checkedIds.has(cls.id) ? 'checked' : ''} />
+            <span>${escapeHtml(cls.name)}</span>
+          </label>
+        `).join('')}
+      </div>
+    </section>
+  `).join('');
+
+  const syncSectorCheck = (sectorId) => {
+    const children = [...container.querySelectorAll(`.bulk-class-check[data-sector="${CSS.escape(sectorId)}"]`)];
+    const parent = container.querySelector(`.bulk-sector-check[data-sector="${CSS.escape(sectorId)}"]`);
+    if (!parent || !children.length) return;
+    parent.checked = children.every((item) => item.checked);
+    parent.indeterminate = !parent.checked && children.some((item) => item.checked);
+  };
+  container.querySelectorAll('.bulk-sector-check').forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      container.querySelectorAll(`.bulk-class-check[data-sector="${CSS.escape(checkbox.dataset.sector)}"]`)
+        .forEach((item) => { item.checked = checkbox.checked; });
+    });
+  });
+  container.querySelectorAll('.bulk-class-check').forEach((checkbox) => {
+    checkbox.addEventListener('change', () => syncSectorCheck(checkbox.dataset.sector));
+    syncSectorCheck(checkbox.dataset.sector);
+  });
+}
+
+function setBulkClassSelection(checked) {
+  document.querySelectorAll('#bulk-class-list input[type="checkbox"]').forEach((item) => {
+    item.checked = checked;
+    item.indeterminate = false;
+  });
+}
+
+async function saveBulkSessions() {
+  if (!isOwner()) return;
+  const sessions = parseSessionInput($('#bulk-sessions-input')?.value || '');
+  const classIds = [...document.querySelectorAll('#bulk-class-list .bulk-class-check:checked')].map((item) => item.value);
+  const msg = $('#bulk-sessions-msg');
+  const button = $('#btn-bulk-save');
+  if (!sessions.length) {
+    if (msg) { msg.textContent = 'C\u1ea7n \u00edt nh\u1ea5t 1 ca.'; msg.className = 'msg err'; }
+    return;
+  }
+  if (!classIds.length) {
+    if (msg) { msg.textContent = 'H\u00e3y ch\u1ecdn \u00edt nh\u1ea5t 1 l\u1edbp.'; msg.className = 'msg err'; }
+    return;
+  }
+  if (!confirm(`\u00c1p d\u1ee5ng ${sessions.join(', ')} cho ${classIds.length} l\u1edbp?`)) return;
+
+  if (button) button.disabled = true;
+  if (msg) { msg.textContent = `\u0110ang c\u1eadp nh\u1eadt 0/${classIds.length} l\u1edbp...`; msg.className = 'msg'; }
+  try {
+    let completed = 0;
+    for (let index = 0; index < classIds.length; index += 5) {
+      const batch = classIds.slice(index, index + 5);
+      await Promise.all(batch.map((classId) => api(`/classes/${classId}/set-sessions`, {
+        method: 'POST',
+        body: JSON.stringify({ sessions })
+      })));
+      completed += batch.length;
+      if (msg) msg.textContent = `\u0110ang c\u1eadp nh\u1eadt ${completed}/${classIds.length} l\u1edbp...`;
+    }
+    if (msg) { msg.textContent = `\u0110\u00e3 c\u1eadp nh\u1eadt ${classIds.length} l\u1edbp.`; msg.className = 'msg ok'; }
+    await loadClasses();
+    if (selectedClassId && classIds.includes(selectedClassId)) await openClass(selectedClassId);
+  } catch (err) {
+    if (msg) { msg.textContent = err.message; msg.className = 'msg err'; }
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function renderCachedClasses() {
@@ -808,10 +909,15 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   const slots = buildSlots(sessions);
   const currentSlots = cls.currentSlots || [];
   const nameCounts = countNames([...approved, ...pending]);
+  const hasScheduleTable = approved.length > 0 || currentSlots.length > 0 || currentScheduleMode;
   let html = `<div class="detail-head"><div class="detail-title"><h3>${escapeHtml(cls.name)}</h3>`;
   if (isOwner()) {
     html += `<button id="btn-edit" class="btn-edit${editMode ? ' active' : ''}">${editMode ? '✓ Xong' : 'Chỉnh sửa'}</button>
       <button id="btn-current-schedule" class="btn-current${currentScheduleMode ? ' active' : ''}">${currentScheduleMode ? '✓ Lưu lịch hiện tại' : 'Lịch hiện tại'}</button>`;
+  }
+  if (hasScheduleTable) {
+    html += '<button id="btn-copy-excel" class="btn-export" type="button">Copy Excel</button>';
+    html += '<button id="btn-copy-image" class="btn-export btn-export-image" type="button">In &#7842;nh</button>';
   }
   html += '</div></div>';
   if (editMode) html += '<p class="hint">Đang chỉnh sửa: tick/bỏ tick các ô rồi bấm Xong để lưu một lần.</p>';
@@ -867,7 +973,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
 
   let html = '<div class="schedule-scroll"><table class="schedule"><thead><tr><th rowspan="2">STT</th><th rowspan="2">H&#7885;c sinh</th>';
   DAYS.forEach((day) => html += `<th colspan="${sessions.length}">${escapeHtml(day)}</th>`);
-  html += showDelete ? '<th rowspan="2">X&#243;a HS</th>' : '</tr>';
+  html += showDelete ? '<th class="schedule-actions" rowspan="2">X&#243;a HS</th>' : '</tr>';
   if (showDelete) html += '</tr>';
   html += '<tr>';
   DAYS.forEach((day, dayIdx) => sessions.forEach((session, sessionIdx) => {
@@ -886,7 +992,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
         html += `<td class="${slotClass(slot.id, current ? '' : 'free')}" data-slot="${slot.id}">${current ? '&#9679;' : '&middot;'}</td>`;
       }
     });
-    if (showDelete) html += '<td></td>';
+    if (showDelete) html += '<td class="schedule-actions"></td>';
     html += '</tr>';
   }
 
@@ -906,7 +1012,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
           : busy ? `<td class="busy" data-slot="${slot.id}">&times;</td>` : `<td class="${slotClass(slot.id, 'free')}" data-slot="${slot.id}">&middot;</td>`;
       }
     });
-    if (showDelete) html += `<td class="act-cell"><button class="btn-del-stu" data-key="${key}" title="Xoa hoc sinh">&times;</button></td>`;
+    if (showDelete) html += `<td class="act-cell schedule-actions"><button class="btn-del-stu" data-key="${key}" title="Xoa hoc sinh">&times;</button></td>`;
     html += '</tr>';
   });
 
@@ -923,7 +1029,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
     else if (n === maxBusy && maxBusy > 0) className = 'worst';
     html += `<td class="${className}" data-slot="${slot.id}">${n}</td>`;
   });
-  if (showDelete) html += '<td></td>';
+  if (showDelete) html += '<td class="schedule-actions"></td>';
   html += '</tr></tbody></table></div>';
   return html;
 }
@@ -967,8 +1073,189 @@ function decodeKey(key) {
   return JSON.parse(decodeURIComponent(key));
 }
 
+function buildLightExportTable(sourceTable) {
+  const table = sourceTable.cloneNode(true);
+  table.querySelectorAll('.schedule-actions').forEach((cell) => cell.remove());
+  table.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    const mark = document.createTextNode(input.checked ? (input.classList.contains('current-chk') ? '\u25cf' : '\u00d7') : '\u00b7');
+    input.replaceWith(mark);
+  });
+  table.style.cssText = 'border-collapse:collapse;border-spacing:0;width:max-content;min-width:100%;font:13px Arial,sans-serif;color:#111827;background:#ffffff;';
+  table.querySelectorAll('th,td').forEach((cell) => {
+    let background = '#ffffff';
+    let color = '#111827';
+    let weight = cell.tagName === 'TH' || cell.closest('tr')?.classList.contains('summary') ? '700' : '400';
+    if (cell.tagName === 'TH') background = '#fafbfe';
+    if (cell.closest('tr')?.classList.contains('summary')) background = '#f3f4f6';
+    if (cell.classList.contains('zero-slot') || cell.classList.contains('best')) {
+      background = '#d1fae5'; color = '#065f46'; weight = '700';
+    }
+    if (cell.classList.contains('busy')) {
+      background = '#fee2e2'; color = '#b91c1c'; weight = '700';
+    }
+    if (cell.classList.contains('worst')) color = '#b91c1c';
+    if (cell.classList.contains('current-slot')) {
+      background = '#f9a8d4'; color = '#831843'; weight = '700';
+    }
+    if (cell.classList.contains('free') && !cell.classList.contains('zero-slot')) color = '#d1d5db';
+    cell.style.cssText = `border:1px solid #d1d5db;padding:7px 9px;text-align:${cell.classList.contains('name') ? 'left' : 'center'};vertical-align:middle;background:${background};color:${color};font-weight:${weight};white-space:nowrap;`;
+  });
+  return table;
+}
+
+function exportTableText(table) {
+  return [...table.rows].map((row) => [...row.cells]
+    .map((cell) => cell.textContent.trim().replace(/\s+/g, ' '))
+    .join('\t')).join('\n');
+}
+
+function setExportButtonStatus(button, text, isError = false) {
+  if (!button) return;
+  const original = button.dataset.originalText || button.textContent;
+  button.dataset.originalText = original;
+  button.textContent = text;
+  button.classList.toggle('export-error', isError);
+  clearTimeout(Number(button.dataset.statusTimer || 0));
+  const timer = setTimeout(() => {
+    button.textContent = original;
+    button.classList.remove('export-error');
+  }, 2200);
+  button.dataset.statusTimer = String(timer);
+}
+
+function fallbackCopyHtml(table) {
+  const holder = document.createElement('div');
+  holder.contentEditable = 'true';
+  holder.style.position = 'fixed';
+  holder.style.left = '-10000px';
+  holder.appendChild(table);
+  document.body.appendChild(holder);
+  const range = document.createRange();
+  range.selectNodeContents(holder);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  const ok = document.execCommand('copy');
+  selection.removeAllRanges();
+  holder.remove();
+  if (!ok) throw new Error('Tr\u00ecnh duy\u1ec7t kh\u00f4ng cho ph\u00e9p copy.');
+}
+
+async function copyScheduleToExcel(detail, button) {
+  const source = detail.querySelector('table.schedule');
+  if (!source) return;
+  const table = buildLightExportTable(source);
+  const html = `<meta charset="utf-8">${table.outerHTML}`;
+  const textValue = exportTableText(table);
+  try {
+    if (navigator.clipboard?.write && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([textValue], { type: 'text/plain' })
+      })]);
+    } else {
+      fallbackCopyHtml(table);
+    }
+    setExportButtonStatus(button, '\u2713 \u0110\u00e3 copy');
+  } catch (err) {
+    try {
+      fallbackCopyHtml(table);
+      setExportButtonStatus(button, '\u2713 \u0110\u00e3 copy');
+    } catch (fallbackError) {
+      setExportButtonStatus(button, 'Copy l\u1ed7i', true);
+      alert(fallbackError.message || err.message);
+    }
+  }
+}
+
+function canvasBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => canvas.toBlob(
+    (blob) => blob ? resolve(blob) : reject(new Error('Kh\u00f4ng t\u1ea1o \u0111\u01b0\u1ee3c \u1ea3nh.')),
+    type,
+    quality
+  ));
+}
+
+async function renderScheduleImage(source) {
+  const table = buildLightExportTable(source);
+  const stage = document.createElement('div');
+  stage.style.cssText = 'position:fixed;left:-10000px;top:0;width:max-content;background:#fff;z-index:-1;';
+  stage.appendChild(table);
+  document.body.appendChild(stage);
+  await document.fonts?.ready;
+  const tableRect = table.getBoundingClientRect();
+  const width = Math.ceil(tableRect.width);
+  const height = Math.ceil(tableRect.height);
+  const maxPixels = 30000000;
+  const scale = Math.min(2, Math.sqrt(maxPixels / Math.max(1, width * height)));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(width * scale));
+  canvas.height = Math.max(1, Math.ceil(height * scale));
+  const context = canvas.getContext('2d');
+  context.scale(scale, scale);
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, height);
+
+  table.querySelectorAll('th,td').forEach((cell) => {
+    const rect = cell.getBoundingClientRect();
+    const x = rect.left - tableRect.left;
+    const y = rect.top - tableRect.top;
+    const style = getComputedStyle(cell);
+    context.fillStyle = style.backgroundColor || '#ffffff';
+    context.fillRect(x, y, rect.width, rect.height);
+    context.strokeStyle = '#d1d5db';
+    context.lineWidth = 1;
+    context.strokeRect(x + .5, y + .5, Math.max(0, rect.width - 1), Math.max(0, rect.height - 1));
+    const value = cell.textContent.trim().replace(/\s+/g, ' ');
+    if (!value) return;
+    context.save();
+    context.beginPath();
+    context.rect(x + 2, y + 2, Math.max(0, rect.width - 4), Math.max(0, rect.height - 4));
+    context.clip();
+    context.fillStyle = style.color || '#111827';
+    context.font = `${style.fontWeight || '400'} 13px Arial, sans-serif`;
+    context.textBaseline = 'middle';
+    context.textAlign = cell.classList.contains('name') ? 'left' : 'center';
+    const textX = cell.classList.contains('name') ? x + 9 : x + rect.width / 2;
+    context.fillText(value, textX, y + rect.height / 2, Math.max(0, rect.width - 12));
+    context.restore();
+  });
+  stage.remove();
+  return canvas;
+}
+
+async function copyScheduleAsImage(detail, button) {
+  const source = detail.querySelector('table.schedule');
+  if (!source) return;
+  if (!navigator.clipboard?.write || !window.ClipboardItem) {
+    setExportButtonStatus(button, 'Kh\u00f4ng h\u1ed7 tr\u1ee3', true);
+    return;
+  }
+  button.dataset.originalText = button.dataset.originalText || button.textContent;
+  button.disabled = true;
+  button.textContent = '\u0110ang t\u1ea1o \u1ea3nh...';
+  try {
+    const canvas = await renderScheduleImage(source);
+    const jpeg = await canvasBlob(canvas, 'image/jpeg', .94);
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/jpeg': jpeg })]);
+    } catch (jpegError) {
+      const png = await canvasBlob(canvas, 'image/png');
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    }
+    setExportButtonStatus(button, '\u2713 \u0110\u00e3 copy \u1ea3nh');
+  } catch (err) {
+    setExportButtonStatus(button, 'T\u1ea1o \u1ea3nh l\u1ed7i', true);
+    alert(err.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function wireTeacherClassEvents(id, detail) {
   setupDobInput($('#teacher-new-dob'));
+  detail.querySelector('#btn-copy-excel')?.addEventListener('click', (event) => copyScheduleToExcel(detail, event.currentTarget));
+  detail.querySelector('#btn-copy-image')?.addEventListener('click', (event) => copyScheduleAsImage(detail, event.currentTarget));
 
   detail.querySelector('#btn-edit')?.addEventListener('click', async () => {
     if (!editMode) {
