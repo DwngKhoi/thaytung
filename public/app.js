@@ -1245,16 +1245,22 @@ function canvasBlob(canvas, type, quality) {
   ));
 }
 
-async function renderScheduleImage(source) {
+async function renderScheduleImage(source, titleOptions) {
   const table = buildLightExportTable(source);
   const stage = document.createElement('div');
   stage.style.cssText = 'position:fixed;left:-10000px;top:0;width:max-content;background:#fff;z-index:-1;';
+  const title = document.createElement('div');
+  title.textContent = titleOptions.className;
+  title.style.cssText = `box-sizing:border-box;width:100%;height:32px;display:flex;align-items:center;justify-content:center;border:1px solid #d1d5db;border-bottom:0;background:${titleOptions.backgroundColor};color:${titleOptions.textColor};font:700 14px Arial,sans-serif;white-space:nowrap;overflow:hidden;`;
+  stage.appendChild(title);
   stage.appendChild(table);
   document.body.appendChild(stage);
   await document.fonts?.ready;
-  const tableRect = table.getBoundingClientRect();
-  const width = Math.ceil(tableRect.width);
-  const height = Math.ceil(tableRect.height);
+  stage.style.width = `${table.getBoundingClientRect().width}px`;
+  const stageRect = stage.getBoundingClientRect();
+  const titleRect = title.getBoundingClientRect();
+  const width = Math.ceil(stageRect.width);
+  const height = Math.ceil(stageRect.height);
   const maxPixels = 30000000;
   const scale = Math.min(2, Math.sqrt(maxPixels / Math.max(1, width * height)));
   const canvas = document.createElement('canvas');
@@ -1264,11 +1270,21 @@ async function renderScheduleImage(source) {
   context.scale(scale, scale);
   context.fillStyle = '#ffffff';
   context.fillRect(0, 0, width, height);
+  context.fillStyle = titleOptions.backgroundColor;
+  context.fillRect(0, 0, width, titleRect.height);
+  context.strokeStyle = '#d1d5db';
+  context.lineWidth = 1;
+  context.strokeRect(.5, .5, Math.max(0, width - 1), Math.max(0, titleRect.height - 1));
+  context.fillStyle = titleOptions.textColor;
+  context.font = '700 14px Arial, sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(titleOptions.className, width / 2, titleRect.height / 2, Math.max(0, width - 20));
 
   table.querySelectorAll('th,td').forEach((cell) => {
     const rect = cell.getBoundingClientRect();
-    const x = rect.left - tableRect.left;
-    const y = rect.top - tableRect.top;
+    const x = rect.left - stageRect.left;
+    const y = rect.top - stageRect.top;
     const style = getComputedStyle(cell);
     context.fillStyle = style.backgroundColor || '#ffffff';
     context.fillRect(x, y, rect.width, rect.height);
@@ -1293,7 +1309,7 @@ async function renderScheduleImage(source) {
   return canvas;
 }
 
-async function copyScheduleAsImage(detail, button) {
+async function copyScheduleAsImage(detail, button, titleOptions) {
   const source = detail.querySelector('table.schedule');
   if (!source) return;
   if (!navigator.clipboard?.write || !window.ClipboardItem) {
@@ -1304,7 +1320,7 @@ async function copyScheduleAsImage(detail, button) {
   button.disabled = true;
   button.textContent = '\u0110ang t\u1ea1o \u1ea3nh...';
   try {
-    const canvas = await renderScheduleImage(source);
+    const canvas = await renderScheduleImage(source, titleOptions);
     const jpeg = await canvasBlob(canvas, 'image/jpeg', .94);
     try {
       await navigator.clipboard.write([new ClipboardItem({ 'image/jpeg': jpeg })]);
@@ -1321,10 +1337,90 @@ async function copyScheduleAsImage(detail, button) {
   }
 }
 
+function openImageExportDialog(detail, button) {
+  document.querySelector('.image-export-overlay')?.remove();
+  const className = detail.querySelector('.detail-title h3')?.textContent.trim() || 'L\u1ecbch l\u1edbp';
+  const presets = {
+    orange: { backgroundColor: '#f59e0b', textColor: '#111827' },
+    blue: { backgroundColor: '#2563eb', textColor: '#ffffff' },
+    green: { backgroundColor: '#22c55e', textColor: '#111827' }
+  };
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('lichlop-image-title-colors') || '{}'); } catch (err) { saved = {}; }
+  const initialPreset = presets[saved.preset] ? saved.preset : 'orange';
+  const initial = presets[initialPreset];
+  const overlay = document.createElement('div');
+  overlay.className = 'image-export-overlay';
+  overlay.innerHTML = `
+    <div class="image-export-dialog" role="dialog" aria-modal="true" aria-label="T&#249;y ch&#7881;nh &#7843;nh">
+      <h3>T&#249;y ch&#7881;nh &#7843;nh</h3>
+      <p class="hint">H&#224;ng nh&#7887; ph&#237;a tr&#234;n &#7843;nh s&#7869; hi&#7875;n th&#7883; t&#234;n l&#7899;p.</p>
+      <label>M&#7851;u m&#224;u
+        <select class="image-color-preset">
+          <option value="orange">Cam / &#273;en</option>
+          <option value="blue">Xanh d&#432;&#417;ng / tr&#7855;ng</option>
+          <option value="green">Xanh l&#225; / &#273;en</option>
+          <option value="custom">T&#249;y ch&#7881;nh</option>
+        </select>
+      </label>
+      <div class="image-color-fields">
+        <label>M&#224;u n&#7873;n<input class="image-bg-color" type="color" /></label>
+        <label>M&#224;u ch&#7919;<input class="image-text-color" type="color" /></label>
+      </div>
+      <div class="image-title-preview"></div>
+      <div class="image-export-actions">
+        <button class="image-export-cancel" type="button">H&#7911;y</button>
+        <button class="image-export-confirm primary" type="button">Copy &#7843;nh</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const presetSelect = overlay.querySelector('.image-color-preset');
+  const bgInput = overlay.querySelector('.image-bg-color');
+  const textInput = overlay.querySelector('.image-text-color');
+  const preview = overlay.querySelector('.image-title-preview');
+  presetSelect.value = saved.preset || initialPreset;
+  bgInput.value = saved.backgroundColor || initial.backgroundColor;
+  textInput.value = saved.textColor || initial.textColor;
+
+  const updatePreview = () => {
+    preview.textContent = className;
+    preview.style.backgroundColor = bgInput.value;
+    preview.style.color = textInput.value;
+  };
+  presetSelect.addEventListener('change', () => {
+    const colors = presets[presetSelect.value];
+    if (colors) {
+      bgInput.value = colors.backgroundColor;
+      textInput.value = colors.textColor;
+    }
+    updatePreview();
+  });
+  [bgInput, textInput].forEach((input) => input.addEventListener('input', () => {
+    presetSelect.value = 'custom';
+    updatePreview();
+  }));
+  const close = () => {
+    document.removeEventListener('keydown', onKeydown);
+    overlay.remove();
+  };
+  const onKeydown = (event) => { if (event.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKeydown);
+  overlay.querySelector('.image-export-cancel').addEventListener('click', close);
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  overlay.querySelector('.image-export-confirm').addEventListener('click', async () => {
+    const options = { className, backgroundColor: bgInput.value, textColor: textInput.value };
+    try { localStorage.setItem('lichlop-image-title-colors', JSON.stringify({ preset: presetSelect.value, ...options })); } catch (err) { /* Continue without persistence. */ }
+    close();
+    await copyScheduleAsImage(detail, button, options);
+  });
+  updatePreview();
+  presetSelect.focus();
+}
+
 function wireTeacherClassEvents(id, detail) {
   setupDobInput($('#teacher-new-dob'));
   detail.querySelector('#btn-copy-excel')?.addEventListener('click', (event) => copyScheduleToExcel(detail, event.currentTarget));
-  detail.querySelector('#btn-copy-image')?.addEventListener('click', (event) => copyScheduleAsImage(detail, event.currentTarget));
+  detail.querySelector('#btn-copy-image')?.addEventListener('click', (event) => openImageExportDialog(detail, event.currentTarget));
 
   detail.querySelector('#btn-edit')?.addEventListener('click', async () => {
     if (!editMode) {
