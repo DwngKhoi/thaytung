@@ -922,6 +922,7 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   }
   if (hasScheduleTable) {
     html += '<button id="btn-copy-excel" class="btn-export" type="button">Copy Excel</button>';
+    html += '<button id="btn-download-excel" class="btn-export btn-download-excel" type="button">T&#7843;i Excel</button>';
     html += '<button id="btn-copy-image" class="btn-export btn-export-image" type="button">In &#7842;nh</button>';
   }
   html += '</div></div>';
@@ -1300,6 +1301,116 @@ async function copyScheduleToExcel(detail, button, titleOptions) {
   }
 }
 
+let excelJsLoader = null;
+
+function loadExcelJs() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if (excelJsLoader) return excelJsLoader;
+  excelJsLoader = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'vendor/exceljs.min.js';
+    script.onload = () => window.ExcelJS ? resolve(window.ExcelJS) : reject(new Error('Kh\u00f4ng n\u1ea1p \u0111\u01b0\u1ee3c ExcelJS.'));
+    script.onerror = () => reject(new Error('Kh\u00f4ng n\u1ea1p \u0111\u01b0\u1ee3c th\u01b0 vi\u1ec7n t\u1ea1o Excel.'));
+    document.head.appendChild(script);
+  });
+  return excelJsLoader;
+}
+
+function excelArgb(value, fallback = 'FF111827') {
+  const raw = String(value || '').trim();
+  const shortHex = raw.match(/^#([0-9a-f]{3})$/i);
+  if (shortHex) return `FF${[...shortHex[1]].map((char) => char + char).join('').toUpperCase()}`;
+  const hex = raw.match(/^#([0-9a-f]{6})$/i);
+  if (hex) return `FF${hex[1].toUpperCase()}`;
+  const rgb = raw.match(/rgba?\(\s*(\d+)\D+(\d+)\D+(\d+)/i);
+  if (rgb) return `FF${rgb.slice(1, 4).map((part) => Number(part).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+  return fallback;
+}
+
+async function downloadScheduleExcel(detail, button, titleOptions) {
+  const source = detail.querySelector('table.schedule');
+  if (!source) return;
+  button.dataset.originalText = button.dataset.originalText || button.textContent;
+  button.disabled = true;
+  button.textContent = '\u0110ang t\u1ea1o file...';
+  try {
+    const ExcelJS = await loadExcelJs();
+    const table = buildLightExportTable(source, titleOptions);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Olympus English';
+    const sheetName = titleOptions.className.replace(/[\\/*?:[\]]/g, '-').slice(0, 31) || 'Lich lop';
+    const worksheet = workbook.addWorksheet(sheetName, {
+      views: [{ state: 'frozen', xSplit: 2, ySplit: 2 }],
+      pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+    });
+
+    const columns = [...(table.querySelector('colgroup')?.children || [])];
+    columns.forEach((col, index) => {
+      const pixels = Number.parseFloat(col.style.width) || Number(col.getAttribute('width')) || 40;
+      worksheet.getColumn(index + 1).width = Math.max(3.5, (pixels - 5) / 7);
+    });
+
+    const occupied = new Set();
+    [...table.rows].forEach((row, rowIndex) => {
+      const excelRow = rowIndex + 1;
+      worksheet.getRow(excelRow).height = rowIndex < 2 ? 24 : 21;
+      let excelColumn = 1;
+      [...row.cells].forEach((htmlCell) => {
+        while (occupied.has(`${excelRow}:${excelColumn}`)) excelColumn++;
+        const rowSpan = Number(htmlCell.rowSpan || 1);
+        const colSpan = Number(htmlCell.colSpan || 1);
+        const excelCell = worksheet.getCell(excelRow, excelColumn);
+        excelCell.value = htmlCell.textContent.trim().replace(/\s+/g, ' ');
+        const background = excelArgb(htmlCell.style.backgroundColor, 'FFFFFFFF');
+        const foreground = excelArgb(htmlCell.style.color, 'FF111827');
+        excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: background } };
+        excelCell.font = {
+          name: 'Arial',
+          size: Number.parseFloat(htmlCell.style.fontSize) || 13,
+          bold: Number.parseInt(htmlCell.style.fontWeight, 10) >= 600,
+          color: { argb: foreground }
+        };
+        excelCell.alignment = {
+          horizontal: htmlCell.style.textAlign === 'left' ? 'left' : 'center',
+          vertical: 'middle',
+          wrapText: false
+        };
+        excelCell.border = {
+          top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          right: { style: 'thin', color: { argb: 'FFD1D5DB' } }
+        };
+        for (let rowOffset = 0; rowOffset < rowSpan; rowOffset++) {
+          for (let colOffset = 0; colOffset < colSpan; colOffset++) {
+            occupied.add(`${excelRow + rowOffset}:${excelColumn + colOffset}`);
+          }
+        }
+        if (rowSpan > 1 || colSpan > 1) {
+          worksheet.mergeCells(excelRow, excelColumn, excelRow + rowSpan - 1, excelColumn + colSpan - 1);
+        }
+        excelColumn += colSpan;
+      });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${titleOptions.className.replace(/[\\/:*?"<>|]/g, '-').trim() || 'lich-lop'}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    setExportButtonStatus(button, '\u2713 \u0110\u00e3 t\u1ea3i Excel');
+  } catch (err) {
+    setExportButtonStatus(button, 'T\u1ea1o Excel l\u1ed7i', true);
+    alert(err.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function canvasBlob(canvas, type, quality) {
   return new Promise((resolve, reject) => canvas.toBlob(
     (blob) => blob ? resolve(blob) : reject(new Error('Kh\u00f4ng t\u1ea1o \u0111\u01b0\u1ee3c \u1ea3nh.')),
@@ -1393,6 +1504,8 @@ async function copyScheduleAsImage(detail, button, titleOptions) {
 function openExportStyleDialog(detail, button, exportType) {
   document.querySelector('.image-export-overlay')?.remove();
   const isExcel = exportType === 'excel';
+  const isExcelDownload = exportType === 'xlsx';
+  const exportName = isExcelDownload ? 'file Excel' : isExcel ? 'Excel' : '&#7843;nh';
   const className = detail.querySelector('.detail-title h3')?.textContent.trim() || 'L\u1ecbch l\u1edbp';
   const presets = {
     orange: { backgroundColor: '#f59e0b', textColor: '#111827' },
@@ -1406,9 +1519,9 @@ function openExportStyleDialog(detail, button, exportType) {
   const overlay = document.createElement('div');
   overlay.className = 'image-export-overlay';
   overlay.innerHTML = `
-    <div class="image-export-dialog" role="dialog" aria-modal="true" aria-label="T&#249;y ch&#7881;nh ${isExcel ? 'Excel' : '&#7843;nh'}">
-      <h3>T&#249;y ch&#7881;nh ${isExcel ? 'Excel' : '&#7843;nh'}</h3>
-      <p class="hint">Khi ${isExcel ? 'copy Excel' : 'xu&#7845;t &#7843;nh'}, &#244; H&#7885;c sinh s&#7869; hi&#7875;n th&#7883; t&#234;n l&#7899;p v&#7899;i m&#224;u &#273;&#227; ch&#7885;n.</p>
+    <div class="image-export-dialog" role="dialog" aria-modal="true" aria-label="T&#249;y ch&#7881;nh ${exportName}">
+      <h3>T&#249;y ch&#7881;nh ${exportName}</h3>
+      <p class="hint">Khi ${isExcelDownload ? 't&#7843;i file Excel' : isExcel ? 'copy Excel' : 'xu&#7845;t &#7843;nh'}, &#244; H&#7885;c sinh s&#7869; hi&#7875;n th&#7883; t&#234;n l&#7899;p v&#7899;i m&#224;u &#273;&#227; ch&#7885;n.</p>
       <label>M&#7851;u m&#224;u
         <select class="image-color-preset">
           <option value="orange">Cam / &#273;en</option>
@@ -1433,7 +1546,7 @@ function openExportStyleDialog(detail, button, exportType) {
       <div class="image-day-preview">Th&#7913; Hai &middot; Th&#7913; Ba &middot; Th&#7913; T&#432;</div>
       <div class="image-export-actions">
         <button class="image-export-cancel" type="button">H&#7911;y</button>
-        <button class="image-export-confirm primary" type="button">${isExcel ? 'Copy Excel' : 'Copy &#7843;nh'}</button>
+        <button class="image-export-confirm primary" type="button">${isExcelDownload ? 'T&#7843;i Excel' : isExcel ? 'Copy Excel' : 'Copy &#7843;nh'}</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -1491,7 +1604,8 @@ function openExportStyleDialog(detail, button, exportType) {
     };
     try { localStorage.setItem('lichlop-image-title-colors', JSON.stringify({ preset: presetSelect.value, dayColorChoice, ...options })); } catch (err) { /* Continue without persistence. */ }
     close();
-    if (isExcel) await copyScheduleToExcel(detail, button, options);
+    if (isExcelDownload) await downloadScheduleExcel(detail, button, options);
+    else if (isExcel) await copyScheduleToExcel(detail, button, options);
     else await copyScheduleAsImage(detail, button, options);
   });
   updatePreview();
@@ -1501,6 +1615,7 @@ function openExportStyleDialog(detail, button, exportType) {
 function wireTeacherClassEvents(id, detail) {
   setupDobInput($('#teacher-new-dob'));
   detail.querySelector('#btn-copy-excel')?.addEventListener('click', (event) => openExportStyleDialog(detail, event.currentTarget, 'excel'));
+  detail.querySelector('#btn-download-excel')?.addEventListener('click', (event) => openExportStyleDialog(detail, event.currentTarget, 'xlsx'));
   detail.querySelector('#btn-copy-image')?.addEventListener('click', (event) => openExportStyleDialog(detail, event.currentTarget, 'image'));
 
   detail.querySelector('#btn-edit')?.addEventListener('click', async () => {
