@@ -458,6 +458,13 @@ button.secondary:hover { background: var(--primary-soft); }
 
 /* Cột thao tác + nút xoá học sinh */
 .act-cell { padding: 4px !important; }
+.student-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+}
 .btn-del-stu {
   border: none; background: #fef2f2; color: var(--danger); width: 24px; height: 24px;
   border-radius: 6px; font-size: 13px; line-height: 1; display: grid; place-items: center;
@@ -737,7 +744,7 @@ body.dark .bulk-class-item:hover { background: var(--primary-soft); border-color
   line-height: 1;
   display: grid;
   place-items: center;
-  margin-top: 4px;
+  margin: 0;
 }
 .btn-manage-stu:hover { background: var(--primary); color: #fff; }
 .current-subject {
@@ -930,17 +937,15 @@ body.dark .mini-class-sector, body.dark .mini-dialog-close { background: #12141c
 .lesson-mt { background: #f9a8d4; }
 .lesson-ft { background: #c4b5fd; }
 .planner-help { color: var(--muted); font-size: 12px; }
-.week-planner { table-layout: fixed; min-width: max-content; }
+.week-planner { table-layout: auto; min-width: max-content; }
 .week-planner th { min-width: 68px; }
-.planner-session-name {
-  width: 62px;
-  min-width: 62px;
-  margin: 0;
-  padding: 5px 4px;
-  border-radius: 6px;
+.planner-session-label {
+  display: inline-block;
+  min-width: 48px;
+  padding: 4px 3px;
   text-align: center;
-  font: inherit;
   font-weight: 800;
+  white-space: nowrap;
 }
 .week-slot {
   min-width: 68px;

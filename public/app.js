@@ -1098,7 +1098,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
           : busy ? `<td class="busy" data-slot="${slot.id}">&times;</td>` : `<td class="${slotClass(slot.id, 'free')}" data-slot="${slot.id}">&middot;</td>`;
       }
     });
-    if (showDelete) html += `<td class="act-cell schedule-actions"><button class="btn-del-stu" data-key="${key}" title="Xoa hoc sinh">&times;</button><button class="btn-manage-stu" data-key="${key}" data-classes="${escapeHtml((student.classIds || []).join(','))}" title="Quản lý học sinh">&#9881;</button></td>`;
+    if (showDelete) html += `<td class="act-cell schedule-actions"><span class="student-row-actions"><button class="btn-del-stu" data-key="${key}" title="Xoá học sinh">&times;</button><button class="btn-manage-stu" data-key="${key}" data-classes="${escapeHtml((student.classIds || []).join(','))}" title="Quản lý học sinh">&#9881;</button></span></td>`;
     html += '</tr>';
   });
 
@@ -2233,8 +2233,8 @@ function renderScheduleEditor() {
   let table = '<div class="schedule-scroll"><table class="schedule week-planner"><thead><tr>';
   DAYS.forEach((day) => table += `<th colspan="${sessions.length}">${escapeHtml(day)}</th>`);
   table += '</tr><tr>';
-  DAYS.forEach(() => sessions.forEach((session, index) => {
-    table += `<th><input class="planner-session-name" data-session="${index}" value="${escapeHtml(session)}" aria-label="Tên ca" ${historical ? 'disabled' : ''}/></th>`;
+  DAYS.forEach(() => sessions.forEach((session) => {
+    table += `<th><span class="planner-session-label">${escapeHtml(session)}</span></th>`;
   }));
   table += '</tr></thead><tbody><tr>';
   DAYS.forEach((day, dayIdx) => sessions.forEach((session, sessionIdx) => {
@@ -2370,14 +2370,6 @@ function wireScheduleEditor() {
       scheduleDirty = true;
     });
   });
-  document.querySelectorAll('.planner-session-name').forEach((input) => {
-    input.addEventListener('input', () => {
-      document.querySelectorAll(`.planner-session-name[data-session="${input.dataset.session}"]`).forEach((copy) => {
-        if (copy !== input) copy.value = input.value;
-      });
-      scheduleDirty = true;
-    });
-  });
   document.querySelectorAll('#planner-week-title').forEach((input) => {
     input.addEventListener('input', () => { scheduleDirty = true; });
   });
@@ -2413,9 +2405,7 @@ function openNewWeekDialog() {
 async function saveScheduleWeek() {
   const button = $('#planner-save');
   const msg = $('#planner-save-msg');
-  const sessions = [...document.querySelectorAll('.planner-session-name')]
-    .slice(0, getSessions(scheduleEditorData).length)
-    .map((input) => input.value.trim());
+  const sessions = getSessions(scheduleEditorData);
   const currentSlots = [...document.querySelectorAll('.week-slot.current-slot')].map((cell) => cell.dataset.slot);
   const body = {
     weekStart: scheduleEditorData.selectedWeekStart,
