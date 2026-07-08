@@ -1293,10 +1293,42 @@ function automaticDayColor(classColor) {
     .sort((first, second) => colorDistance(second, classColor) - colorDistance(first, classColor))[0];
 }
 
-function buildLightExportTable(sourceTable, imageTitleOptions = null) {
+function compactPlannerForImage(table) {
+  if (!table.classList.contains('week-planner')) return;
+  const bodyRows = [...(table.tBodies[0]?.rows || [])];
+  const sessionRow = table.tHead?.rows[1];
+  const dayRow = table.tHead?.rows[0];
+  if (!bodyRows.length || !sessionRow || !dayRow) return;
+
+  const sourceCells = [...bodyRows[0].cells];
+  const keepColumns = sourceCells.map((cell) => cell.classList.contains('current-slot'));
+  if (!keepColumns.some(Boolean) || keepColumns.every(Boolean)) return;
+
+  bodyRows.forEach((row) => {
+    [...row.cells].forEach((cell, index) => {
+      if (!keepColumns[index]) cell.remove();
+    });
+  });
+  [...sessionRow.cells].forEach((cell, index) => {
+    if (!keepColumns[index]) cell.remove();
+  });
+
+  let offset = 0;
+  [...dayRow.cells].forEach((dayCell) => {
+    const originalSpan = Number(dayCell.colSpan || 1);
+    const keptInDay = keepColumns.slice(offset, offset + originalSpan).filter(Boolean).length;
+    offset += originalSpan;
+    if (!keptInDay) dayCell.remove();
+    else dayCell.colSpan = keptInDay;
+  });
+  table.classList.add('image-compacted');
+}
+
+function buildLightExportTable(sourceTable, imageTitleOptions = null, exportOptions = {}) {
   const table = sourceTable.cloneNode(true);
   table.querySelectorAll('.schedule-actions').forEach((cell) => cell.remove());
   table.querySelectorAll('.slot-edit-btn').forEach((button) => button.remove());
+  if (exportOptions.compactPlanner) compactPlannerForImage(table);
   const isPlanner = table.classList.contains('week-planner');
   const studentHeader = table.tHead?.rows[0]?.cells[1];
   if (studentHeader && imageTitleOptions && !isPlanner) {
@@ -1533,7 +1565,7 @@ function canvasBlob(canvas, type, quality) {
 }
 
 async function renderScheduleImage(source, titleOptions) {
-  const table = buildLightExportTable(source, titleOptions);
+  const table = buildLightExportTable(source, titleOptions, { compactPlanner: true });
   const stage = document.createElement('div');
   stage.style.cssText = 'position:fixed;left:-10000px;top:0;width:max-content;background:#fff;z-index:-1;';
   stage.appendChild(table);
@@ -1543,8 +1575,8 @@ async function renderScheduleImage(source, titleOptions) {
   const stageRect = stage.getBoundingClientRect();
   const width = Math.ceil(stageRect.width);
   const height = Math.ceil(stageRect.height);
-  const maxPixels = 30000000;
-  const scale = Math.min(2, Math.sqrt(maxPixels / Math.max(1, width * height)));
+  const maxPixels = 45000000;
+  const scale = Math.min(3, Math.sqrt(maxPixels / Math.max(1, width * height)));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.ceil(width * scale));
   canvas.height = Math.max(1, Math.ceil(height * scale));
@@ -1621,12 +1653,12 @@ async function copyScheduleAsImage(detail, button, titleOptions) {
   button.textContent = '\u0110ang t\u1ea1o \u1ea3nh...';
   try {
     const canvas = await renderScheduleImage(source, titleOptions);
-    const jpeg = await canvasBlob(canvas, 'image/jpeg', .94);
+    const png = await canvasBlob(canvas, 'image/png');
     try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/jpeg': jpeg })]);
-    } catch (jpegError) {
-      const png = await canvasBlob(canvas, 'image/png');
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    } catch (pngError) {
+      const jpeg = await canvasBlob(canvas, 'image/jpeg', .98);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/jpeg': jpeg })]);
     }
     setExportButtonStatus(button, '\u2713 \u0110\u00e3 copy \u1ea3nh');
   } catch (err) {
@@ -1659,7 +1691,7 @@ function openExportStyleDialog(detail, button, exportType) {
     <div class="image-export-dialog" role="dialog" aria-modal="true" aria-label="T&#249;y ch&#7881;nh ${exportName}">
       <h3>T&#249;y ch&#7881;nh ${exportName}</h3>
       <p class="hint">${plannerExport
-        ? `Ch&#7885;n m&#224;u ti&#234;u &#273;&#7873; ng&#224;y khi ${isExcelDownload ? 't&#7843;i file Excel' : isExcel ? 'copy Excel' : 'xu&#7845;t &#7843;nh'}.`
+        ? `Ch&#7885;n m&#224;u ti&#234;u &#273;&#7873; ng&#224;y khi ${isExcelDownload ? 't&#7843;i file Excel' : isExcel ? 'copy Excel' : 'xu&#7845;t &#7843;nh'}.${!isExcel && !isExcelDownload ? ' C&#225;c c&#7897;t ca ho&#224;n to&#224;n tr&#7889;ng s&#7869; t&#7921; &#273;&#7897;ng &#273;&#432;&#7907;c c&#7855;t b&#7887;.' : ''}`
         : `Khi ${isExcelDownload ? 't&#7843;i file Excel' : isExcel ? 'copy Excel' : 'xu&#7845;t &#7843;nh'}, &#244; H&#7885;c sinh s&#7869; hi&#7875;n th&#7883; t&#234;n l&#7899;p v&#7899;i m&#224;u &#273;&#227; ch&#7885;n.`}</p>
       <label>M&#7851;u m&#224;u
         <select class="image-color-preset">
