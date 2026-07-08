@@ -1180,9 +1180,10 @@ function fitExportColumnWidths(table) {
   const bodyRows = [...(table.tBodies[0]?.rows || [])];
   if (table.classList.contains('week-planner')) {
     const columnCount = Math.max(1, ...bodyRows.map((row) => row.cells.length));
+    const sessionRow = [...(table.tHead?.rows || [])].find((row) => row.querySelector('.planner-session-label'));
     const widths = Array.from({ length: columnCount }, (_, index) => {
       const values = bodyRows.map((row) => row.cells[index]?.textContent.trim().replace(/\s+/g, ' ') || '');
-      const session = table.tHead?.rows[1]?.cells[index]?.textContent.trim() || '';
+      const session = sessionRow?.cells[index]?.textContent.trim() || '';
       return Math.ceil(Math.min(180, Math.max(78, measureExportText(session) + 18, ...values.map((value) => measureExportText(value) + 18))));
     });
     const colgroup = document.createElement('colgroup');
@@ -1336,7 +1337,14 @@ function buildLightExportTable(sourceTable, imageTitleOptions = null, exportOpti
     studentHeader.classList.add('image-class-title');
     [...(table.tHead?.rows[0]?.cells || [])].slice(2).forEach((cell) => cell.classList.add('image-day-title'));
   } else if (imageTitleOptions && isPlanner) {
-    [...(table.tHead?.rows[0]?.cells || [])].forEach((cell) => cell.classList.add('image-day-title'));
+    const dayRow = table.tHead?.rows[0];
+    [...(dayRow?.cells || [])].forEach((cell) => cell.classList.add('image-day-title'));
+    const titleRow = table.tHead.insertRow(0);
+    const titleCell = document.createElement('th');
+    titleRow.appendChild(titleCell);
+    titleCell.colSpan = Math.max(1, table.tBodies[0]?.rows[0]?.cells.length || 1);
+    titleCell.textContent = imageTitleOptions.className;
+    titleCell.className = 'image-class-title planner-export-title';
   }
   table.querySelectorAll('input[type="checkbox"]').forEach((input) => {
     const mark = document.createTextNode(input.checked ? (input.classList.contains('current-chk') ? '\u25cf' : '\u00d7') : '\u00b7');
@@ -1399,6 +1407,16 @@ function setExportButtonStatus(button, text, isError = false) {
     button.classList.remove('export-error');
   }, 2200);
   button.dataset.statusTimer = String(timer);
+}
+
+function showCopiedUrl(button) {
+  if (!button) return;
+  button.classList.add('copy-confirmed');
+  setExportButtonStatus(button, '✓ Đã copy URL');
+  clearTimeout(Number(button.dataset.copyClassTimer || 0));
+  button.dataset.copyClassTimer = String(setTimeout(() => {
+    button.classList.remove('copy-confirmed');
+  }, 2600));
 }
 
 function fallbackCopyHtml(table) {
@@ -1498,7 +1516,9 @@ async function downloadScheduleExcel(detail, button, titleOptions) {
     const occupied = new Set();
     [...table.rows].forEach((row, rowIndex) => {
       const excelRow = rowIndex + 1;
-      worksheet.getRow(excelRow).height = rowIndex < 2 ? 24 : table.classList.contains('week-planner') ? 44 : 21;
+      worksheet.getRow(excelRow).height = table.classList.contains('week-planner')
+        ? rowIndex < 3 ? 24 : 44
+        : rowIndex < 2 ? 24 : 21;
       let excelColumn = 1;
       [...row.cells].forEach((htmlCell) => {
         while (occupied.has(`${excelRow}:${excelColumn}`)) excelColumn++;
@@ -2493,7 +2513,7 @@ function wireScheduleEditor() {
   $('#planner-copy-url')?.addEventListener('click', async (event) => {
     try {
       await navigator.clipboard.writeText(publicScheduleUrl(scheduleClassId));
-      setExportButtonStatus(event.currentTarget, '✓ Đã copy URL');
+      showCopiedUrl(event.currentTarget);
     } catch (err) {
       setExportButtonStatus(event.currentTarget, 'Copy lỗi', true);
     }
@@ -2634,7 +2654,7 @@ async function initPublicScheduleViewer() {
   copyButton?.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(location.href);
-      setExportButtonStatus(copyButton, '✓ Đã copy URL');
+      showCopiedUrl(copyButton);
     } catch (err) {
       setExportButtonStatus(copyButton, 'Copy lỗi', true);
     }
