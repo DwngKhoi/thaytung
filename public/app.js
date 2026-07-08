@@ -1075,7 +1075,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
       if (currentEditable) {
         html += `<td class="${slotClass(slot.id, 'current-picker')}" data-slot="${slot.id}"><input type="checkbox" class="current-chk" data-slot="${slot.id}" ${current ? 'checked' : ''}></td>`;
       } else {
-        html += `<td class="${slotClass(slot.id, current ? '' : 'free')}" data-slot="${slot.id}">${current ? escapeHtml(finalSubjects[slot.id] || 'Lịch') : '&middot;'}</td>`;
+        html += `<td class="${slotClass(slot.id, current ? '' : 'free')}" data-slot="${slot.id}">${current && finalSubjects[slot.id] ? escapeHtml(finalSubjects[slot.id]) : '&middot;'}</td>`;
       }
     });
     if (showDelete) html += '<td class="schedule-actions"></td>';
@@ -1094,7 +1094,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
         html += `<td class="${slotClass(slot.id, editBase)}" data-slot="${slot.id}"><input type="checkbox" class="busy-chk" data-key="${key}" data-slot="${slot.id}" ${busy ? 'checked' : ''}></td>`;
       } else {
         html += current
-          ? `<td class="current-slot" data-slot="${slot.id}" title="Lich hoc hien tai">${escapeHtml(finalSubjects[slot.id] || 'Lịch')}</td>`
+          ? `<td class="current-slot" data-slot="${slot.id}" title="Lịch học hiện tại">${finalSubjects[slot.id] ? escapeHtml(finalSubjects[slot.id]) : '&middot;'}</td>`
           : busy ? `<td class="busy" data-slot="${slot.id}">&times;</td>` : `<td class="${slotClass(slot.id, 'free')}" data-slot="${slot.id}">&middot;</td>`;
       }
     });
@@ -2241,7 +2241,7 @@ function renderScheduleEditor() {
     const slotId = `${dayIdx}-${sessionIdx}`;
     const active = currentSlots.has(slotId);
     const lesson = weekSlots[slotId] || '';
-    table += `<td class="week-slot${active ? ' current-slot' : ''}${lesson ? ' has-lesson' : ''}${historical ? ' historical-slot' : ''}" data-slot="${slotId}" data-lesson="${escapeHtml(lesson)}" title="${historical ? 'Tuần cũ chỉ xem' : active ? 'Thả môn học vào đây; bấm đúp để xoá nội dung' : 'Bấm để bật ô lịch'}">${lesson ? escapeHtml(lesson) : active ? '&nbsp;' : '&middot;'}</td>`;
+    table += `<td class="week-slot${active ? ' current-slot' : ''}${lesson ? ' has-lesson' : ''}${historical ? ' historical-slot' : ''}" data-slot="${slotId}" data-lesson="${escapeHtml(lesson)}" title="${historical ? 'Tuần cũ chỉ xem' : active ? 'Thả môn học vào đây; bấm đúp để xoá nội dung' : 'Bấm để bật ô lịch'}">${lesson ? escapeHtml(lesson) : '&middot;'}</td>`;
   }));
   table += '</tr></tbody></table></div>';
 
@@ -2264,13 +2264,18 @@ function renderScheduleEditor() {
       <span class="planner-range">Thứ 2–Chủ nhật: <b>${escapeHtml(weekRangeText(data.selectedWeekStart))}</b></span>
     </div>
     ${historical ? '<p class="readonly-note">Tuần trước ở chế độ chỉ xem. Hãy quay về Tuần hiện tại hoặc tạo Tuần mới để chỉnh.</p>' : `<div class="lesson-builder">
-      <div class="lesson-builder-head"><b>Bộ môn kéo & thả</b><span>Nhập số buổi bắt đầu cho S, W, LR rồi bấm Lưu bộ môn.</span></div>
+      <div class="lesson-builder-head"><b>Bộ môn kéo & thả</b><span>Thiết lập số thứ tự bắt đầu một lần, hệ thống sẽ tự tăng ở những lần thả tiếp theo.</span></div>
+      <div class="lesson-number-help">
+        <b>Không nhập thủ công cho từng ngày.</b>
+        Ví dụ lớp đã học 4 buổi Speaking thì nhập <b>S bắt đầu từ 5</b>. Sau khi lưu, lần kéo đầu tạo <b>S5</b>, các lần tiếp theo tự thành <b>S6, S7...</b>.
+        W và LR hoạt động tương tự; MT/FT không cần nhập số.
+      </div>
       <div id="lesson-start-fields" class="lesson-start-fields">
-        <label>S <input id="lesson-start-s" type="number" min="1" value="${escapeHtml(starts.S || 1)}" /></label>
-        <label>W <input id="lesson-start-w" type="number" min="1" value="${escapeHtml(starts.W || 1)}" /></label>
-        <label>LR <input id="lesson-start-lr" type="number" min="1" value="${escapeHtml(starts.LR || 1)}" /></label>
-        <button id="lesson-config-save" class="primary" type="button">Lưu bộ môn</button>
-        <button id="lesson-config-edit" class="secondary hidden" type="button">Chỉnh sửa</button>
+        <label>S bắt đầu từ <input id="lesson-start-s" type="number" min="1" value="${escapeHtml(starts.S || 1)}" /></label>
+        <label>W bắt đầu từ <input id="lesson-start-w" type="number" min="1" value="${escapeHtml(starts.W || 1)}" /></label>
+        <label>LR bắt đầu từ <input id="lesson-start-lr" type="number" min="1" value="${escapeHtml(starts.LR || 1)}" /></label>
+        <button id="lesson-config-save" class="primary" type="button">Lưu số bắt đầu</button>
+        <button id="lesson-config-edit" class="secondary hidden" type="button">Sửa số bắt đầu</button>
       </div>
       <div id="lesson-palette" class="lesson-palette hidden">
         ${['S', 'W', 'LR', 'MT', 'FT'].map((type) => `<button class="lesson-token lesson-${type.toLowerCase()}" draggable="true" data-type="${type}" type="button">${type}</button>`).join('')}
@@ -2344,7 +2349,7 @@ function wireScheduleEditor() {
         cell.textContent = '·';
         cell.classList.remove('has-lesson');
       } else if (!cell.dataset.lesson) {
-        cell.innerHTML = '&nbsp;';
+        cell.innerHTML = '&middot;';
       }
       scheduleDirty = true;
     });
@@ -2360,7 +2365,7 @@ function wireScheduleEditor() {
       event.preventDefault();
       if (!cell.classList.contains('current-slot') || cell.classList.contains('historical-slot')) return;
       cell.dataset.lesson = '';
-      cell.innerHTML = '&nbsp;';
+      cell.innerHTML = '&middot;';
       cell.classList.remove('has-lesson');
       scheduleDirty = true;
     });

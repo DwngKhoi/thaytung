@@ -1935,3 +1935,19 @@ end;
 $$;
 
 grant execute on all functions in schema public to anon;
+
+-- One-time reset requested on 2026-07-09: keep yellow slots, clear their old labels.
+do $reset_old_schedule_labels$
+begin
+  if not exists (
+    select 1 from app_settings
+    where key = 'MIGRATION_EMPTY_SCHEDULE_LABELS_20260709'
+  ) then
+    update classes set final_subjects = '{}'::jsonb;
+    update class_schedule_weeks set slots = '{}'::jsonb, updated_at = now();
+    insert into app_settings (key, value)
+    values ('MIGRATION_EMPTY_SCHEDULE_LABELS_20260709', 'done')
+    on conflict (key) do nothing;
+  end if;
+end;
+$reset_old_schedule_labels$;

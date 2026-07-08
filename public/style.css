@@ -893,6 +893,16 @@ body.dark .mini-class-sector, body.dark .mini-dialog-close { background: #12141c
 }
 .lesson-builder-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .lesson-builder-head span { color: var(--muted); font-size: 12px; }
+.lesson-number-help {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 4px solid var(--primary);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+}
 .lesson-start-fields {
   display: flex;
   align-items: flex-end;
@@ -900,7 +910,7 @@ body.dark .mini-class-sector, body.dark .mini-dialog-close { background: #12141c
   flex-wrap: wrap;
   margin-top: 10px;
 }
-.lesson-start-fields label { margin: 0; width: 82px; }
+.lesson-start-fields label { margin: 0; width: 125px; font-size: 11px; }
 .lesson-start-fields input { margin: 4px 0 0; padding: 8px; }
 .lesson-config-locked label { opacity: .58; }
 .lesson-palette { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 12px; }
