@@ -16,6 +16,12 @@ let teacherAccounts = [];
 let selectedTeacherAccountId = null;
 let teacherClasses = [];
 let teacherClassSectors = [];
+let scheduleClassId = null;
+let scheduleEditorData = null;
+let scheduleSelectedWeekStart = '';
+let scheduleLessonType = '';
+let scheduleDirty = false;
+const SCHEDULE_EXPANDED_SECTORS_KEY = 'lichlop-schedule-expanded-sectors';
 
 const $ = (sel) => document.querySelector(sel);
 const API_BASE = window.API_BASE || '';
@@ -380,6 +386,23 @@ async function supabaseApi(path, opts = {}) {
   if (action === 'rename') return supabaseRpc('api_rename_class', { teacher_key: teacherToken(), class_id, name: body.name });
   if (action === 'set-sessions') return supabaseRpc('api_set_class_sessions', { teacher_key: teacherToken(), class_id, sessions: body.sessions || [] });
   if (action === 'set-current-slots') return supabaseRpc('api_set_current_slots', { teacher_key: teacherToken(), class_id, current_slots: body.currentSlots || [], final_subjects: body.finalSubjects || {} });
+  if (action === 'schedule') {
+    if (method === 'GET') return supabaseRpc('api_schedule_class', {
+      teacher_key: teacherToken(),
+      class_id,
+      selected_week_start: body.weekStart || null
+    });
+    return supabaseRpc('api_save_schedule_week', {
+      teacher_key: teacherToken(),
+      class_id,
+      week_start: body.weekStart,
+      title: body.title,
+      week_slots: body.slots || {},
+      current_slots: body.currentSlots || [],
+      sessions: body.sessions || [],
+      lesson_starts: body.lessonStarts || {}
+    });
+  }
   if (action === 'add-student') return supabaseRpc('api_add_student', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob });
   if (action === 'approve') return supabaseRpc('api_set_submission_status', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob, status: 'approved' });
   if (action === 'reject') return supabaseRpc('api_delete_submission', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob });
@@ -512,10 +535,16 @@ function initTabs() {
       document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
       btn.classList.add('active');
       $('#tab-' + btn.dataset.tab)?.classList.add('active');
+      if (btn.dataset.tab !== 'schedule' && scheduleClassId) {
+        scheduleClassId = null;
+        scheduleEditorData = null;
+        scheduleSelectedWeekStart = '';
+        history.pushState({}, '', appBasePath());
+      }
       if (btn.dataset.tab === 'archived') loadArchived();
       if (btn.dataset.tab === 'accounts') loadTeacherAccounts();
       if (btn.dataset.tab === 'sync-sessions') renderBulkSessions();
-      if (btn.dataset.tab === 'schedule') loadFinalSchedule();
+      if (btn.dataset.tab === 'schedule') loadScheduleHome();
     });
   });
 }
@@ -559,7 +588,7 @@ function initTeacher() {
   $('#btn-bulk-select-all')?.addEventListener('click', () => setBulkClassSelection(true));
   $('#btn-bulk-clear')?.addEventListener('click', () => setBulkClassSelection(false));
   $('#btn-bulk-save')?.addEventListener('click', saveBulkSessions);
-  $('#btn-refresh-final-schedule')?.addEventListener('click', loadFinalSchedule);
+  window.addEventListener('popstate', handleScheduleRoute);
   $('#new-class-name')?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') addClass();
   });
@@ -643,6 +672,8 @@ async function loadClasses() {
   sessionStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(classes));
   renderClassList(classes);
   if ($('#tab-sync-sessions')?.classList.contains('active')) renderBulkSessions();
+  if ($('#tab-schedule')?.classList.contains('active')) renderScheduleHome();
+  activateInitialScheduleRoute();
 }
 
 function renderBulkSessions() {
@@ -952,7 +983,7 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   let html = `<div class="detail-head"><div class="detail-title"><h3>${escapeHtml(cls.name)}</h3>`;
   if (canManage) {
     html += `<button id="btn-edit" class="btn-edit${editMode ? ' active' : ''}">${editMode ? '✓ Xong' : 'Chỉnh sửa'}</button>
-      <button id="btn-current-schedule" class="btn-current${currentScheduleMode ? ' active' : ''}">${currentScheduleMode ? '✓ Lưu lịch hiện tại' : 'Lịch hiện tại'}</button>`;
+      <button id="btn-current-schedule" class="btn-current${currentScheduleMode ? ' active' : ''}">${currentScheduleMode ? '✓ Lưu các ô lịch' : 'Chọn ô lịch'}</button>`;
   }
   if (hasScheduleTable) {
     html += '<button id="btn-copy-excel" class="btn-export" type="button">Copy Excel</button>';
@@ -961,7 +992,7 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   }
   html += '</div></div>';
   if (editMode) html += '<p class="hint">Đang chỉnh sửa: tick/bỏ tick các ô rồi bấm Xong để lưu một lần.</p>';
-  if (currentScheduleMode) html += '<p class="hint current-hint">Tick các buổi lớp đang học. Các ô này sẽ bị khóa trên phiếu học sinh.</p>';
+  if (currentScheduleMode) html += '<p class="hint current-hint">Chỉ tick/bỏ tick các ô lớp học. Tên ca và nội dung S/W/LR/MT/FT được chỉnh trong tab <b>Lịch</b>.</p>';
   if (canManage && approved.length === 0 && !currentScheduleMode && currentSlots.length === 0) {
     html += '<p class="placeholder">Chưa có học sinh nào được duyệt.</p>';
     html += renderPendingBox(pending, nameCounts, sessions);
@@ -1042,8 +1073,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
     slots.forEach((slot) => {
       const current = currentSlots.includes(slot.id);
       if (currentEditable) {
-        const subject = finalSubjects[slot.id] || 'speaking';
-        html += `<td class="${slotClass(slot.id, 'current-picker')}" data-slot="${slot.id}"><input type="checkbox" class="current-chk" data-slot="${slot.id}" ${current ? 'checked' : ''}><input type="text" class="current-subject${current ? '' : ' hidden'}" data-slot="${slot.id}" value="${escapeHtml(subject)}" placeholder="speaking" /></td>`;
+        html += `<td class="${slotClass(slot.id, 'current-picker')}" data-slot="${slot.id}"><input type="checkbox" class="current-chk" data-slot="${slot.id}" ${current ? 'checked' : ''}></td>`;
       } else {
         html += `<td class="${slotClass(slot.id, current ? '' : 'free')}" data-slot="${slot.id}">${current ? escapeHtml(finalSubjects[slot.id] || 'Lịch') : '&middot;'}</td>`;
       }
@@ -1690,15 +1720,10 @@ function wireTeacherClassEvents(id, detail) {
       return;
     }
     const currentSlots = [...detail.querySelectorAll('.current-chk:checked')].map((input) => input.dataset.slot);
-    const finalSubjects = {};
-    currentSlots.forEach((slotId) => {
-      const subject = detail.querySelector(`.current-subject[data-slot="${CSS.escape(slotId)}"]`)?.value.trim() || 'speaking';
-      finalSubjects[slotId] = subject;
-    });
     const button = detail.querySelector('#btn-current-schedule');
     if (button) { button.disabled = true; button.textContent = 'Đang lưu...'; }
     try {
-      await api(`/classes/${id}/set-current-slots`, { method: 'POST', body: JSON.stringify({ currentSlots, finalSubjects }) });
+      await api(`/classes/${id}/set-current-slots`, { method: 'POST', body: JSON.stringify({ currentSlots }) });
       currentScheduleMode = false;
       await refreshTeacherView(id);
     } catch (err) {
@@ -1709,7 +1734,6 @@ function wireTeacherClassEvents(id, detail) {
 
   detail.querySelectorAll('.current-chk').forEach((checkbox) => {
     checkbox.addEventListener('change', () => {
-      detail.querySelector(`.current-subject[data-slot="${CSS.escape(checkbox.dataset.slot)}"]`)?.classList.toggle('hidden', !checkbox.checked);
       detail.querySelectorAll(`[data-slot="${checkbox.dataset.slot}"]`).forEach((cell) => {
         cell.classList.toggle('current-slot', checkbox.checked);
       });
@@ -1975,46 +1999,441 @@ async function loadArchived() {
   });
 }
 
-async function loadFinalSchedule() {
-  const target = $('#final-schedule-result');
-  if (!target || !teacherSession) return;
-  clearTimeout(finalScheduleTimer);
-  try {
-    target.innerHTML = '<p class="placeholder">Đang tải lịch final...</p>';
-    const classes = sortClasses(await api('/final-schedule'));
-    if (!classes.length) {
-      target.innerHTML = '<p class="placeholder">Chưa có lớp nào được chốt lịch hiện tại.</p>';
-    } else {
-      target.innerHTML = classes.map(renderFinalScheduleClass).join('');
-    }
-  } catch (err) {
-    target.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+function appBasePath() {
+  if (location.hostname.endsWith('github.io')) {
+    const first = location.pathname.split('/').filter(Boolean)[0];
+    return first ? `/${first}/` : '/';
   }
-  if ($('#tab-schedule')?.classList.contains('active')) {
-    finalScheduleTimer = setTimeout(loadFinalSchedule, 30000);
+  return '/';
+}
+
+function classRouteSlug(cls) {
+  const slug = String(cls?.name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('vi-VN')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const duplicate = teacherClasses.filter((item) => {
+    const other = String(item?.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return other === slug;
+  }).length > 1;
+  return slug && !duplicate ? slug : cls?.id || slug;
+}
+
+function scheduleClassUrl(classId) {
+  const cls = teacherClasses.find((item) => item.id === classId);
+  return `${appBasePath()}${encodeURIComponent(classRouteSlug(cls) || classId)}`;
+}
+
+function requestedScheduleClassId() {
+  const redirected = new URLSearchParams(location.search).get('route');
+  if (redirected) return redirected.replace(/^\/+|\/+$/g, '').split('/').pop() || '';
+  const base = appBasePath();
+  const relative = decodeURIComponent(location.pathname.slice(base.length)).replace(/^\/+|\/+$/g, '');
+  return relative && !relative.includes('.') ? relative.split('/').pop() : '';
+}
+
+function activateScheduleTab() {
+  document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === 'schedule'));
+  document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === 'tab-schedule'));
+}
+
+function activateInitialScheduleRoute() {
+  if (!teacherSession || scheduleClassId) return;
+  const route = requestedScheduleClassId();
+  const routedClass = teacherClasses.find((cls) => cls.id === route || classRouteSlug(cls) === route);
+  if (!routedClass) return;
+  activateScheduleTab();
+  history.replaceState({ scheduleClassId: routedClass.id }, '', scheduleClassUrl(routedClass.id));
+  openScheduleClass(routedClass.id, { updateUrl: false });
+}
+
+function handleScheduleRoute() {
+  const route = requestedScheduleClassId();
+  const routedClass = teacherClasses.find((cls) => cls.id === route || classRouteSlug(cls) === route);
+  if (routedClass) {
+    activateScheduleTab();
+    openScheduleClass(routedClass.id, { updateUrl: false });
+  } else if ($('#tab-schedule')?.classList.contains('active')) {
+    scheduleClassId = null;
+    renderScheduleHome();
   }
 }
 
-function renderFinalScheduleClass(cls) {
-  const sessions = getSessions(cls);
-  const currentSlots = new Set(cls.currentSlots || []);
-  const finalSubjects = cls.finalSubjects || {};
-  let html = `<div class="final-class-block"><h3>${escapeHtml(cls.name)}</h3><div class="schedule-scroll"><table class="schedule final-schedule-table"><thead><tr>`;
-  DAYS.forEach((day) => html += `<th colspan="${sessions.length}">${escapeHtml(day)}</th>`);
-  html += '</tr><tr>';
-  DAYS.forEach(() => sessions.forEach((session) => {
-    html += `<th>${escapeHtml(session)}</th>`;
+function scheduleExpandedSectorIds() {
+  try {
+    const value = JSON.parse(localStorage.getItem(SCHEDULE_EXPANDED_SECTORS_KEY) || '[]');
+    return new Set(Array.isArray(value) ? value.map(String) : []);
+  } catch (err) {
+    return new Set();
+  }
+}
+
+function toggleScheduleSector(sectorId) {
+  const ids = scheduleExpandedSectorIds();
+  const key = String(sectorId);
+  if (ids.has(key)) ids.delete(key);
+  else ids.add(key);
+  localStorage.setItem(SCHEDULE_EXPANDED_SECTORS_KEY, JSON.stringify([...ids]));
+  renderScheduleHome();
+}
+
+async function loadScheduleHome() {
+  clearTimeout(finalScheduleTimer);
+  if (!teacherSession) return;
+  if (!teacherClasses.length) {
+    try { await loadClasses(); } catch (err) { /* Render error below if needed. */ }
+  }
+  if (scheduleClassId) {
+    await openScheduleClass(scheduleClassId, { updateUrl: false });
+    return;
+  }
+  renderScheduleHome();
+}
+
+function renderScheduleHome() {
+  const target = $('#final-schedule-result');
+  if (!target || scheduleClassId) return;
+  const groups = buildSectorGroups(teacherClasses).filter((group) => group.classes.length);
+  if (!groups.length) {
+    target.innerHTML = '<p class="placeholder">Chưa có lớp để lập lịch.</p>';
+    return;
+  }
+  const expanded = scheduleExpandedSectorIds();
+  target.innerHTML = `<div class="schedule-directory">${groups.map((group) => {
+    const open = expanded.has(String(group.id));
+    return `<section class="schedule-sector${open ? ' expanded' : ''}">
+      <button class="schedule-sector-head" type="button" data-sector="${escapeHtml(group.id)}">
+        <span>${open ? '&#9662;' : '&#9656;'}</span>
+        <b>${escapeHtml(group.name)}</b>
+        <small>${group.classes.length} lớp</small>
+      </button>
+      <div class="schedule-sector-classes${open ? '' : ' hidden'}">
+        ${group.classes.map((cls) => `<a href="${escapeHtml(scheduleClassUrl(cls.id))}" class="schedule-class-link" data-class-id="${escapeHtml(cls.id)}">${escapeHtml(cls.name)}<span>&#8250;</span></a>`).join('')}
+      </div>
+    </section>`;
+  }).join('')}</div>`;
+  target.querySelectorAll('.schedule-sector-head').forEach((button) => {
+    button.addEventListener('click', () => toggleScheduleSector(button.dataset.sector));
+  });
+  target.querySelectorAll('.schedule-class-link').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      openScheduleClass(link.dataset.classId);
+    });
+  });
+}
+
+function localIsoDate(date) {
+  const adjusted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return adjusted.toISOString().slice(0, 10);
+}
+
+function mondayOf(value = new Date()) {
+  const date = new Date(value);
+  date.setHours(12, 0, 0, 0);
+  const day = date.getDay() || 7;
+  date.setDate(date.getDate() - day + 1);
+  return date;
+}
+
+function addDays(value, days) {
+  const date = new Date(value);
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function shortDate(value) {
+  const date = new Date(`${value}T12:00:00`);
+  return `${date.getDate()}/${date.getMonth() + 1}`;
+}
+
+function weekRangeText(weekStart) {
+  return `${shortDate(weekStart)}–${shortDate(localIsoDate(addDays(new Date(`${weekStart}T12:00:00`), 6)))}`;
+}
+
+function defaultWeekTitle(weekStart) {
+  const date = new Date(`${weekStart}T12:00:00`);
+  const jan4 = new Date(date.getFullYear(), 0, 4, 12);
+  const firstMonday = mondayOf(jan4);
+  const week = Math.floor((mondayOf(date) - firstMonday) / 604800000) + 1;
+  return `Tuần ${week}`;
+}
+
+async function openScheduleClass(classId, options = {}) {
+  const target = $('#final-schedule-result');
+  if (!target || !teacherSession) return;
+  const switchingClass = scheduleClassId && scheduleClassId !== classId;
+  if (switchingClass) scheduleSelectedWeekStart = '';
+  scheduleClassId = classId;
+  if (options.updateUrl !== false) history.pushState({ scheduleClassId: classId }, '', scheduleClassUrl(classId));
+  target.innerHTML = '<p class="placeholder">Đang tải lịch lớp...</p>';
+  try {
+    const weekStart = options.weekStart || scheduleSelectedWeekStart || null;
+    scheduleEditorData = await api(`/classes/${classId}/schedule`, {
+      method: 'GET',
+      body: JSON.stringify({ weekStart })
+    });
+    scheduleSelectedWeekStart = scheduleEditorData.selectedWeekStart || scheduleEditorData.currentWeekStart;
+    scheduleDirty = false;
+    renderScheduleEditor();
+  } catch (err) {
+    target.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function lessonStartsFromEditor() {
+  const starts = scheduleEditorData?.lessonStarts || {};
+  return {
+    S: Math.max(1, Number($('#lesson-start-s')?.value || starts.S || 1)),
+    W: Math.max(1, Number($('#lesson-start-w')?.value || starts.W || 1)),
+    LR: Math.max(1, Number($('#lesson-start-lr')?.value || starts.LR || 1))
+  };
+}
+
+function nextLessonLabel(type) {
+  if (type === 'MT' || type === 'FT') return type;
+  const data = scheduleEditorData || {};
+  const starts = lessonStartsFromEditor();
+  const maximums = data.lessonMaximums || {};
+  const currentSlots = collectScheduleSlotValues();
+  const currentMax = Object.values(currentSlots).reduce((max, label) => {
+    const match = String(label).match(new RegExp(`^${type}(\\d+)$`));
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return `${type}${Math.max(starts[type] - 1, Number(maximums[type] || 0), currentMax) + 1}`;
+}
+
+function collectScheduleSlotValues() {
+  const values = {};
+  document.querySelectorAll('.week-slot.has-lesson').forEach((cell) => {
+    if (cell.dataset.lesson) values[cell.dataset.slot] = cell.dataset.lesson;
+  });
+  return values;
+}
+
+function renderScheduleEditor() {
+  const target = $('#final-schedule-result');
+  const data = scheduleEditorData;
+  if (!target || !data) return;
+  scheduleLessonType = '';
+  const sessions = getSessions(data);
+  const week = data.selectedWeek || {};
+  const historical = data.selectedWeekStart < data.currentWeekStart;
+  const currentSlots = new Set(
+    data.selectedWeekStart === data.currentWeekStart
+      ? data.currentSlots || []
+      : week.activeSlots || data.currentSlots || []
+  );
+  const weekSlots = week.slots || (data.selectedWeekStart === data.currentWeekStart ? data.finalSubjects || {} : {});
+  const starts = data.lessonStarts || { S: 1, W: 1, LR: 1 };
+  const title = week.title || defaultWeekTitle(data.selectedWeekStart);
+  let table = '<div class="schedule-scroll"><table class="schedule week-planner"><thead><tr>';
+  DAYS.forEach((day) => table += `<th colspan="${sessions.length}">${escapeHtml(day)}</th>`);
+  table += '</tr><tr>';
+  DAYS.forEach(() => sessions.forEach((session, index) => {
+    table += `<th><input class="planner-session-name" data-session="${index}" value="${escapeHtml(session)}" aria-label="Tên ca" ${historical ? 'disabled' : ''}/></th>`;
   }));
-  html += '</tr></thead><tbody><tr>';
+  table += '</tr></thead><tbody><tr>';
   DAYS.forEach((day, dayIdx) => sessions.forEach((session, sessionIdx) => {
     const slotId = `${dayIdx}-${sessionIdx}`;
-    const subject = finalSubjects[slotId] || '';
-    html += currentSlots.has(slotId)
-      ? `<td class="current-slot final-subject-cell">${escapeHtml(subject || 'Lịch')}</td>`
-      : '<td class="free">&middot;</td>';
+    const active = currentSlots.has(slotId);
+    const lesson = weekSlots[slotId] || '';
+    table += `<td class="week-slot${active ? ' current-slot' : ''}${lesson ? ' has-lesson' : ''}${historical ? ' historical-slot' : ''}" data-slot="${slotId}" data-lesson="${escapeHtml(lesson)}" title="${historical ? 'Tuần cũ chỉ xem' : active ? 'Thả môn học vào đây; bấm đúp để xoá nội dung' : 'Bấm để bật ô lịch'}">${lesson ? escapeHtml(lesson) : active ? '&nbsp;' : '&middot;'}</td>`;
   }));
-  html += '</tr></tbody></table></div></div>';
-  return html;
+  table += '</tr></tbody></table></div>';
+
+  target.innerHTML = `
+    <div class="planner-topbar">
+      <button id="planner-back" class="secondary" type="button">&larr; Các lớp</button>
+      <div><h2>${escapeHtml(data.name)}</h2><p>${escapeHtml(title)} (${escapeHtml(weekRangeText(data.selectedWeekStart))})</p></div>
+      <div class="planner-week-actions">
+        <button id="planner-new-week" type="button">Tuần mới</button>
+        <label>Tuần trước
+          <select id="planner-week-select">
+            <option value="${escapeHtml(data.currentWeekStart)}"${data.selectedWeekStart === data.currentWeekStart ? ' selected' : ''}>Tuần hiện tại</option>
+            ${(data.weeks || []).filter((item) => item.weekStart !== data.currentWeekStart).map((item) => `<option value="${escapeHtml(item.weekStart)}"${data.selectedWeekStart === item.weekStart ? ' selected' : ''}>${escapeHtml(item.title)} (${escapeHtml(weekRangeText(item.weekStart))})</option>`).join('')}
+          </select>
+        </label>
+      </div>
+    </div>
+    <div class="planner-meta">
+      <label>Tên tuần<input id="planner-week-title" value="${escapeHtml(title)}" ${historical ? 'disabled' : ''}/></label>
+      <span class="planner-range">Thứ 2–Chủ nhật: <b>${escapeHtml(weekRangeText(data.selectedWeekStart))}</b></span>
+    </div>
+    ${historical ? '<p class="readonly-note">Tuần trước ở chế độ chỉ xem. Hãy quay về Tuần hiện tại hoặc tạo Tuần mới để chỉnh.</p>' : `<div class="lesson-builder">
+      <div class="lesson-builder-head"><b>Bộ môn kéo & thả</b><span>Nhập số buổi bắt đầu cho S, W, LR rồi bấm Lưu bộ môn.</span></div>
+      <div id="lesson-start-fields" class="lesson-start-fields">
+        <label>S <input id="lesson-start-s" type="number" min="1" value="${escapeHtml(starts.S || 1)}" /></label>
+        <label>W <input id="lesson-start-w" type="number" min="1" value="${escapeHtml(starts.W || 1)}" /></label>
+        <label>LR <input id="lesson-start-lr" type="number" min="1" value="${escapeHtml(starts.LR || 1)}" /></label>
+        <button id="lesson-config-save" class="primary" type="button">Lưu bộ môn</button>
+        <button id="lesson-config-edit" class="secondary hidden" type="button">Chỉnh sửa</button>
+      </div>
+      <div id="lesson-palette" class="lesson-palette hidden">
+        ${['S', 'W', 'LR', 'MT', 'FT'].map((type) => `<button class="lesson-token lesson-${type.toLowerCase()}" draggable="true" data-type="${type}" type="button">${type}</button>`).join('')}
+      </div>
+    </div>`}
+    <p class="planner-help">Bấm ô để bật/tắt màu vàng. Kéo S/W/LR/MT/FT vào ô vàng; S/W/LR tự tăng số từ toàn bộ lịch sử. Bấm đúp ô để xoá nội dung.</p>
+    ${table}
+    <div class="planner-save-row">
+      <span id="planner-save-msg" class="msg"></span>
+      ${historical ? '' : '<button id="planner-save" class="primary" type="button">Lưu tuần</button>'}
+    </div>`;
+  wireScheduleEditor();
+}
+
+function setLessonBuilderSaved(saved) {
+  $('#lesson-start-fields')?.classList.toggle('lesson-config-locked', saved);
+  document.querySelectorAll('#lesson-start-fields input').forEach((input) => { input.disabled = saved; });
+  $('#lesson-config-save')?.classList.toggle('hidden', saved);
+  $('#lesson-config-edit')?.classList.toggle('hidden', !saved);
+  $('#lesson-palette')?.classList.toggle('hidden', !saved);
+}
+
+function applyLessonToCell(cell, type) {
+  if (!cell?.classList.contains('current-slot')) return;
+  const label = nextLessonLabel(type);
+  cell.dataset.lesson = label;
+  cell.textContent = label;
+  cell.classList.add('has-lesson');
+  scheduleDirty = true;
+}
+
+function wireScheduleEditor() {
+  $('#planner-back')?.addEventListener('click', () => {
+    scheduleClassId = null;
+    scheduleEditorData = null;
+    scheduleSelectedWeekStart = '';
+    history.pushState({}, '', appBasePath());
+    renderScheduleHome();
+  });
+  $('#planner-week-select')?.addEventListener('change', (event) => {
+    scheduleSelectedWeekStart = event.target.value;
+    openScheduleClass(scheduleClassId, { updateUrl: false, weekStart: scheduleSelectedWeekStart });
+  });
+  $('#planner-new-week')?.addEventListener('click', openNewWeekDialog);
+  $('#lesson-config-save')?.addEventListener('click', () => {
+    scheduleEditorData.lessonStarts = lessonStartsFromEditor();
+    setLessonBuilderSaved(true);
+    scheduleDirty = true;
+  });
+  $('#lesson-config-edit')?.addEventListener('click', () => setLessonBuilderSaved(false));
+  document.querySelectorAll('.lesson-token').forEach((token) => {
+    token.addEventListener('dragstart', (event) => {
+      event.dataTransfer.setData('text/plain', token.dataset.type);
+      event.dataTransfer.effectAllowed = 'copy';
+    });
+    token.addEventListener('click', () => {
+      scheduleLessonType = scheduleLessonType === token.dataset.type ? '' : token.dataset.type;
+      document.querySelectorAll('.lesson-token').forEach((item) => item.classList.toggle('selected', item.dataset.type === scheduleLessonType));
+    });
+  });
+  document.querySelectorAll('.week-slot').forEach((cell) => {
+    cell.addEventListener('click', () => {
+      if (cell.classList.contains('historical-slot')) return;
+      if (scheduleLessonType && cell.classList.contains('current-slot')) {
+        applyLessonToCell(cell, scheduleLessonType);
+        return;
+      }
+      cell.classList.toggle('current-slot');
+      if (!cell.classList.contains('current-slot')) {
+        cell.dataset.lesson = '';
+        cell.textContent = '·';
+        cell.classList.remove('has-lesson');
+      } else if (!cell.dataset.lesson) {
+        cell.innerHTML = '&nbsp;';
+      }
+      scheduleDirty = true;
+    });
+    cell.addEventListener('dragover', (event) => {
+      if (cell.classList.contains('current-slot') && !cell.classList.contains('historical-slot')) event.preventDefault();
+    });
+    cell.addEventListener('drop', (event) => {
+      event.preventDefault();
+      if (cell.classList.contains('historical-slot')) return;
+      applyLessonToCell(cell, event.dataTransfer.getData('text/plain'));
+    });
+    cell.addEventListener('dblclick', (event) => {
+      event.preventDefault();
+      if (!cell.classList.contains('current-slot') || cell.classList.contains('historical-slot')) return;
+      cell.dataset.lesson = '';
+      cell.innerHTML = '&nbsp;';
+      cell.classList.remove('has-lesson');
+      scheduleDirty = true;
+    });
+  });
+  document.querySelectorAll('.planner-session-name').forEach((input) => {
+    input.addEventListener('input', () => {
+      document.querySelectorAll(`.planner-session-name[data-session="${input.dataset.session}"]`).forEach((copy) => {
+        if (copy !== input) copy.value = input.value;
+      });
+      scheduleDirty = true;
+    });
+  });
+  document.querySelectorAll('#planner-week-title').forEach((input) => {
+    input.addEventListener('input', () => { scheduleDirty = true; });
+  });
+  $('#planner-save')?.addEventListener('click', saveScheduleWeek);
+}
+
+function openNewWeekDialog() {
+  const weeks = scheduleEditorData?.weeks || [];
+  const latest = weeks.length ? new Date(`${weeks[0].weekStart}T12:00:00`) : new Date(`${scheduleEditorData.currentWeekStart}T12:00:00`);
+  const proposed = localIsoDate(addDays(latest, 7));
+  const dialog = openMiniDialog('Tạo tuần mới', `
+    <label>Tên tuần<input id="new-week-title" value="${escapeHtml(defaultWeekTitle(proposed))}" /></label>
+    <label>Chọn một ngày trong tuần<input id="new-week-date" type="date" value="${escapeHtml(proposed)}" /></label>
+    <p id="new-week-range" class="hint"></p>`, async (overlay) => {
+      const selectedDate = overlay.querySelector('#new-week-date')?.value;
+      if (!selectedDate) throw new Error('Hãy chọn ngày cho tuần mới.');
+      const monday = localIsoDate(mondayOf(new Date(`${selectedDate}T12:00:00`)));
+      const title = overlay.querySelector('#new-week-title')?.value.trim() || defaultWeekTitle(monday);
+      scheduleSelectedWeekStart = monday;
+      scheduleEditorData.selectedWeekStart = monday;
+      scheduleEditorData.selectedWeek = { weekStart: monday, title, slots: {} };
+      setTimeout(renderScheduleEditor, 0);
+    });
+  const dateInput = dialog.querySelector('#new-week-date');
+  const updateRange = () => {
+    const monday = localIsoDate(mondayOf(new Date(`${dateInput.value}T12:00:00`)));
+    dialog.querySelector('#new-week-range').textContent = `Thứ 2–Chủ nhật: ${weekRangeText(monday)}`;
+  };
+  dateInput.addEventListener('change', updateRange);
+  updateRange();
+}
+
+async function saveScheduleWeek() {
+  const button = $('#planner-save');
+  const msg = $('#planner-save-msg');
+  const sessions = [...document.querySelectorAll('.planner-session-name')]
+    .slice(0, getSessions(scheduleEditorData).length)
+    .map((input) => input.value.trim());
+  const currentSlots = [...document.querySelectorAll('.week-slot.current-slot')].map((cell) => cell.dataset.slot);
+  const body = {
+    weekStart: scheduleEditorData.selectedWeekStart,
+    title: $('#planner-week-title')?.value.trim() || defaultWeekTitle(scheduleEditorData.selectedWeekStart),
+    slots: collectScheduleSlotValues(),
+    currentSlots,
+    sessions,
+    lessonStarts: lessonStartsFromEditor()
+  };
+  button.disabled = true;
+  showMsg(msg, 'Đang lưu...', '');
+  try {
+    await api(`/classes/${scheduleClassId}/schedule`, { method: 'POST', body: JSON.stringify(body) });
+    showMsg(msg, 'Đã lưu và đồng bộ sang tab Lớp học.', 'ok');
+    scheduleDirty = false;
+    scheduleSelectedWeekStart = body.weekStart;
+    await loadClasses();
+    await openScheduleClass(scheduleClassId, { updateUrl: false, weekStart: body.weekStart });
+  } catch (err) {
+    showMsg(msg, err.message, 'err');
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function initTeacherAccounts() {

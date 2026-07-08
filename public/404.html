@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Đang mở lịch lớp...</title>
+</head>
+<body>
+  <p>Đang mở lịch lớp...</p>
+  <script>
+    (function () {
+      var parts = location.pathname.split('/').filter(Boolean);
+      var repository = location.hostname.endsWith('github.io') && parts.length ? '/' + parts.shift() + '/' : '/';
+      var route = parts.join('/');
+      location.replace(repository + '?route=' + encodeURIComponent(route));
+    }());
+  </script>
+</body>
+</html>

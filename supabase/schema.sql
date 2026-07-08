@@ -496,6 +496,372 @@ $$;
 
 grant execute on all functions in schema public to anon;
 
+-- Keep these weekly-planner overrides last because earlier migration blocks also
+-- define the legacy current-schedule RPCs.
+create or replace function api_set_current_slots(
+  teacher_key text,
+  class_id text,
+  current_slots text[],
+  final_subjects jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  c classes;
+  cleaned text[];
+  preserved_subjects jsonb;
+begin
+  perform require_class_manager(teacher_key, api_set_current_slots.class_id);
+  select * into c from classes where id = api_set_current_slots.class_id;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+
+  select coalesce(array_agg(slot order by slot), '{}') into cleaned
+  from (
+    select distinct clean_name(value) slot
+    from unnest(coalesce(api_set_current_slots.current_slots, '{}')) value
+    where clean_name(value) ~ '^[0-6]-[0-9]+$'
+      and split_part(clean_name(value), '-', 2)::int < array_length(c.sessions, 1)
+  ) valid;
+
+  select coalesce(jsonb_object_agg(slot, subject), '{}'::jsonb)
+  into preserved_subjects
+  from (
+    select slot, coalesce(
+      nullif(clean_name(api_set_current_slots.final_subjects->>slot), ''),
+      nullif(clean_name(c.final_subjects->>slot), '')
+    ) subject
+    from unnest(cleaned) slot
+  ) x
+  where subject is not null;
+
+  update classes
+  set current_slots = cleaned, final_subjects = preserved_subjects
+  where id = c.id;
+
+  return jsonb_build_object('ok', true, 'currentSlots', cleaned, 'finalSubjects', preserved_subjects);
+end;
+$$;
+
+create or replace function api_final_schedule(teacher_key text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform require_teacher(teacher_key);
+  return coalesce((
+    select jsonb_agg(class_summary(c) order by lower(c.name), c.name, c.id)
+    from classes c
+    where not c.archived and can_access_class(teacher_key, c.id)
+  ), '[]'::jsonb);
+end;
+$$;
+
+grant execute on all functions in schema public to anon;
+
+-- Final weekly-planner overrides (must remain at the end of this migration file).
+create or replace function api_set_current_slots(
+  teacher_key text,
+  class_id text,
+  current_slots text[],
+  final_subjects jsonb default '{}'::jsonb
+)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare c classes; cleaned text[]; preserved_subjects jsonb;
+begin
+  perform require_class_manager(teacher_key, api_set_current_slots.class_id);
+  select * into c from classes where id = api_set_current_slots.class_id;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+  select coalesce(array_agg(slot order by slot), '{}') into cleaned
+  from (
+    select distinct clean_name(value) slot
+    from unnest(coalesce(api_set_current_slots.current_slots, '{}')) value
+    where clean_name(value) ~ '^[0-6]-[0-9]+$'
+      and split_part(clean_name(value), '-', 2)::int < array_length(c.sessions, 1)
+  ) valid;
+  select coalesce(jsonb_object_agg(slot, subject), '{}'::jsonb) into preserved_subjects
+  from (
+    select slot, coalesce(
+      nullif(clean_name(api_set_current_slots.final_subjects->>slot), ''),
+      nullif(clean_name(c.final_subjects->>slot), '')
+    ) subject
+    from unnest(cleaned) slot
+  ) x where subject is not null;
+  update classes set current_slots = cleaned, final_subjects = preserved_subjects where id = c.id;
+  return jsonb_build_object('ok', true, 'currentSlots', cleaned, 'finalSubjects', preserved_subjects);
+end;
+$$;
+
+create or replace function api_final_schedule(teacher_key text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  perform require_teacher(teacher_key);
+  return coalesce((
+    select jsonb_agg(class_summary(c) order by lower(c.name), c.name, c.id)
+    from classes c
+    where not c.archived and can_access_class(teacher_key, c.id)
+  ), '[]'::jsonb);
+end;
+$$;
+
+grant execute on all functions in schema public to anon;
+
+-- 2026-07-09: weekly class planner. One compact JSON object is stored per class/week.
+alter table classes
+  add column if not exists lesson_starts jsonb not null
+  default '{"S":1,"W":1,"LR":1}'::jsonb;
+
+create table if not exists class_schedule_weeks (
+  id uuid primary key default gen_random_uuid(),
+  class_id text not null references classes(id) on delete cascade,
+  week_start date not null,
+  title text not null,
+  slots jsonb not null default '{}'::jsonb,
+  active_slots text[] not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (class_id, week_start)
+);
+
+alter table class_schedule_weeks
+  add column if not exists active_slots text[] not null default '{}';
+
+create index if not exists class_schedule_weeks_class_date_idx
+  on class_schedule_weeks (class_id, week_start desc);
+
+alter table class_schedule_weeks enable row level security;
+drop policy if exists "deny direct class schedule weeks" on class_schedule_weeks;
+create policy "deny direct class schedule weeks"
+  on class_schedule_weeks for all using (false) with check (false);
+
+create or replace function api_schedule_class(
+  teacher_key text,
+  class_id text,
+  selected_week_start date default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  c classes;
+  monday date := current_date - (extract(isodow from current_date)::int - 1);
+  requested date := coalesce(api_schedule_class.selected_week_start, monday);
+  selected_week jsonb;
+begin
+  perform require_class_manager(teacher_key, api_schedule_class.class_id);
+  select * into c from classes where id = api_schedule_class.class_id and not archived;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+
+  select jsonb_build_object(
+    'weekStart', w.week_start::text,
+    'title', w.title,
+    'slots', w.slots,
+    'activeSlots', w.active_slots
+  ) into selected_week
+  from class_schedule_weeks w
+  where w.class_id = c.id and w.week_start = requested;
+
+  return jsonb_build_object(
+    'id', c.id,
+    'name', c.name,
+    'sessions', c.sessions,
+    'currentSlots', c.current_slots,
+    'finalSubjects', c.final_subjects,
+    'lessonStarts', c.lesson_starts,
+    'sectorId', c.sector_id,
+    'sectorName', (select s.name from class_sectors s where s.id = c.sector_id),
+    'currentWeekStart', monday::text,
+    'selectedWeekStart', requested::text,
+    'selectedWeek', selected_week,
+    'weeks', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'weekStart', w.week_start::text,
+        'title', w.title
+      ) order by w.week_start desc)
+      from class_schedule_weeks w
+      where w.class_id = c.id
+    ), '[]'::jsonb),
+    'lessonMaximums', jsonb_build_object(
+      'S', coalesce((select max((regexp_match(value, '^S([0-9]+)$'))[1]::int)
+                     from class_schedule_weeks w, jsonb_each_text(w.slots)
+                     where w.class_id = c.id and value ~ '^S[0-9]+$'), 0),
+      'W', coalesce((select max((regexp_match(value, '^W([0-9]+)$'))[1]::int)
+                     from class_schedule_weeks w, jsonb_each_text(w.slots)
+                     where w.class_id = c.id and value ~ '^W[0-9]+$'), 0),
+      'LR', coalesce((select max((regexp_match(value, '^LR([0-9]+)$'))[1]::int)
+                      from class_schedule_weeks w, jsonb_each_text(w.slots)
+                      where w.class_id = c.id and value ~ '^LR[0-9]+$'), 0)
+    )
+  );
+end;
+$$;
+
+create or replace function api_save_schedule_week(
+  teacher_key text,
+  class_id text,
+  week_start date,
+  title text,
+  week_slots jsonb,
+  current_slots text[],
+  sessions text[],
+  lesson_starts jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  c classes;
+  clean_sessions text[];
+  clean_current text[];
+  clean_slots jsonb;
+  clean_starts jsonb;
+begin
+  perform require_class_manager(teacher_key, api_save_schedule_week.class_id);
+  select * into c from classes where id = api_save_schedule_week.class_id and not archived;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+  if api_save_schedule_week.week_start is null then raise exception 'Thiếu ngày bắt đầu tuần'; end if;
+
+  select coalesce(array_agg(value order by ord), '{}') into clean_sessions
+  from (
+    select min(ord) ord, clean_name(value) value
+    from unnest(coalesce(api_save_schedule_week.sessions, '{}')) with ordinality t(value, ord)
+    where clean_name(value) <> ''
+    group by lower(clean_name(value)), clean_name(value)
+    order by min(ord)
+    limit 12
+  ) x;
+  if coalesce(array_length(clean_sessions, 1), 0) = 0 then
+    raise exception 'Cần ít nhất một ca';
+  end if;
+
+  select coalesce(array_agg(slot order by slot), '{}') into clean_current
+  from (
+    select distinct clean_name(value) slot
+    from unnest(coalesce(api_save_schedule_week.current_slots, '{}')) value
+    where clean_name(value) ~ '^[0-6]-[0-9]+$'
+      and split_part(clean_name(value), '-', 2)::int < array_length(clean_sessions, 1)
+  ) valid;
+
+  select coalesce(jsonb_object_agg(key, upper(clean_name(value))), '{}'::jsonb)
+  into clean_slots
+  from jsonb_each_text(coalesce(api_save_schedule_week.week_slots, '{}'::jsonb))
+  where key = any(clean_current)
+    and upper(clean_name(value)) ~ '^(S[0-9]+|W[0-9]+|LR[0-9]+|MT|FT)$';
+
+  clean_starts := jsonb_build_object(
+    'S', greatest(coalesce((api_save_schedule_week.lesson_starts->>'S')::int, 1), 1),
+    'W', greatest(coalesce((api_save_schedule_week.lesson_starts->>'W')::int, 1), 1),
+    'LR', greatest(coalesce((api_save_schedule_week.lesson_starts->>'LR')::int, 1), 1)
+  );
+
+  update classes
+  set sessions = clean_sessions,
+      current_slots = clean_current,
+      final_subjects = clean_slots,
+      lesson_starts = clean_starts
+  where id = c.id;
+
+  insert into class_schedule_weeks (class_id, week_start, title, slots, active_slots, updated_at)
+  values (
+    c.id,
+    api_save_schedule_week.week_start,
+    coalesce(nullif(clean_name(api_save_schedule_week.title), ''), 'Tuần'),
+    clean_slots,
+    clean_current,
+    now()
+  )
+  on conflict (class_id, week_start) do update
+  set title = excluded.title,
+      slots = excluded.slots,
+      active_slots = excluded.active_slots,
+      updated_at = now();
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- The class tab controls yellow cells only. Lesson labels are edited in the Lịch tab.
+create or replace function api_set_current_slots(
+  teacher_key text,
+  class_id text,
+  current_slots text[],
+  final_subjects jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  c classes;
+  cleaned text[];
+  preserved_subjects jsonb;
+begin
+  perform require_class_manager(teacher_key, api_set_current_slots.class_id);
+  select * into c from classes where id = api_set_current_slots.class_id;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+
+  select coalesce(array_agg(slot order by slot), '{}') into cleaned
+  from (
+    select distinct clean_name(value) slot
+    from unnest(coalesce(api_set_current_slots.current_slots, '{}')) value
+    where clean_name(value) ~ '^[0-6]-[0-9]+$'
+      and split_part(clean_name(value), '-', 2)::int < array_length(c.sessions, 1)
+  ) valid;
+
+  select coalesce(jsonb_object_agg(slot, subject), '{}'::jsonb)
+  into preserved_subjects
+  from (
+    select slot, coalesce(
+      nullif(clean_name(api_set_current_slots.final_subjects->>slot), ''),
+      nullif(clean_name(c.final_subjects->>slot), '')
+    ) subject
+    from unnest(cleaned) slot
+  ) x
+  where subject is not null;
+
+  update classes
+  set current_slots = cleaned,
+      final_subjects = preserved_subjects
+  where id = c.id;
+
+  return jsonb_build_object(
+    'ok', true,
+    'currentSlots', cleaned,
+    'finalSubjects', preserved_subjects
+  );
+end;
+$$;
+
+create or replace function api_final_schedule(teacher_key text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform require_teacher(teacher_key);
+  return coalesce((
+    select jsonb_agg(class_summary(c) order by lower(c.name), c.name, c.id)
+    from classes c
+    where not c.archived and can_access_class(teacher_key, c.id)
+  ), '[]'::jsonb);
+end;
+$$;
+
+grant execute on all functions in schema public to anon;
+
 -- Teacher accounts, class assignments and current class schedule.
 -- This section is also safe to run as a migration on an existing database.
 alter table classes add column if not exists current_slots text[] not null default '{}';
@@ -1518,6 +1884,53 @@ begin
       from approved a
     ), '[]'::jsonb)
   );
+end;
+$$;
+
+grant execute on all functions in schema public to anon;
+
+-- Effective weekly-planner overrides. Keep this block at EOF.
+create or replace function api_set_current_slots(
+  teacher_key text,
+  class_id text,
+  current_slots text[],
+  final_subjects jsonb default '{}'::jsonb
+)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare c classes; cleaned text[]; preserved_subjects jsonb;
+begin
+  perform require_class_manager(teacher_key, api_set_current_slots.class_id);
+  select * into c from classes where id = api_set_current_slots.class_id;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+  select coalesce(array_agg(slot order by slot), '{}') into cleaned
+  from (
+    select distinct clean_name(value) slot
+    from unnest(coalesce(api_set_current_slots.current_slots, '{}')) value
+    where clean_name(value) ~ '^[0-6]-[0-9]+$'
+      and split_part(clean_name(value), '-', 2)::int < array_length(c.sessions, 1)
+  ) valid;
+  select coalesce(jsonb_object_agg(slot, subject), '{}'::jsonb) into preserved_subjects
+  from (
+    select slot, coalesce(
+      nullif(clean_name(api_set_current_slots.final_subjects->>slot), ''),
+      nullif(clean_name(c.final_subjects->>slot), '')
+    ) subject
+    from unnest(cleaned) slot
+  ) x where subject is not null;
+  update classes set current_slots = cleaned, final_subjects = preserved_subjects where id = c.id;
+  return jsonb_build_object('ok', true, 'currentSlots', cleaned, 'finalSubjects', preserved_subjects);
+end;
+$$;
+
+create or replace function api_final_schedule(teacher_key text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  perform require_teacher(teacher_key);
+  return coalesce((
+    select jsonb_agg(class_summary(c) order by lower(c.name), c.name, c.id)
+    from classes c
+    where not c.archived and can_access_class(teacher_key, c.id)
+  ), '[]'::jsonb);
 end;
 $$;
 

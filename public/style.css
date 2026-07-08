@@ -808,3 +808,159 @@ body.dark .bulk-class-item:hover { background: var(--primary-soft); border-color
 body.dark .pending-detail { background: #2a2515; border-color: #5a4a16; color: #fbbf24; }
 body.dark .mini-dialog, body.dark .mini-class-check { background: var(--surface); }
 body.dark .mini-class-sector, body.dark .mini-dialog-close { background: #12141c; }
+
+/* Weekly schedule planner */
+.schedule-directory { display: grid; gap: 12px; margin-top: 10px; }
+.schedule-sector {
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.schedule-sector-head {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: #f8fafc;
+  color: var(--primary-dark);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  text-align: left;
+}
+.schedule-sector-head:hover { background: var(--primary-soft); }
+.schedule-sector-head small { margin-left: auto; color: var(--muted); }
+.schedule-sector-classes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 9px;
+  padding: 12px;
+}
+.schedule-class-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: none;
+}
+.schedule-class-link:hover {
+  border-color: var(--primary);
+  color: var(--primary-dark);
+  background: var(--primary-soft);
+}
+.planner-topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.planner-topbar h2 { margin: 0; font-size: 22px; }
+.planner-topbar p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+.planner-week-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  margin-left: auto;
+}
+.planner-week-actions label { margin: 0; font-size: 11px; }
+.planner-week-actions select { min-width: 210px; margin: 4px 0 0; padding: 8px; }
+.planner-meta {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fafbfe;
+}
+.planner-meta label { margin: 0; min-width: 220px; }
+.planner-meta input { margin: 5px 0 0; }
+.planner-range { color: var(--muted); padding-bottom: 9px; }
+.lesson-builder {
+  margin: 14px 0;
+  padding: 13px;
+  border: 1px solid #c7c9f7;
+  border-radius: 13px;
+  background: var(--primary-soft);
+}
+.lesson-builder-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.lesson-builder-head span { color: var(--muted); font-size: 12px; }
+.lesson-start-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.lesson-start-fields label { margin: 0; width: 82px; }
+.lesson-start-fields input { margin: 4px 0 0; padding: 8px; }
+.lesson-config-locked label { opacity: .58; }
+.lesson-palette { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 12px; }
+.lesson-token {
+  min-width: 58px;
+  border: 2px solid transparent;
+  color: #111827;
+  font-weight: 900;
+  cursor: grab;
+  box-shadow: 0 4px 12px rgba(15,23,42,.1);
+}
+.lesson-token:active { cursor: grabbing; }
+.lesson-token.selected { border-color: #111827; transform: translateY(-2px); }
+.lesson-s { background: #38bdf8; }
+.lesson-w { background: #fbbf24; }
+.lesson-lr { background: #86d451; }
+.lesson-mt { background: #f9a8d4; }
+.lesson-ft { background: #c4b5fd; }
+.planner-help { color: var(--muted); font-size: 12px; }
+.week-planner { table-layout: fixed; min-width: max-content; }
+.week-planner th { min-width: 68px; }
+.planner-session-name {
+  width: 62px;
+  min-width: 62px;
+  margin: 0;
+  padding: 5px 4px;
+  border-radius: 6px;
+  text-align: center;
+  font: inherit;
+  font-weight: 800;
+}
+.week-slot {
+  min-width: 68px;
+  height: 58px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 900;
+  font-size: 14px;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.week-slot:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 2px var(--primary); }
+.week-slot.current-slot { background: rgba(253, 253, 10) !important; color: #3f3f00 !important; }
+.week-slot.has-lesson { font-size: 16px; letter-spacing: .02em; }
+.planner-save-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 15px;
+}
+.planner-save-row .msg { margin: 0; }
+body.dark .schedule-sector-head,
+body.dark .planner-meta { background: #20242f; }
+body.dark .schedule-class-link { background: #1a1d27; }
+body.dark .lesson-builder { background: #20213a; border-color: #3d4361; }
+
+@media (max-width: 760px) {
+  .planner-week-actions { width: 100%; margin-left: 0; flex-wrap: wrap; }
+  .planner-week-actions label { flex: 1; }
+  .planner-week-actions select { width: 100%; min-width: 0; }
+  .schedule-sector-classes { grid-template-columns: 1fr; }
+  .planner-save-row { align-items: stretch; flex-direction: column; }
+}
