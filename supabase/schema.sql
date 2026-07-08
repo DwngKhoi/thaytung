@@ -623,6 +623,7 @@ create table if not exists class_schedule_weeks (
   title text not null,
   slots jsonb not null default '{}'::jsonb,
   active_slots text[] not null default '{}',
+  details jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (class_id, week_start)
@@ -630,6 +631,8 @@ create table if not exists class_schedule_weeks (
 
 alter table class_schedule_weeks
   add column if not exists active_slots text[] not null default '{}';
+alter table class_schedule_weeks
+  add column if not exists details jsonb not null default '{}'::jsonb;
 
 create index if not exists class_schedule_weeks_class_date_idx
   on class_schedule_weeks (class_id, week_start desc);
@@ -664,7 +667,8 @@ begin
     'weekStart', w.week_start::text,
     'title', w.title,
     'slots', w.slots,
-    'activeSlots', w.active_slots
+    'activeSlots', w.active_slots,
+    'details', w.details
   ) into selected_week
   from class_schedule_weeks w
   where w.class_id = c.id and w.week_start = requested;
@@ -710,6 +714,7 @@ create or replace function api_save_schedule_week(
   week_start date,
   title text,
   week_slots jsonb,
+  week_details jsonb,
   current_slots text[],
   sessions text[],
   lesson_starts jsonb
@@ -724,6 +729,7 @@ declare
   clean_sessions text[];
   clean_current text[];
   clean_slots jsonb;
+  clean_details jsonb;
   clean_starts jsonb;
 begin
   perform require_class_manager(teacher_key, api_save_schedule_week.class_id);
@@ -756,7 +762,16 @@ begin
   into clean_slots
   from jsonb_each_text(coalesce(api_save_schedule_week.week_slots, '{}'::jsonb))
   where key = any(clean_current)
-    and upper(clean_name(value)) ~ '^(S[0-9]+|W[0-9]+|LR[0-9]+|MT|FT)$';
+    and upper(clean_name(value)) ~ '^(S[0-9]+|W[0-9]+|LR[0-9]+|MT|FT|REVIEW)$';
+
+  select coalesce(jsonb_object_agg(key, jsonb_build_object(
+    'location', left(clean_name(value->>'location'), 80),
+    'note', left(clean_name(value->>'note'), 300)
+  )), '{}'::jsonb)
+  into clean_details
+  from jsonb_each(coalesce(api_save_schedule_week.week_details, '{}'::jsonb))
+  where key = any(clean_current)
+    and (clean_name(value->>'location') <> '' or clean_name(value->>'note') <> '');
 
   clean_starts := jsonb_build_object(
     'S', greatest(coalesce((api_save_schedule_week.lesson_starts->>'S')::int, 1), 1),
@@ -771,19 +786,21 @@ begin
       lesson_starts = clean_starts
   where id = c.id;
 
-  insert into class_schedule_weeks (class_id, week_start, title, slots, active_slots, updated_at)
+  insert into class_schedule_weeks (class_id, week_start, title, slots, active_slots, details, updated_at)
   values (
     c.id,
     api_save_schedule_week.week_start,
     coalesce(nullif(clean_name(api_save_schedule_week.title), ''), 'Tuần'),
     clean_slots,
     clean_current,
+    clean_details,
     now()
   )
   on conflict (class_id, week_start) do update
   set title = excluded.title,
       slots = excluded.slots,
       active_slots = excluded.active_slots,
+      details = excluded.details,
       updated_at = now();
 
   return jsonb_build_object('ok', true);
@@ -1951,3 +1968,41 @@ begin
   end if;
 end;
 $reset_old_schedule_labels$;
+
+-- Remove the previous weekly-save overload after adding per-slot details.
+drop function if exists api_save_schedule_week(text, text, date, text, jsonb, text[], text[], jsonb);
+
+create or replace function api_public_schedule(student_key text, class_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  c classes;
+  monday date := current_date - (extract(isodow from current_date)::int - 1);
+  w class_schedule_weeks;
+begin
+  perform require_student(student_key);
+  select * into c from classes where id = api_public_schedule.class_id and not archived;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+
+  select * into w
+  from class_schedule_weeks
+  where class_schedule_weeks.class_id = c.id and week_start = monday;
+
+  return jsonb_build_object(
+    'id', c.id,
+    'name', c.name,
+    'sessions', c.sessions,
+    'weekStart', monday::text,
+    'title', coalesce(w.title, 'Tuần hiện tại'),
+    'activeSlots', coalesce(w.active_slots, c.current_slots),
+    'slots', coalesce(w.slots, c.final_subjects, '{}'::jsonb),
+    'details', coalesce(w.details, '{}'::jsonb)
+  );
+end;
+$$;
+
+grant execute on all functions in schema public to anon;

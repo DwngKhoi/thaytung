@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lịch học - Olympus English</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css?v=20260709-5" />
+</head>
+<body class="student-page public-schedule-page">
+  <header>
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo" aria-label="Olympus English"></div>
+        <div>
+          <h1>Lịch học <span class="badge-soft">Chỉ xem</span></h1>
+          <p class="sub">Lịch học chính thức do giáo viên cập nhật.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="public-copy-url" class="student-link" type="button">Copy URL</button>
+        <a class="student-link" href="student.html">Đăng ký lịch bận</a>
+        <button id="btn-theme" class="theme-toggle" title="Chuyển Light/Dark">🌙</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="tab-panel active">
+    <div id="public-schedule" class="card public-schedule-card">
+      <p class="placeholder">Đang tải lịch lớp...</p>
+    </div>
+  </section>
+
+  <script src="config.js"></script>
+  <script src="app.js?v=20260709-5"></script>
+</body>
+</html>

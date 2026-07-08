@@ -60,6 +60,10 @@ function getSessions(cls) {
   return Array.isArray(cls?.sessions) && cls.sessions.length ? cls.sessions : DEFAULT_SESSIONS;
 }
 
+function displayLessonLabel(value) {
+  return String(value || '') === 'REVIEW' ? 'Ôn tập' : String(value || '');
+}
+
 function buildSlots(sessions) {
   const slots = [];
   DAYS.forEach((day, dayIdx) => {
@@ -355,6 +359,10 @@ async function supabaseApi(path, opts = {}) {
   if (path === '/config') return supabaseRpc('api_config');
   if (path === '/login' && method === 'POST') return supabaseRpc('api_login', { username: body.username, password: body.password });
   if (path === '/classes' && method === 'GET') return supabaseRpc('api_classes', { student_key: STUDENT_KEY });
+  if (path === '/public-schedule' && method === 'POST') return supabaseRpc('api_public_schedule', {
+    student_key: STUDENT_KEY,
+    class_id: body.classId
+  });
   if (path === '/teacher/classes' && method === 'GET') return supabaseRpc('api_teacher_classes', { teacher_key: teacherToken() });
   if (path === '/final-schedule' && method === 'GET') return supabaseRpc('api_final_schedule', { teacher_key: teacherToken() });
   if (path === '/class-sectors' && method === 'GET') return supabaseRpc('api_class_sectors', { teacher_key: teacherToken() });
@@ -398,6 +406,7 @@ async function supabaseApi(path, opts = {}) {
       week_start: body.weekStart,
       title: body.title,
       week_slots: body.slots || {},
+      week_details: body.details || {},
       current_slots: body.currentSlots || [],
       sessions: body.sessions || [],
       lesson_starts: body.lessonStarts || {}
@@ -1075,7 +1084,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
       if (currentEditable) {
         html += `<td class="${slotClass(slot.id, 'current-picker')}" data-slot="${slot.id}"><input type="checkbox" class="current-chk" data-slot="${slot.id}" ${current ? 'checked' : ''}></td>`;
       } else {
-        html += `<td class="${slotClass(slot.id, current ? '' : 'free')}" data-slot="${slot.id}">${current && finalSubjects[slot.id] ? escapeHtml(finalSubjects[slot.id]) : '&middot;'}</td>`;
+        html += `<td class="${slotClass(slot.id, current ? '' : 'free')}" data-slot="${slot.id}">${current && finalSubjects[slot.id] ? escapeHtml(displayLessonLabel(finalSubjects[slot.id])) : '&middot;'}</td>`;
       }
     });
     if (showDelete) html += '<td class="schedule-actions"></td>';
@@ -1094,7 +1103,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
         html += `<td class="${slotClass(slot.id, editBase)}" data-slot="${slot.id}"><input type="checkbox" class="busy-chk" data-key="${key}" data-slot="${slot.id}" ${busy ? 'checked' : ''}></td>`;
       } else {
         html += current
-          ? `<td class="current-slot" data-slot="${slot.id}" title="Lịch học hiện tại">${finalSubjects[slot.id] ? escapeHtml(finalSubjects[slot.id]) : '&middot;'}</td>`
+          ? `<td class="current-slot" data-slot="${slot.id}" title="Lịch học hiện tại">${finalSubjects[slot.id] ? escapeHtml(displayLessonLabel(finalSubjects[slot.id])) : '&middot;'}</td>`
           : busy ? `<td class="busy" data-slot="${slot.id}">&times;</td>` : `<td class="${slotClass(slot.id, 'free')}" data-slot="${slot.id}">&middot;</td>`;
       }
     });
@@ -1169,6 +1178,26 @@ function measureExportText(value, font = '700 13px Arial, sans-serif') {
 
 function fitExportColumnWidths(table) {
   const bodyRows = [...(table.tBodies[0]?.rows || [])];
+  if (table.classList.contains('week-planner')) {
+    const columnCount = Math.max(1, ...bodyRows.map((row) => row.cells.length));
+    const widths = Array.from({ length: columnCount }, (_, index) => {
+      const values = bodyRows.map((row) => row.cells[index]?.textContent.trim().replace(/\s+/g, ' ') || '');
+      const session = table.tHead?.rows[1]?.cells[index]?.textContent.trim() || '';
+      return Math.ceil(Math.min(180, Math.max(78, measureExportText(session) + 18, ...values.map((value) => measureExportText(value) + 18))));
+    });
+    const colgroup = document.createElement('colgroup');
+    widths.forEach((width) => {
+      const col = document.createElement('col');
+      col.style.cssText = `width:${width}px;min-width:${width}px;max-width:${width}px;`;
+      col.setAttribute('width', String(width));
+      colgroup.appendChild(col);
+    });
+    table.insertBefore(colgroup, table.firstChild);
+    table.style.width = `${widths.reduce((sum, width) => sum + width, 0)}px`;
+    table.style.minWidth = '0';
+    table.style.tableLayout = 'fixed';
+    return;
+  }
   const columnCount = Math.max(2, ...bodyRows.map((row) => row.cells.length));
   const widths = Array.from({ length: columnCount }, (_, columnIndex) => {
     const values = bodyRows.map((row) => row.cells[columnIndex]?.textContent.trim() || '');
@@ -1267,11 +1296,15 @@ function automaticDayColor(classColor) {
 function buildLightExportTable(sourceTable, imageTitleOptions = null) {
   const table = sourceTable.cloneNode(true);
   table.querySelectorAll('.schedule-actions').forEach((cell) => cell.remove());
+  table.querySelectorAll('.slot-edit-btn').forEach((button) => button.remove());
+  const isPlanner = table.classList.contains('week-planner');
   const studentHeader = table.tHead?.rows[0]?.cells[1];
-  if (studentHeader && imageTitleOptions) {
+  if (studentHeader && imageTitleOptions && !isPlanner) {
     studentHeader.textContent = imageTitleOptions.className;
     studentHeader.classList.add('image-class-title');
     [...(table.tHead?.rows[0]?.cells || [])].slice(2).forEach((cell) => cell.classList.add('image-day-title'));
+  } else if (imageTitleOptions && isPlanner) {
+    [...(table.tHead?.rows[0]?.cells || [])].forEach((cell) => cell.classList.add('image-day-title'));
   }
   table.querySelectorAll('input[type="checkbox"]').forEach((input) => {
     const mark = document.createTextNode(input.checked ? (input.classList.contains('current-chk') ? '\u25cf' : '\u00d7') : '\u00b7');
@@ -1310,7 +1343,7 @@ function buildLightExportTable(sourceTable, imageTitleOptions = null) {
       fontSize = '14px';
     }
     if (cell.classList.contains('free') && !cell.classList.contains('zero-slot')) color = '#d1d5db';
-    cell.style.cssText = `box-sizing:border-box;border:1px solid #d1d5db;padding:7px 9px;text-align:${cell.classList.contains('name') ? 'left' : 'center'};vertical-align:middle;background:${background};color:${color};font-size:${fontSize};font-weight:${weight};text-shadow:${textShadow};white-space:nowrap;`;
+    cell.style.cssText = `box-sizing:border-box;border:1px solid #d1d5db;padding:7px 9px;text-align:${cell.classList.contains('name') ? 'left' : 'center'};vertical-align:middle;background:${background};color:${color};font-size:${fontSize};font-weight:${weight};text-shadow:${textShadow};white-space:${isPlanner ? 'normal' : 'nowrap'};`;
   });
   fitExportColumnWidths(table);
   return table;
@@ -1433,7 +1466,7 @@ async function downloadScheduleExcel(detail, button, titleOptions) {
     const occupied = new Set();
     [...table.rows].forEach((row, rowIndex) => {
       const excelRow = rowIndex + 1;
-      worksheet.getRow(excelRow).height = rowIndex < 2 ? 24 : 21;
+      worksheet.getRow(excelRow).height = rowIndex < 2 ? 24 : table.classList.contains('week-planner') ? 44 : 21;
       let excelColumn = 1;
       [...row.cells].forEach((htmlCell) => {
         while (occupied.has(`${excelRow}:${excelColumn}`)) excelColumn++;
@@ -1453,7 +1486,7 @@ async function downloadScheduleExcel(detail, button, titleOptions) {
         excelCell.alignment = {
           horizontal: htmlCell.style.textAlign === 'left' ? 'left' : 'center',
           vertical: 'middle',
-          wrapText: false
+          wrapText: table.classList.contains('week-planner')
         };
         excelCell.border = {
           top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
@@ -1530,6 +1563,29 @@ async function renderScheduleImage(source, titleOptions) {
     context.strokeStyle = '#d1d5db';
     context.lineWidth = 1;
     context.strokeRect(x + .5, y + .5, Math.max(0, rect.width - 1), Math.max(0, rect.height - 1));
+    if (cell.classList.contains('week-slot')) {
+      const lines = [
+        cell.querySelector('.slot-lesson')?.textContent.trim(),
+        cell.querySelector('.slot-location')?.textContent.trim(),
+        cell.querySelector('.slot-note')?.textContent.trim()
+      ].filter(Boolean);
+      if (!lines.length) return;
+      context.save();
+      context.beginPath();
+      context.rect(x + 3, y + 3, Math.max(0, rect.width - 6), Math.max(0, rect.height - 6));
+      context.clip();
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      const lineHeight = Math.min(16, Math.max(11, (rect.height - 10) / lines.length));
+      const startY = y + rect.height / 2 - ((lines.length - 1) * lineHeight) / 2;
+      lines.forEach((line, index) => {
+        context.fillStyle = index === 0 ? '#3f3f00' : '#52525b';
+        context.font = `${index === 0 ? '700 14px' : '600 10px'} Arial, sans-serif`;
+        context.fillText(line, x + rect.width / 2, startY + index * lineHeight, Math.max(0, rect.width - 10));
+      });
+      context.restore();
+      return;
+    }
     const value = cell.textContent.trim().replace(/\s+/g, ' ');
     if (!value) return;
     context.save();
@@ -1586,7 +1642,8 @@ function openExportStyleDialog(detail, button, exportType) {
   const isExcel = exportType === 'excel';
   const isExcelDownload = exportType === 'xlsx';
   const exportName = isExcelDownload ? 'file Excel' : isExcel ? 'Excel' : '&#7843;nh';
-  const className = detail.querySelector('.detail-title h3')?.textContent.trim() || 'L\u1ecbch l\u1edbp';
+  const plannerExport = Boolean(detail.querySelector('table.week-planner'));
+  const className = detail.querySelector('.detail-title h3, .planner-topbar h2')?.textContent.trim() || 'L\u1ecbch l\u1edbp';
   const presets = {
     orange: { backgroundColor: '#f59e0b', textColor: '#111827' },
     blue: { backgroundColor: '#2563eb', textColor: '#ffffff' },
@@ -1601,7 +1658,9 @@ function openExportStyleDialog(detail, button, exportType) {
   overlay.innerHTML = `
     <div class="image-export-dialog" role="dialog" aria-modal="true" aria-label="T&#249;y ch&#7881;nh ${exportName}">
       <h3>T&#249;y ch&#7881;nh ${exportName}</h3>
-      <p class="hint">Khi ${isExcelDownload ? 't&#7843;i file Excel' : isExcel ? 'copy Excel' : 'xu&#7845;t &#7843;nh'}, &#244; H&#7885;c sinh s&#7869; hi&#7875;n th&#7883; t&#234;n l&#7899;p v&#7899;i m&#224;u &#273;&#227; ch&#7885;n.</p>
+      <p class="hint">${plannerExport
+        ? `Ch&#7885;n m&#224;u ti&#234;u &#273;&#7873; ng&#224;y khi ${isExcelDownload ? 't&#7843;i file Excel' : isExcel ? 'copy Excel' : 'xu&#7845;t &#7843;nh'}.`
+        : `Khi ${isExcelDownload ? 't&#7843;i file Excel' : isExcel ? 'copy Excel' : 'xu&#7845;t &#7843;nh'}, &#244; H&#7885;c sinh s&#7869; hi&#7875;n th&#7883; t&#234;n l&#7899;p v&#7899;i m&#224;u &#273;&#227; ch&#7885;n.`}</p>
       <label>M&#7851;u m&#224;u
         <select class="image-color-preset">
           <option value="orange">Cam / &#273;en</option>
@@ -2007,16 +2066,20 @@ function appBasePath() {
   return '/';
 }
 
-function classRouteSlug(cls) {
-  const slug = String(cls?.name || '')
+function slugifyClassName(name) {
+  return String(name || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLocaleLowerCase('vi-VN')
     .replace(/đ/g, 'd')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+function classRouteSlug(cls) {
+  const slug = slugifyClassName(cls?.name);
   const duplicate = teacherClasses.filter((item) => {
-    const other = String(item?.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const other = slugifyClassName(item?.name);
     return other === slug;
   }).length > 1;
   return slug && !duplicate ? slug : cls?.id || slug;
@@ -2025,6 +2088,12 @@ function classRouteSlug(cls) {
 function scheduleClassUrl(classId) {
   const cls = teacherClasses.find((item) => item.id === classId);
   return `${appBasePath()}${encodeURIComponent(classRouteSlug(cls) || classId)}`;
+}
+
+function publicScheduleUrl(classId) {
+  const cls = teacherClasses.find((item) => item.id === classId);
+  const slug = classRouteSlug(cls) || classId;
+  return `${location.origin}${appBasePath()}schedule.html?class=${encodeURIComponent(slug)}`;
 }
 
 function requestedScheduleClassId() {
@@ -2150,6 +2219,11 @@ function shortDate(value) {
   return `${date.getDate()}/${date.getMonth() + 1}`;
 }
 
+function dayDateLabel(weekStart, dayIndex) {
+  const date = addDays(new Date(`${weekStart}T12:00:00`), dayIndex);
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function weekRangeText(weekStart) {
   return `${shortDate(weekStart)}–${shortDate(localIsoDate(addDays(new Date(`${weekStart}T12:00:00`), 6)))}`;
 }
@@ -2194,7 +2268,7 @@ function lessonStartsFromEditor() {
 }
 
 function nextLessonLabel(type) {
-  if (type === 'MT' || type === 'FT') return type;
+  if (type === 'MT' || type === 'FT' || type === 'REVIEW') return type;
   const data = scheduleEditorData || {};
   const starts = lessonStartsFromEditor();
   const maximums = data.lessonMaximums || {};
@@ -2214,6 +2288,23 @@ function collectScheduleSlotValues() {
   return values;
 }
 
+function collectScheduleDetails() {
+  const details = {};
+  document.querySelectorAll('.week-slot.current-slot').forEach((cell) => {
+    const locationValue = String(cell.dataset.location || '').trim();
+    const note = String(cell.dataset.note || '').trim();
+    if (locationValue || note) details[cell.dataset.slot] = { location: locationValue, note };
+  });
+  return details;
+}
+
+function slotDetailHtml(detail = {}) {
+  const locationValue = String(detail.location || '').trim();
+  const note = String(detail.note || '').trim();
+  if (!locationValue && !note) return '';
+  return `<small class="slot-meta">${locationValue ? `<span class="slot-location">📍 ${escapeHtml(locationValue)}</span>` : ''}${note ? `<span class="slot-note">📝 ${escapeHtml(note)}</span>` : ''}</small>`;
+}
+
 function renderScheduleEditor() {
   const target = $('#final-schedule-result');
   const data = scheduleEditorData;
@@ -2228,10 +2319,11 @@ function renderScheduleEditor() {
       : week.activeSlots || data.currentSlots || []
   );
   const weekSlots = week.slots || (data.selectedWeekStart === data.currentWeekStart ? data.finalSubjects || {} : {});
+  const weekDetails = week.details || {};
   const starts = data.lessonStarts || { S: 1, W: 1, LR: 1 };
   const title = week.title || defaultWeekTitle(data.selectedWeekStart);
   let table = '<div class="schedule-scroll"><table class="schedule week-planner"><thead><tr>';
-  DAYS.forEach((day) => table += `<th colspan="${sessions.length}">${escapeHtml(day)}</th>`);
+  DAYS.forEach((day, dayIndex) => table += `<th colspan="${sessions.length}">${escapeHtml(day)} (${dayDateLabel(data.selectedWeekStart, dayIndex)})</th>`);
   table += '</tr><tr>';
   DAYS.forEach(() => sessions.forEach((session) => {
     table += `<th><span class="planner-session-label">${escapeHtml(session)}</span></th>`;
@@ -2240,8 +2332,10 @@ function renderScheduleEditor() {
   DAYS.forEach((day, dayIdx) => sessions.forEach((session, sessionIdx) => {
     const slotId = `${dayIdx}-${sessionIdx}`;
     const active = currentSlots.has(slotId);
-    const lesson = weekSlots[slotId] || '';
-    table += `<td class="week-slot${active ? ' current-slot' : ''}${lesson ? ' has-lesson' : ''}${historical ? ' historical-slot' : ''}" data-slot="${slotId}" data-lesson="${escapeHtml(lesson)}" title="${historical ? 'Tuần cũ chỉ xem' : active ? 'Thả môn học vào đây; bấm đúp để xoá nội dung' : 'Bấm để bật ô lịch'}">${lesson ? escapeHtml(lesson) : '&middot;'}</td>`;
+    const lesson = active ? weekSlots[slotId] || '' : '';
+    const lessonDisplay = displayLessonLabel(lesson);
+    const detail = weekDetails[slotId] || {};
+    table += `<td class="week-slot${active ? ' current-slot' : ''}${lesson ? ' has-lesson' : ''}${historical ? ' historical-slot' : ''}" data-slot="${slotId}" data-lesson="${escapeHtml(lesson)}" data-location="${escapeHtml(detail.location || '')}" data-note="${escapeHtml(detail.note || '')}" title="${historical ? 'Tuần cũ chỉ xem' : active ? 'Thả môn học vào đây; bấm đúp để xoá nội dung' : 'Bấm để bật ô lịch'}"><span class="slot-lesson">${lesson ? escapeHtml(lessonDisplay) : '&middot;'}</span>${active ? slotDetailHtml(detail) : ''}${historical ? '' : '<button class="slot-edit-btn" type="button" title="Địa điểm và ghi chú">✎</button>'}</td>`;
   }));
   table += '</tr></tbody></table></div>';
 
@@ -2250,7 +2344,11 @@ function renderScheduleEditor() {
       <button id="planner-back" class="secondary" type="button">&larr; Các lớp</button>
       <div><h2>${escapeHtml(data.name)}</h2><p>${escapeHtml(title)} (${escapeHtml(weekRangeText(data.selectedWeekStart))})</p></div>
       <div class="planner-week-actions">
-        <button id="planner-new-week" type="button">Tuần mới</button>
+        <button id="planner-copy-url" class="planner-copy-url" type="button">Copy URL</button>
+        <button id="planner-copy-excel" class="btn-export" type="button">Copy Excel</button>
+        <button id="planner-download-excel" class="btn-export btn-download-excel" type="button">Tải Excel</button>
+        <button id="planner-copy-image" class="btn-export btn-export-image" type="button">In Ảnh</button>
+        <button id="planner-new-week" class="planner-new-week" type="button">+ Tuần mới</button>
         <label>Tuần trước
           <select id="planner-week-select">
             <option value="${escapeHtml(data.currentWeekStart)}"${data.selectedWeekStart === data.currentWeekStart ? ' selected' : ''}>Tuần hiện tại</option>
@@ -2268,7 +2366,7 @@ function renderScheduleEditor() {
       <div class="lesson-number-help">
         <b>Không nhập thủ công cho từng ngày.</b>
         Ví dụ lớp đã học 4 buổi Speaking thì nhập <b>S bắt đầu từ 5</b>. Sau khi lưu, lần kéo đầu tạo <b>S5</b>, các lần tiếp theo tự thành <b>S6, S7...</b>.
-        W và LR hoạt động tương tự; MT/FT không cần nhập số.
+        W và LR hoạt động tương tự; MT/FT/Ôn tập không cần nhập số.
       </div>
       <div id="lesson-start-fields" class="lesson-start-fields">
         <label>S bắt đầu từ <input id="lesson-start-s" type="number" min="1" value="${escapeHtml(starts.S || 1)}" /></label>
@@ -2278,10 +2376,12 @@ function renderScheduleEditor() {
         <button id="lesson-config-edit" class="secondary hidden" type="button">Sửa số bắt đầu</button>
       </div>
       <div id="lesson-palette" class="lesson-palette hidden">
-        ${['S', 'W', 'LR', 'MT', 'FT'].map((type) => `<button class="lesson-token lesson-${type.toLowerCase()}" draggable="true" data-type="${type}" type="button">${type}</button>`).join('')}
+        ${[
+          ['S', 'S'], ['W', 'W'], ['LR', 'LR'], ['MT', 'MT'], ['FT', 'FT'], ['REVIEW', 'Ôn tập']
+        ].map(([type, label]) => `<button class="lesson-token lesson-${type.toLowerCase()}" draggable="true" data-type="${type}" type="button">${label}</button>`).join('')}
       </div>
     </div>`}
-    <p class="planner-help">Bấm ô để bật/tắt màu vàng. Kéo S/W/LR/MT/FT vào ô vàng; S/W/LR tự tăng số từ toàn bộ lịch sử. Bấm đúp ô để xoá nội dung.</p>
+    <p class="planner-help">Bấm ô để bật/tắt màu vàng. Kéo S/W/LR/MT/FT/Ôn tập vào ô vàng; S/W/LR tự tăng số từ toàn bộ lịch sử. Bấm bút ✎ để thêm địa điểm và ghi chú; bấm đúp ô để xoá môn học.</p>
     ${table}
     <div class="planner-save-row">
       <span id="planner-save-msg" class="msg"></span>
@@ -2302,12 +2402,50 @@ function applyLessonToCell(cell, type) {
   if (!cell?.classList.contains('current-slot')) return;
   const label = nextLessonLabel(type);
   cell.dataset.lesson = label;
-  cell.textContent = label;
+  const lessonTarget = cell.querySelector('.slot-lesson');
+  if (lessonTarget) lessonTarget.textContent = label === 'REVIEW' ? 'Ôn tập' : label;
   cell.classList.add('has-lesson');
   scheduleDirty = true;
 }
 
+function refreshSlotDetails(cell) {
+  cell.querySelector('.slot-meta')?.remove();
+  const pencil = cell.querySelector('.slot-edit-btn');
+  const html = slotDetailHtml({ location: cell.dataset.location, note: cell.dataset.note });
+  if (html) pencil?.insertAdjacentHTML('beforebegin', html);
+}
+
+function openSlotDetailsDialog(cell) {
+  const currentLocation = String(cell.dataset.location || '');
+  const presets = ['Tầng 1', 'Tầng 2', 'CS2'];
+  const selectedPreset = !currentLocation ? 'Tầng 1' : presets.includes(currentLocation) ? currentLocation : 'custom';
+  const dialog = openMiniDialog('Địa điểm và ghi chú', `
+    <label>Địa điểm
+      <select id="slot-location-preset">
+        ${presets.map((value) => `<option value="${escapeHtml(value)}"${selectedPreset === value ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('')}
+        <option value="custom"${selectedPreset === 'custom' ? ' selected' : ''}>Địa điểm khác...</option>
+      </select>
+    </label>
+    <input id="slot-location-custom" type="text" value="${escapeHtml(selectedPreset === 'custom' ? currentLocation : '')}" placeholder="Nhập địa điểm tuỳ chỉnh..." />
+    <label>Ghi chú
+      <textarea id="slot-note" rows="3" placeholder="Ghi chú...">${escapeHtml(cell.dataset.note || '')}</textarea>
+    </label>`, async (overlay) => {
+      const preset = overlay.querySelector('#slot-location-preset')?.value || 'Tầng 1';
+      const custom = overlay.querySelector('#slot-location-custom')?.value.trim() || '';
+      cell.dataset.location = preset === 'custom' ? custom : preset;
+      cell.dataset.note = overlay.querySelector('#slot-note')?.value.trim() || '';
+      if (!cell.classList.contains('current-slot')) cell.classList.add('current-slot');
+      refreshSlotDetails(cell);
+      scheduleDirty = true;
+    });
+  dialog.querySelector('#slot-location-custom')?.addEventListener('input', () => {
+    const select = dialog.querySelector('#slot-location-preset');
+    if (select) select.value = 'custom';
+  });
+}
+
 function wireScheduleEditor() {
+  const plannerRoot = $('#final-schedule-result');
   $('#planner-back')?.addEventListener('click', () => {
     scheduleClassId = null;
     scheduleEditorData = null;
@@ -2320,6 +2458,17 @@ function wireScheduleEditor() {
     openScheduleClass(scheduleClassId, { updateUrl: false, weekStart: scheduleSelectedWeekStart });
   });
   $('#planner-new-week')?.addEventListener('click', openNewWeekDialog);
+  $('#planner-copy-url')?.addEventListener('click', async (event) => {
+    try {
+      await navigator.clipboard.writeText(publicScheduleUrl(scheduleClassId));
+      setExportButtonStatus(event.currentTarget, '✓ Đã copy URL');
+    } catch (err) {
+      setExportButtonStatus(event.currentTarget, 'Copy lỗi', true);
+    }
+  });
+  $('#planner-copy-excel')?.addEventListener('click', (event) => openExportStyleDialog(plannerRoot, event.currentTarget, 'excel'));
+  $('#planner-download-excel')?.addEventListener('click', (event) => openExportStyleDialog(plannerRoot, event.currentTarget, 'xlsx'));
+  $('#planner-copy-image')?.addEventListener('click', (event) => openExportStyleDialog(plannerRoot, event.currentTarget, 'image'));
   $('#lesson-config-save')?.addEventListener('click', () => {
     scheduleEditorData.lessonStarts = lessonStartsFromEditor();
     setLessonBuilderSaved(true);
@@ -2346,10 +2495,16 @@ function wireScheduleEditor() {
       cell.classList.toggle('current-slot');
       if (!cell.classList.contains('current-slot')) {
         cell.dataset.lesson = '';
-        cell.textContent = '·';
+        cell.dataset.location = '';
+        cell.dataset.note = '';
+        const lessonTarget = cell.querySelector('.slot-lesson');
+        if (lessonTarget) lessonTarget.textContent = '·';
+        refreshSlotDetails(cell);
         cell.classList.remove('has-lesson');
       } else if (!cell.dataset.lesson) {
-        cell.innerHTML = '&middot;';
+        const lessonTarget = cell.querySelector('.slot-lesson');
+        if (lessonTarget) lessonTarget.innerHTML = '&middot;';
+        refreshSlotDetails(cell);
       }
       scheduleDirty = true;
     });
@@ -2365,10 +2520,18 @@ function wireScheduleEditor() {
       event.preventDefault();
       if (!cell.classList.contains('current-slot') || cell.classList.contains('historical-slot')) return;
       cell.dataset.lesson = '';
-      cell.innerHTML = '&middot;';
+      const lessonTarget = cell.querySelector('.slot-lesson');
+      if (lessonTarget) lessonTarget.innerHTML = '&middot;';
       cell.classList.remove('has-lesson');
       scheduleDirty = true;
     });
+  });
+  document.querySelectorAll('.slot-edit-btn').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openSlotDetailsDialog(button.closest('.week-slot'));
+    });
+    button.addEventListener('dblclick', (event) => event.stopPropagation());
   });
   document.querySelectorAll('#planner-week-title').forEach((input) => {
     input.addEventListener('input', () => { scheduleDirty = true; });
@@ -2390,7 +2553,7 @@ function openNewWeekDialog() {
       const title = overlay.querySelector('#new-week-title')?.value.trim() || defaultWeekTitle(monday);
       scheduleSelectedWeekStart = monday;
       scheduleEditorData.selectedWeekStart = monday;
-      scheduleEditorData.selectedWeek = { weekStart: monday, title, slots: {} };
+      scheduleEditorData.selectedWeek = { weekStart: monday, title, slots: {}, details: {} };
       setTimeout(renderScheduleEditor, 0);
     });
   const dateInput = dialog.querySelector('#new-week-date');
@@ -2411,6 +2574,7 @@ async function saveScheduleWeek() {
     weekStart: scheduleEditorData.selectedWeekStart,
     title: $('#planner-week-title')?.value.trim() || defaultWeekTitle(scheduleEditorData.selectedWeekStart),
     slots: collectScheduleSlotValues(),
+    details: collectScheduleDetails(),
     currentSlots,
     sessions,
     lessonStarts: lessonStartsFromEditor()
@@ -2429,6 +2593,67 @@ async function saveScheduleWeek() {
   } finally {
     button.disabled = false;
   }
+}
+
+async function initPublicScheduleViewer() {
+  const root = $('#public-schedule');
+  if (!root) return;
+  const copyButton = $('#public-copy-url');
+  copyButton?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(location.href);
+      setExportButtonStatus(copyButton, '✓ Đã copy URL');
+    } catch (err) {
+      setExportButtonStatus(copyButton, 'Copy lỗi', true);
+    }
+  });
+  try {
+    root.innerHTML = '<p class="placeholder">Đang tải lịch lớp...</p>';
+    const route = new URLSearchParams(location.search).get('class') || '';
+    const classes = await api('/classes');
+    const targetClass = classes.find((cls) => cls.id === route || slugifyClassName(cls.name) === route);
+    if (!targetClass) throw new Error('Không tìm thấy lớp trong liên kết này.');
+    const data = await api('/public-schedule', {
+      method: 'POST',
+      body: JSON.stringify({ classId: targetClass.id })
+    });
+    document.title = `${data.name} - Lịch học`;
+    renderPublicSchedule(data);
+  } catch (err) {
+    root.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderPublicSchedule(data) {
+  const root = $('#public-schedule');
+  if (!root) return;
+  const sessions = getSessions(data);
+  const activeSlots = new Set(data.activeSlots || []);
+  const lessons = data.slots || {};
+  const details = data.details || {};
+  let table = '<div class="schedule-scroll"><table class="schedule week-planner public-week-planner"><thead><tr>';
+  DAYS.forEach((day, dayIndex) => {
+    table += `<th colspan="${sessions.length}">${escapeHtml(day)} (${dayDateLabel(data.weekStart, dayIndex)})</th>`;
+  });
+  table += '</tr><tr>';
+  DAYS.forEach(() => sessions.forEach((session) => {
+    table += `<th><span class="planner-session-label">${escapeHtml(session)}</span></th>`;
+  }));
+  table += '</tr></thead><tbody><tr>';
+  DAYS.forEach((day, dayIndex) => sessions.forEach((session, sessionIndex) => {
+    const slotId = `${dayIndex}-${sessionIndex}`;
+    const active = activeSlots.has(slotId);
+    const rawLesson = lessons[slotId] || '';
+    const lesson = rawLesson === 'REVIEW' ? 'Ôn tập' : rawLesson;
+    table += `<td class="week-slot public-week-slot${active ? ' current-slot' : ''}${lesson ? ' has-lesson' : ''}"><span class="slot-lesson">${lesson ? escapeHtml(lesson) : '&middot;'}</span>${active ? slotDetailHtml(details[slotId] || {}) : ''}</td>`;
+  }));
+  table += '</tr></tbody></table></div>';
+  root.innerHTML = `
+    <div class="public-schedule-title">
+      <div><h2>${escapeHtml(data.name)}</h2><p>${escapeHtml(data.title)} (${escapeHtml(weekRangeText(data.weekStart))})</p></div>
+    </div>
+    ${table}
+    <p class="hint public-readonly-note">Lịch chỉ xem, được cập nhật từ giáo viên.</p>`;
 }
 
 function initTeacherAccounts() {
@@ -2777,4 +3002,5 @@ async function sendChangeRequest(classId) {
   DAYS_SHORT = cfg.daysShort || cfg.days;
   DEFAULT_SESSIONS = cfg.sessions || ['S1', 'S2', 'C', '57', 'T'];
   initStudent();
+  initPublicScheduleViewer();
 })();
