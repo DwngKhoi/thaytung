@@ -796,7 +796,7 @@ begin
     clean_details,
     now()
   )
-  on conflict (class_id, week_start) do update
+  on conflict on constraint class_schedule_weeks_class_id_week_start_key do update
   set title = excluded.title,
       slots = excluded.slots,
       active_slots = excluded.active_slots,
