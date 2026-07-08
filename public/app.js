@@ -6,6 +6,7 @@ let editMode = false;
 let currentScheduleMode = false;
 let manageMode = false;
 let classRefreshTimer = null;
+let finalScheduleTimer = null;
 let editDirtyKeys = new Set();
 let studentClasses = [];
 let selectedStudentClassIds = new Set();
@@ -111,6 +112,11 @@ function dobNote(dob) {
   return match ? `${match[3]}/${match[2]}` : dob;
 }
 
+function formatDobInputValue(dob) {
+  const match = normalizeDob(dob).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : String(dob || '');
+}
+
 function countNames(submissions) {
   const counts = {};
   submissions.forEach((item) => {
@@ -124,6 +130,27 @@ function displayName(item, counts) {
   const name = item.displayName || item.studentName || '';
   const key = (item.studentName || name).trim().toLowerCase();
   return counts && counts[key] >= 2 && item.dob ? `${name} (${dobNote(item.dob)})` : name;
+}
+
+function titleCaseName(value) {
+  const lowerWords = new Set(['và', 'van', 'văn', 'thị']);
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('vi-VN')
+    .split(' ')
+    .filter(Boolean)
+    .map((word, index) => {
+      if (index > 0 && lowerWords.has(word)) return word === 'van' ? 'Văn' : word;
+      return word.charAt(0).toLocaleUpperCase('vi-VN') + word.slice(1);
+    })
+    .join(' ');
+}
+
+function normalizeStudentNameInput(input) {
+  const cleaned = titleCaseName(input?.value || '');
+  if (input && cleaned) input.value = cleaned;
+  return cleaned;
 }
 
 const viCollator = new Intl.Collator('vi', { numeric: true, sensitivity: 'base' });
@@ -323,6 +350,7 @@ async function supabaseApi(path, opts = {}) {
   if (path === '/login' && method === 'POST') return supabaseRpc('api_login', { username: body.username, password: body.password });
   if (path === '/classes' && method === 'GET') return supabaseRpc('api_classes', { student_key: STUDENT_KEY });
   if (path === '/teacher/classes' && method === 'GET') return supabaseRpc('api_teacher_classes', { teacher_key: teacherToken() });
+  if (path === '/final-schedule' && method === 'GET') return supabaseRpc('api_final_schedule', { teacher_key: teacherToken() });
   if (path === '/class-sectors' && method === 'GET') return supabaseRpc('api_class_sectors', { teacher_key: teacherToken() });
   if (path === '/class-sectors' && method === 'POST') return supabaseRpc('api_add_class_sector', { teacher_key: teacherToken(), name: body.name, class_ids: body.classIds || [] });
   if (path === '/classes' && method === 'POST') return supabaseRpc('api_add_class', { teacher_key: teacherToken(), name: body.name });
@@ -351,10 +379,12 @@ async function supabaseApi(path, opts = {}) {
   if (action === 'restore') return supabaseRpc('api_set_archived', { teacher_key: teacherToken(), class_id, archived: false });
   if (action === 'rename') return supabaseRpc('api_rename_class', { teacher_key: teacherToken(), class_id, name: body.name });
   if (action === 'set-sessions') return supabaseRpc('api_set_class_sessions', { teacher_key: teacherToken(), class_id, sessions: body.sessions || [] });
-  if (action === 'set-current-slots') return supabaseRpc('api_set_current_slots', { teacher_key: teacherToken(), class_id, current_slots: body.currentSlots || [] });
+  if (action === 'set-current-slots') return supabaseRpc('api_set_current_slots', { teacher_key: teacherToken(), class_id, current_slots: body.currentSlots || [], final_subjects: body.finalSubjects || {} });
   if (action === 'add-student') return supabaseRpc('api_add_student', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob });
   if (action === 'approve') return supabaseRpc('api_set_submission_status', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob, status: 'approved' });
   if (action === 'reject') return supabaseRpc('api_delete_submission', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob });
+  if (action === 'transfer-submission') return supabaseRpc('api_transfer_submission', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob, target_class_ids: body.classIds || [] });
+  if (action === 'manage-student') return supabaseRpc('api_update_student_profile_classes', { teacher_key: teacherToken(), class_id, old_student_name: body.oldStudentName, old_dob: body.oldDob, new_student_name: body.studentName, new_dob: body.dob, class_ids: body.classIds || [] });
   if (action === 'update-busy') return supabaseRpc('api_update_busy', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob, busy_slots: body.busySlots || [] });
   if (action === 'bulk-update-busy') return supabaseRpc('api_bulk_update_busy', { teacher_key: teacherToken(), class_id, updates: body.updates || [] });
   if (action === 'submit') return supabaseRpc('api_submit', { student_key: STUDENT_KEY, class_id, student_name: body.studentName, dob: body.dob, busy_slots: body.busySlots || [] });
@@ -485,6 +515,7 @@ function initTabs() {
       if (btn.dataset.tab === 'archived') loadArchived();
       if (btn.dataset.tab === 'accounts') loadTeacherAccounts();
       if (btn.dataset.tab === 'sync-sessions') renderBulkSessions();
+      if (btn.dataset.tab === 'schedule') loadFinalSchedule();
     });
   });
 }
@@ -497,6 +528,7 @@ function initTeacher() {
   });
   $('#btn-logout')?.addEventListener('click', () => {
     clearTimeout(classRefreshTimer);
+    clearTimeout(finalScheduleTimer);
     localStorage.removeItem(TEACHER_SESSION_KEY);
     localStorage.removeItem(SELECTED_CLASS_KEY);
     sessionStorage.removeItem(CLASSES_CACHE_KEY);
@@ -527,6 +559,7 @@ function initTeacher() {
   $('#btn-bulk-select-all')?.addEventListener('click', () => setBulkClassSelection(true));
   $('#btn-bulk-clear')?.addEventListener('click', () => setBulkClassSelection(false));
   $('#btn-bulk-save')?.addEventListener('click', saveBulkSessions);
+  $('#btn-refresh-final-schedule')?.addEventListener('click', loadFinalSchedule);
   $('#new-class-name')?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') addClass();
   });
@@ -912,6 +945,7 @@ async function openClass(id) {
 function renderTeacherClass(cls, sessions, approved, pending) {
   const slots = buildSlots(sessions);
   const currentSlots = cls.currentSlots || [];
+  const finalSubjects = cls.finalSubjects || {};
   const nameCounts = countNames([...approved, ...pending]);
   const canManage = canManageAssignedClass();
   const hasScheduleTable = approved.length > 0 || currentSlots.length > 0 || currentScheduleMode;
@@ -930,10 +964,10 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   if (currentScheduleMode) html += '<p class="hint current-hint">Tick các buổi lớp đang học. Các ô này sẽ bị khóa trên phiếu học sinh.</p>';
   if (canManage && approved.length === 0 && !currentScheduleMode && currentSlots.length === 0) {
     html += '<p class="placeholder">Chưa có học sinh nào được duyệt.</p>';
-    html += renderPendingBox(pending, nameCounts);
+    html += renderPendingBox(pending, nameCounts, sessions);
   } else {
-    html += renderScheduleTable({ slots, sessions, submissions: approved, editable: editMode, showDelete: canManage, nameCounts, currentSlots, currentEditable: currentScheduleMode });
-    if (canManage) html += renderPendingBox(pending, nameCounts);
+    html += renderScheduleTable({ slots, sessions, submissions: approved, editable: editMode, showDelete: canManage, nameCounts, currentSlots, currentEditable: currentScheduleMode, finalSubjects });
+    if (canManage) html += renderPendingBox(pending, nameCounts, sessions);
     if (approved.length) html += renderRecommendation(slots, approved, currentSlots);
   }
 
@@ -957,19 +991,30 @@ function renderTeacherClass(cls, sessions, approved, pending) {
   return html;
 }
 
-function renderPendingBox(pending, nameCounts) {
+function renderPendingBox(pending, nameCounts, sessions = DEFAULT_SESSIONS) {
   let html = `<div class="pending-box pending-box-above-recommend"><h4>Chờ duyệt (${pending.length})</h4>`;
   if (pending.length === 0) html += '<p class="placeholder">Không có đăng ký mới.</p>';
   pending.forEach((item) => {
     const key = encodeKey(item);
-    html += `<div class="pending-item"><span>${escapeHtml(displayName(item, nameCounts))} <small>(${(item.busySlots || []).length} buổi bận)</small></span>
-      <span class="acts"><button class="btn-approve" data-key="${key}">Duyệt</button><button class="btn-reject" data-key="${key}">Xoá</button></span></div>`;
+    const busyText = busySlotLabels(item.busySlots || [], sessions).join(', ') || 'Không tick buổi bận';
+    html += `<div class="pending-item-wrap">
+      <div class="pending-item"><span>${escapeHtml(displayName(item, nameCounts))} <small>(${(item.busySlots || []).length} buổi bận)</small></span>
+        <span class="acts"><button class="btn-approve" data-key="${key}">Duyệt</button><button class="btn-transfer" data-key="${key}">Chuyển</button><button class="btn-reject" data-key="${key}">Xoá</button><button class="btn-pending-toggle" data-key="${key}" title="Xem lịch đã tick">▸</button></span></div>
+      <div class="pending-detail hidden" data-detail="${key}">${escapeHtml(busyText)}</div>
+    </div>`;
   });
   html += '</div>';
   return html;
 }
 
-function renderScheduleTable({ slots, sessions, submissions, editable, showDelete, nameCounts, studentLookup, currentSlots = [], currentEditable = false }) {
+function busySlotLabels(slotIds, sessions = DEFAULT_SESSIONS) {
+  return [...(slotIds || [])].sort().map((slotId) => {
+    const [dayIdx, sessionIdx] = String(slotId).split('-').map(Number);
+    return `${DAYS_SHORT[dayIdx] || DAYS[dayIdx] || '?'} ${sessions?.[sessionIdx] || '?'}`;
+  });
+}
+
+function renderScheduleTable({ slots, sessions, submissions, editable, showDelete, nameCounts, studentLookup, currentSlots = [], currentEditable = false, finalSubjects = {} }) {
   const busyCount = countBusy(slots, submissions);
   const zeroSlotIds = new Set(slots
     .filter((slot) => busyCount[slot.id] === 0 && !currentSlots.includes(slot.id))
@@ -997,9 +1042,10 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
     slots.forEach((slot) => {
       const current = currentSlots.includes(slot.id);
       if (currentEditable) {
-        html += `<td class="${slotClass(slot.id, 'current-picker')}" data-slot="${slot.id}"><input type="checkbox" class="current-chk" data-slot="${slot.id}" ${current ? 'checked' : ''}></td>`;
+        const subject = finalSubjects[slot.id] || 'speaking';
+        html += `<td class="${slotClass(slot.id, 'current-picker')}" data-slot="${slot.id}"><input type="checkbox" class="current-chk" data-slot="${slot.id}" ${current ? 'checked' : ''}><input type="text" class="current-subject${current ? '' : ' hidden'}" data-slot="${slot.id}" value="${escapeHtml(subject)}" placeholder="speaking" /></td>`;
       } else {
-        html += `<td class="${slotClass(slot.id, current ? '' : 'free')}" data-slot="${slot.id}">${current ? '&#9679;' : '&middot;'}</td>`;
+        html += `<td class="${slotClass(slot.id, current ? '' : 'free')}" data-slot="${slot.id}">${current ? escapeHtml(finalSubjects[slot.id] || 'Lịch') : '&middot;'}</td>`;
       }
     });
     if (showDelete) html += '<td class="schedule-actions"></td>';
@@ -1018,11 +1064,11 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
         html += `<td class="${slotClass(slot.id, editBase)}" data-slot="${slot.id}"><input type="checkbox" class="busy-chk" data-key="${key}" data-slot="${slot.id}" ${busy ? 'checked' : ''}></td>`;
       } else {
         html += current
-          ? `<td class="current-slot" data-slot="${slot.id}" title="Lich hoc hien tai">&#9679;</td>`
+          ? `<td class="current-slot" data-slot="${slot.id}" title="Lich hoc hien tai">${escapeHtml(finalSubjects[slot.id] || 'Lịch')}</td>`
           : busy ? `<td class="busy" data-slot="${slot.id}">&times;</td>` : `<td class="${slotClass(slot.id, 'free')}" data-slot="${slot.id}">&middot;</td>`;
       }
     });
-    if (showDelete) html += `<td class="act-cell schedule-actions"><button class="btn-del-stu" data-key="${key}" title="Xoa hoc sinh">&times;</button></td>`;
+    if (showDelete) html += `<td class="act-cell schedule-actions"><button class="btn-del-stu" data-key="${key}" title="Xoa hoc sinh">&times;</button><button class="btn-manage-stu" data-key="${key}" data-classes="${escapeHtml((student.classIds || []).join(','))}" title="Quản lý học sinh">&#9881;</button></td>`;
     html += '</tr>';
   });
 
@@ -1644,10 +1690,15 @@ function wireTeacherClassEvents(id, detail) {
       return;
     }
     const currentSlots = [...detail.querySelectorAll('.current-chk:checked')].map((input) => input.dataset.slot);
+    const finalSubjects = {};
+    currentSlots.forEach((slotId) => {
+      const subject = detail.querySelector(`.current-subject[data-slot="${CSS.escape(slotId)}"]`)?.value.trim() || 'speaking';
+      finalSubjects[slotId] = subject;
+    });
     const button = detail.querySelector('#btn-current-schedule');
     if (button) { button.disabled = true; button.textContent = 'Đang lưu...'; }
     try {
-      await api(`/classes/${id}/set-current-slots`, { method: 'POST', body: JSON.stringify({ currentSlots }) });
+      await api(`/classes/${id}/set-current-slots`, { method: 'POST', body: JSON.stringify({ currentSlots, finalSubjects }) });
       currentScheduleMode = false;
       await refreshTeacherView(id);
     } catch (err) {
@@ -1658,6 +1709,7 @@ function wireTeacherClassEvents(id, detail) {
 
   detail.querySelectorAll('.current-chk').forEach((checkbox) => {
     checkbox.addEventListener('change', () => {
+      detail.querySelector(`.current-subject[data-slot="${CSS.escape(checkbox.dataset.slot)}"]`)?.classList.toggle('hidden', !checkbox.checked);
       detail.querySelectorAll(`[data-slot="${checkbox.dataset.slot}"]`).forEach((cell) => {
         cell.classList.toggle('current-slot', checkbox.checked);
       });
@@ -1672,7 +1724,7 @@ function wireTeacherClassEvents(id, detail) {
   });
 
   const addStudent = async () => {
-    const studentName = $('#teacher-new-student')?.value.trim();
+    const studentName = normalizeStudentNameInput($('#teacher-new-student'));
     const dob = normalizeDob($('#teacher-new-dob')?.value);
     const msg = $('#teacher-add-student-msg');
     if (!studentName || !dob) {
@@ -1722,6 +1774,14 @@ function wireTeacherClassEvents(id, detail) {
     });
   });
 
+  detail.querySelectorAll('.btn-manage-stu').forEach((button) => {
+    button.addEventListener('click', () => {
+      const student = decodeKey(button.dataset.key);
+      const classIds = String(button.dataset.classes || id).split(',').filter(Boolean);
+      openStudentManageDialog(id, student, classIds);
+    });
+  });
+
   detail.querySelectorAll('.btn-approve').forEach((button) => {
     button.addEventListener('click', async () => {
       const student = decodeKey(button.dataset.key);
@@ -1741,6 +1801,104 @@ function wireTeacherClassEvents(id, detail) {
       await refreshTeacherView(id);
     });
   });
+
+  detail.querySelectorAll('.btn-transfer').forEach((button) => {
+    button.addEventListener('click', () => openTransferDialog(id, decodeKey(button.dataset.key)));
+  });
+
+  detail.querySelectorAll('.btn-pending-toggle').forEach((button) => {
+    button.addEventListener('click', () => {
+      const detailBox = detail.querySelector(`.pending-detail[data-detail="${CSS.escape(button.dataset.key)}"]`);
+      detailBox?.classList.toggle('hidden');
+      button.textContent = detailBox?.classList.contains('hidden') ? '▸' : '▾';
+    });
+  });
+}
+
+function closeMiniDialog() {
+  document.querySelector('.mini-dialog-backdrop')?.remove();
+}
+
+function openMiniDialog(title, bodyHtml, onSave) {
+  closeMiniDialog();
+  const overlay = document.createElement('div');
+  overlay.className = 'mini-dialog-backdrop';
+  overlay.innerHTML = `<div class="mini-dialog">
+    <div class="mini-dialog-head"><h3>${escapeHtml(title)}</h3><button type="button" class="mini-dialog-close">&times;</button></div>
+    <div class="mini-dialog-body">${bodyHtml}</div>
+    <div class="mini-dialog-actions"><button type="button" class="mini-cancel">Hủy</button><button type="button" class="mini-save primary">Lưu</button></div>
+    <p class="msg mini-msg"></p>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) closeMiniDialog(); });
+  overlay.querySelector('.mini-dialog-close')?.addEventListener('click', closeMiniDialog);
+  overlay.querySelector('.mini-cancel')?.addEventListener('click', closeMiniDialog);
+  overlay.querySelector('.mini-save')?.addEventListener('click', async () => {
+    const button = overlay.querySelector('.mini-save');
+    const msg = overlay.querySelector('.mini-msg');
+    try {
+      button.disabled = true;
+      showMsg(msg, 'Đang lưu...', '');
+      await onSave(overlay);
+      closeMiniDialog();
+    } catch (err) {
+      button.disabled = false;
+      showMsg(msg, err.message, 'err');
+    }
+  });
+  return overlay;
+}
+
+function classChecklistHtml(selectedIds = [], excludeId = '') {
+  const selected = new Set(selectedIds.map(String));
+  const groups = buildSectorGroups(teacherClasses.filter((cls) => cls.id !== excludeId));
+  return `<div class="mini-class-list">${groups.map((group) => `
+    <section class="mini-class-sector">
+      <h4>${escapeHtml(group.name)}</h4>
+      ${group.classes.map((cls) => `<label class="mini-class-check"><input type="checkbox" value="${escapeHtml(cls.id)}" ${selected.has(cls.id) ? 'checked' : ''}> ${escapeHtml(cls.name)}</label>`).join('')}
+    </section>`).join('')}</div>`;
+}
+
+function selectedDialogClassIds(overlay) {
+  return [...overlay.querySelectorAll('.mini-class-check input:checked')].map((input) => input.value);
+}
+
+function openTransferDialog(classId, student) {
+  openMiniDialog(
+    `Chuyển ${student.studentName}`,
+    `<p class="hint">Tick lớp đúng để chuyển phiếu chờ duyệt sang lớp đó. Phiếu ở lớp hiện tại sẽ được gỡ.</p>${classChecklistHtml([], classId)}`,
+    async (overlay) => {
+      const classIds = selectedDialogClassIds(overlay);
+      if (!classIds.length) throw new Error('Chọn ít nhất 1 lớp để chuyển');
+      await api(`/classes/${classId}/transfer-submission`, { method: 'POST', body: JSON.stringify({ ...student, classIds }) });
+      await loadClasses();
+      await refreshTeacherView(classId);
+    }
+  );
+}
+
+function openStudentManageDialog(classId, student, classIds) {
+  const dobText = formatDobInputValue(student.dob);
+  openMiniDialog(
+    `Quản lý học sinh`,
+    `<label>Họ tên<input id="mini-student-name" type="text" value="${escapeHtml(student.studentName)}"></label>
+     <label>Ngày sinh<input id="mini-student-dob" type="text" value="${escapeHtml(dobText)}" placeholder="dd/mm/yyyy" inputmode="numeric" maxlength="10"></label>
+     <p class="hint">Tick/detick lớp để chuyển học sinh giữa các lớp. Lớp mới sẽ nhận học sinh ở trạng thái đã duyệt.</p>
+     ${classChecklistHtml(classIds)}`,
+    async (overlay) => {
+      const nameInput = overlay.querySelector('#mini-student-name');
+      const dobInput = overlay.querySelector('#mini-student-dob');
+      const name = normalizeStudentNameInput(nameInput);
+      const dob = normalizeDob(dobInput?.value);
+      const selectedClassIds = selectedDialogClassIds(overlay);
+      if (!name || !dob) throw new Error('Nhập họ tên và ngày sinh');
+      if (!selectedClassIds.length) throw new Error('Chọn ít nhất 1 lớp');
+      await api(`/classes/${classId}/manage-student`, { method: 'POST', body: JSON.stringify({ oldStudentName: student.studentName, oldDob: student.dob, studentName: name, dob, classIds: selectedClassIds }) });
+      await loadClasses();
+      await refreshTeacherView(classId);
+    }
+  );
+  setupDobInput(document.querySelector('#mini-student-dob'));
 }
 
 function parseSessionInput(value) {
@@ -1815,6 +1973,48 @@ async function loadArchived() {
     });
     ul.appendChild(li);
   });
+}
+
+async function loadFinalSchedule() {
+  const target = $('#final-schedule-result');
+  if (!target || !teacherSession) return;
+  clearTimeout(finalScheduleTimer);
+  try {
+    target.innerHTML = '<p class="placeholder">Đang tải lịch final...</p>';
+    const classes = sortClasses(await api('/final-schedule'));
+    if (!classes.length) {
+      target.innerHTML = '<p class="placeholder">Chưa có lớp nào được chốt lịch hiện tại.</p>';
+    } else {
+      target.innerHTML = classes.map(renderFinalScheduleClass).join('');
+    }
+  } catch (err) {
+    target.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+  }
+  if ($('#tab-schedule')?.classList.contains('active')) {
+    finalScheduleTimer = setTimeout(loadFinalSchedule, 30000);
+  }
+}
+
+function renderFinalScheduleClass(cls) {
+  const sessions = getSessions(cls);
+  const currentSlots = new Set(cls.currentSlots || []);
+  const finalSubjects = cls.finalSubjects || {};
+  let html = `<div class="final-class-block"><h3>${escapeHtml(cls.name)}</h3><div class="schedule-scroll"><table class="schedule final-schedule-table"><thead><tr>`;
+  DAYS.forEach((day) => html += `<th colspan="${sessions.length}">${escapeHtml(day)}</th>`);
+  html += '</tr><tr>';
+  DAYS.forEach(() => sessions.forEach((session) => {
+    html += `<th>${escapeHtml(session)}</th>`;
+  }));
+  html += '</tr></thead><tbody><tr>';
+  DAYS.forEach((day, dayIdx) => sessions.forEach((session, sessionIdx) => {
+    const slotId = `${dayIdx}-${sessionIdx}`;
+    const subject = finalSubjects[slotId] || '';
+    html += currentSlots.has(slotId)
+      ? `<td class="current-slot final-subject-cell">${escapeHtml(subject || 'Lịch')}</td>`
+      : '<td class="free">&middot;</td>';
+  }));
+  html += '</tr></tbody></table></div></div>';
+  return html;
 }
 
 function initTeacherAccounts() {
@@ -2035,7 +2235,7 @@ function renderStudentGrid() {
 
 async function submitSchedule() {
   const classes = selectedStudentClasses();
-  const studentName = $('#s-name')?.value.trim();
+  const studentName = normalizeStudentNameInput($('#s-name'));
   const dob = normalizeDob($('#s-dob')?.value);
   const msg = $('#submit-msg');
   msg.className = 'msg';
@@ -2075,7 +2275,7 @@ function showMsg(el, text, type) {
 
 async function lookupClassSchedule() {
   const classes = selectedStudentClasses();
-  const studentName = $('#s-name')?.value.trim();
+  const studentName = normalizeStudentNameInput($('#s-name'));
   const dob = normalizeDob($('#s-dob')?.value);
   const msg = $('#lookup-msg');
   const result = $('#lookup-result');
@@ -2117,7 +2317,7 @@ function renderLookupResults(changeClassId = null) {
       if (changeMode) html += `<button class="btn-edit active btn-send-change" data-id="${escapeHtml(state.id)}">Gửi yêu cầu</button>`;
     }
     html += '</div>';
-    html += renderScheduleTable({ slots, sessions, submissions, editable: changeMode, showDelete: false, nameCounts, studentLookup: true, currentSlots: state.currentSlots || [] });
+    html += renderScheduleTable({ slots, sessions, submissions, editable: changeMode, showDelete: false, nameCounts, studentLookup: true, currentSlots: state.currentSlots || [], finalSubjects: state.finalSubjects || {} });
     html += '</div>';
   });
   result.innerHTML = html;
@@ -2143,7 +2343,7 @@ async function sendChangeRequest(classId) {
   try {
     await api(`/classes/${state.id}/request-change`, {
       method: 'POST',
-      body: JSON.stringify({ studentName: $('#s-name')?.value.trim(), dob: normalizeDob($('#s-dob')?.value), busySlots }),
+      body: JSON.stringify({ studentName: normalizeStudentNameInput($('#s-name')), dob: normalizeDob($('#s-dob')?.value), busySlots }),
     });
     showMsg(msg, `Đã gửi yêu cầu đổi cho lớp ${state.name}. Chờ giáo viên duyệt.`, 'ok');
     lookupClassSchedule();

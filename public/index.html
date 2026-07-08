@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260707-7" />
+  <link rel="stylesheet" href="style.css?v=20260709-1" />
 </head>
 <body>
   <header>
@@ -28,8 +28,9 @@
     <nav class="tabs">
       <button class="tab active" data-tab="teacher">Lớp học</button>
       <button class="tab owner-only hidden" data-tab="sync-sessions">Ch&#7881;nh ca &#273;&#7891;ng b&#7897;</button>
-      <button class="tab owner-only hidden" data-tab="archived">Lớp cũ</button>
+      <button class="tab" data-tab="schedule">L&#7883;ch</button>
       <button class="tab owner-only hidden" data-tab="accounts">Tài khoản giáo viên</button>
+      <button class="tab tab-trash owner-only hidden" data-tab="archived" title="Lớp cũ">&#128465;</button>
     </nav>
   </header>
 
@@ -111,6 +112,19 @@
     </div>
   </section>
 
+  <section id="tab-schedule" class="tab-panel">
+    <div class="card final-schedule-card">
+      <div class="detail-head">
+        <h2>L&#7883;ch final</h2>
+        <button id="btn-refresh-final-schedule" class="secondary" type="button">C&#7853;p nh&#7853;t</button>
+      </div>
+      <p class="hint">Bảng này tự cập nhật từ các ô “Lịch hiện tại” mà giáo viên đã chốt. Môn học nhập theo: speaking, writing, lis&read...</p>
+      <div id="final-schedule-result" class="final-schedule-result">
+        <p class="placeholder">Chưa tải lịch.</p>
+      </div>
+    </div>
+  </section>
+
   <section id="tab-accounts" class="tab-panel">
     <div class="accounts-layout">
       <aside class="card accounts-list-card">
@@ -136,6 +150,6 @@
   </section>
 
   <script src="config.js"></script>
-  <script src="app.js?v=20260707-8"></script>
+  <script src="app.js?v=20260709-1"></script>
 </body>
 </html>

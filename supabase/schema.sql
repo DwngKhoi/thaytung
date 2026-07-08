@@ -1116,3 +1116,409 @@ begin
 end; $$;
 
 grant execute on all functions in schema public to anon;
+
+-- 2026-07-09: global students, transfer/manage tools, and final schedule subjects.
+create or replace function title_name(value text)
+returns text
+language sql
+immutable
+as $$
+  select trim(regexp_replace(initcap(lower(clean_name(value))), '\s+', ' ', 'g'));
+$$;
+
+alter table classes add column if not exists final_subjects jsonb not null default '{}'::jsonb;
+
+create table if not exists students (
+  id uuid primary key default gen_random_uuid(),
+  student_name text not null,
+  name_key text not null,
+  dob date not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (name_key, dob)
+);
+
+alter table students enable row level security;
+drop policy if exists "deny direct students" on students;
+create policy "deny direct students" on students for all using (false) with check (false);
+
+alter table submissions add column if not exists student_id uuid references students(id) on delete cascade;
+
+insert into students (student_name, name_key, dob)
+select distinct title_name(s.student_name), name_key(title_name(s.student_name)), s.dob
+from submissions s
+where s.dob is not null
+on conflict (name_key, dob) do update
+set student_name = excluded.student_name,
+    updated_at = now();
+
+update submissions s
+set student_id = st.id,
+    student_name = st.student_name,
+    name_key = st.name_key
+from students st
+where st.name_key = name_key(title_name(s.student_name))
+  and st.dob = s.dob;
+
+create or replace function ensure_student(student_name text, dob date)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  clean text := title_name(student_name);
+  result_id uuid;
+begin
+  if clean = '' then raise exception 'Thiếu họ tên học sinh'; end if;
+  if dob is null then raise exception 'Thiếu ngày sinh'; end if;
+
+  insert into students (student_name, name_key, dob, updated_at)
+  values (clean, name_key(clean), dob, now())
+  on conflict (name_key, dob) do update
+  set student_name = excluded.student_name,
+      updated_at = now()
+  returning id into result_id;
+
+  return result_id;
+end;
+$$;
+
+create or replace function class_summary(c classes)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'id', c.id,
+    'name', c.name,
+    'sessions', c.sessions,
+    'currentSlots', c.current_slots,
+    'finalSubjects', c.final_subjects,
+    'sectorId', c.sector_id,
+    'sectorName', (select cs.name from class_sectors cs where cs.id = c.sector_id),
+    'approvedCount', (select count(*) from submissions s where s.class_id = c.id and s.status = 'approved'),
+    'pendingCount', (select count(*) from submissions s where s.class_id = c.id and s.status = 'pending')
+  );
+$$;
+
+create or replace function teacher_submission_json(s submissions)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'studentName', coalesce(st.student_name, s.student_name),
+    'dob', coalesce(st.dob, s.dob)::text,
+    'busySlots', s.busy_slots,
+    'status', s.status,
+    'studentId', coalesce(s.student_id, st.id),
+    'classIds', coalesce((
+      select jsonb_agg(x.class_id order by lower(c.name), c.name, x.class_id)
+      from submissions x
+      join classes c on c.id = x.class_id and not c.archived
+      where (x.student_id is not null and x.student_id = coalesce(s.student_id, st.id))
+         or (x.student_id is null and x.name_key = coalesce(st.name_key, s.name_key) and x.dob = coalesce(st.dob, s.dob))
+    ), '[]'::jsonb)
+  )
+  from students st
+  where st.id = s.student_id
+  union all
+  select jsonb_build_object(
+    'studentName', s.student_name,
+    'dob', s.dob::text,
+    'busySlots', s.busy_slots,
+    'status', s.status,
+    'studentId', s.student_id,
+    'classIds', coalesce((select jsonb_agg(x.class_id order by x.class_id) from submissions x where x.name_key = s.name_key and x.dob = s.dob), '[]'::jsonb)
+  )
+  where s.student_id is null
+  limit 1;
+$$;
+
+create or replace function api_class(teacher_key text, class_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  c classes;
+begin
+  perform require_teacher(teacher_key);
+  if not can_access_class(teacher_key, api_class.class_id) then raise exception 'Không có quyền xem lớp này'; end if;
+  select * into c from classes where id = api_class.class_id;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+  return jsonb_build_object(
+    'id', c.id,
+    'name', c.name,
+    'archived', c.archived,
+    'sessions', c.sessions,
+    'currentSlots', c.current_slots,
+    'finalSubjects', c.final_subjects,
+    'sectorId', c.sector_id,
+    'sectorName', (select cs.name from class_sectors cs where cs.id = c.sector_id),
+    'submissions', coalesce((select jsonb_agg(teacher_submission_json(s) order by lower(coalesce(st.student_name, s.student_name)), coalesce(st.student_name, s.student_name), coalesce(st.dob, s.dob)) from submissions s left join students st on st.id = s.student_id where s.class_id = c.id), '[]'::jsonb)
+  );
+end;
+$$;
+
+create or replace function api_final_schedule(teacher_key text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform require_teacher(teacher_key);
+  return coalesce((
+    select jsonb_agg(class_summary(c) order by lower(c.name), c.name, c.id)
+    from classes c
+    where not c.archived
+      and coalesce(array_length(c.current_slots, 1), 0) > 0
+      and can_access_class(teacher_key, c.id)
+  ), '[]'::jsonb);
+end;
+$$;
+
+drop function if exists api_set_current_slots(text, text, text[]);
+create or replace function api_set_current_slots(teacher_key text, class_id text, current_slots text[], final_subjects jsonb default '{}'::jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  c classes;
+  cleaned text[];
+  cleaned_subjects jsonb;
+begin
+  perform require_class_manager(teacher_key, api_set_current_slots.class_id);
+  select * into c from classes where id = api_set_current_slots.class_id;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+
+  select coalesce(array_agg(slot order by slot), '{}') into cleaned
+  from (
+    select distinct clean_name(value) as slot
+    from unnest(coalesce(api_set_current_slots.current_slots, '{}')) value
+    where clean_name(value) ~ '^[0-6]-[0-9]+$'
+      and split_part(clean_name(value), '-', 2)::int < array_length(c.sessions, 1)
+  ) valid_slots;
+
+  select coalesce(jsonb_object_agg(slot, coalesce(nullif(clean_name(final_subjects->>slot), ''), 'speaking')), '{}'::jsonb)
+  into cleaned_subjects
+  from unnest(cleaned) slot;
+
+  update classes set current_slots = cleaned, final_subjects = cleaned_subjects where id = c.id;
+  return jsonb_build_object('ok', true, 'currentSlots', cleaned, 'finalSubjects', cleaned_subjects);
+end;
+$$;
+
+create or replace function upsert_submission(p_class_id text, p_student_name text, p_dob date, p_busy_slots text[], p_status text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  clean text := title_name(p_student_name);
+  allowed_busy text[];
+  sid uuid;
+begin
+  sid := ensure_student(clean, p_dob);
+  select array(select unnest(coalesce(p_busy_slots, '{}')) except select unnest(c.current_slots))
+    into allowed_busy from classes c where c.id = p_class_id and not c.archived;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+  insert into submissions (class_id, student_id, student_name, name_key, dob, busy_slots, status, updated_at)
+  values (p_class_id, sid, clean, name_key(clean), p_dob, coalesce(allowed_busy, '{}'), p_status, now())
+  on conflict on constraint submissions_class_id_name_key_dob_key
+  do update set student_id = excluded.student_id, student_name = excluded.student_name, name_key = excluded.name_key, busy_slots = excluded.busy_slots, status = excluded.status, updated_at = now();
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function api_add_student(teacher_key text, class_id text, student_name text, dob date)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare clean text := title_name(api_add_student.student_name); sid uuid;
+begin
+  perform require_class_manager(teacher_key, api_add_student.class_id);
+  sid := ensure_student(clean, api_add_student.dob);
+  insert into submissions (class_id, student_id, student_name, name_key, dob, busy_slots, status, updated_at)
+  values (api_add_student.class_id, sid, clean, name_key(clean), api_add_student.dob, '{}', 'approved', now())
+  on conflict on constraint submissions_class_id_name_key_dob_key
+  do update set student_id = excluded.student_id, student_name = excluded.student_name, name_key = excluded.name_key, status = 'approved', updated_at = now();
+  return jsonb_build_object('ok', true);
+end; $$;
+
+create or replace function api_set_submission_status(teacher_key text, class_id text, student_name text, dob date, status text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare clean text := title_name(api_set_submission_status.student_name); sid uuid;
+begin
+  perform require_class_manager(teacher_key, api_set_submission_status.class_id);
+  sid := ensure_student(clean, api_set_submission_status.dob);
+  update submissions set student_id = sid, student_name = clean, name_key = name_key(clean), dob = api_set_submission_status.dob, status = api_set_submission_status.status, updated_at = now()
+  where submissions.class_id = api_set_submission_status.class_id and submissions.name_key = name_key(clean) and submissions.dob = api_set_submission_status.dob;
+  if not found then raise exception 'Không tìm thấy đăng ký'; end if;
+  return jsonb_build_object('ok', true);
+end; $$;
+
+create or replace function api_update_busy(teacher_key text, class_id text, student_name text, dob date, busy_slots text[])
+returns jsonb language plpgsql security definer set search_path = public as $$
+begin
+  perform require_class_manager(teacher_key, api_update_busy.class_id);
+  update submissions set busy_slots = coalesce(api_update_busy.busy_slots, '{}'), updated_at = now()
+  where submissions.class_id = api_update_busy.class_id and submissions.name_key = name_key(api_update_busy.student_name) and submissions.dob = api_update_busy.dob;
+  if not found then raise exception 'Không tìm thấy học sinh'; end if;
+  return jsonb_build_object('ok', true);
+end; $$;
+
+create or replace function api_transfer_submission(teacher_key text, class_id text, student_name text, dob date, target_class_ids text[])
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  source submissions;
+  target_id text;
+  clean text;
+  sid uuid;
+  allowed_busy text[];
+begin
+  perform require_class_manager(teacher_key, api_transfer_submission.class_id);
+  select * into source from submissions s
+  where s.class_id = api_transfer_submission.class_id
+    and s.name_key = name_key(api_transfer_submission.student_name)
+    and s.dob = api_transfer_submission.dob;
+  if not found then raise exception 'Không tìm thấy phiếu cần chuyển'; end if;
+
+  clean := title_name(source.student_name);
+  sid := coalesce(source.student_id, ensure_student(clean, source.dob));
+
+  if coalesce(array_length(api_transfer_submission.target_class_ids, 1), 0) = 0 then
+    raise exception 'Chọn ít nhất 1 lớp để chuyển';
+  end if;
+
+  foreach target_id in array api_transfer_submission.target_class_ids loop
+    perform require_class_manager(teacher_key, target_id);
+    select array(select unnest(source.busy_slots) except select unnest(c.current_slots)) into allowed_busy from classes c where c.id = target_id and not c.archived;
+    insert into submissions (class_id, student_id, student_name, name_key, dob, busy_slots, status, updated_at)
+    values (target_id, sid, clean, name_key(clean), source.dob, coalesce(allowed_busy, '{}'), source.status, now())
+    on conflict on constraint submissions_class_id_name_key_dob_key
+    do update set student_id = excluded.student_id, student_name = excluded.student_name, busy_slots = excluded.busy_slots, status = excluded.status, updated_at = now();
+  end loop;
+
+  if not (api_transfer_submission.class_id = any(api_transfer_submission.target_class_ids)) then
+    delete from submissions s where s.id = source.id;
+  end if;
+  return jsonb_build_object('ok', true);
+end; $$;
+
+create or replace function api_update_student_profile_classes(teacher_key text, class_id text, old_student_name text, old_dob date, new_student_name text, new_dob date, class_ids text[])
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  source submissions;
+  source_student_id uuid;
+  target_student_id uuid;
+  clean text := title_name(api_update_student_profile_classes.new_student_name);
+  target_id text;
+  source_busy text[] := '{}';
+begin
+  perform require_class_manager(teacher_key, api_update_student_profile_classes.class_id);
+  if clean = '' or api_update_student_profile_classes.new_dob is null then raise exception 'Nhập họ tên và ngày sinh'; end if;
+  if coalesce(array_length(api_update_student_profile_classes.class_ids, 1), 0) = 0 then raise exception 'Chọn ít nhất 1 lớp'; end if;
+
+  select * into source from submissions s
+  where s.class_id = api_update_student_profile_classes.class_id
+    and s.name_key = name_key(api_update_student_profile_classes.old_student_name)
+    and s.dob = api_update_student_profile_classes.old_dob;
+  if not found then raise exception 'Không tìm thấy học sinh'; end if;
+
+  source_student_id := coalesce(source.student_id, ensure_student(source.student_name, source.dob));
+  target_student_id := ensure_student(clean, api_update_student_profile_classes.new_dob);
+  source_busy := source.busy_slots;
+
+  delete from submissions s
+  using submissions t
+  where s.id <> t.id
+    and s.class_id = t.class_id
+    and (s.student_id = source_student_id or (s.student_id is null and s.name_key = name_key(api_update_student_profile_classes.old_student_name) and s.dob = api_update_student_profile_classes.old_dob))
+    and (t.student_id = target_student_id or (t.name_key = name_key(clean) and t.dob = api_update_student_profile_classes.new_dob));
+
+  update submissions s
+  set student_id = target_student_id,
+      student_name = clean,
+      name_key = name_key(clean),
+      dob = api_update_student_profile_classes.new_dob,
+      updated_at = now()
+  where s.student_id = source_student_id
+     or (s.student_id is null and s.name_key = name_key(api_update_student_profile_classes.old_student_name) and s.dob = api_update_student_profile_classes.old_dob);
+
+  foreach target_id in array api_update_student_profile_classes.class_ids loop
+    perform require_class_manager(teacher_key, target_id);
+    insert into submissions (class_id, student_id, student_name, name_key, dob, busy_slots, status, updated_at)
+    values (target_id, target_student_id, clean, name_key(clean), api_update_student_profile_classes.new_dob, source_busy, 'approved', now())
+    on conflict on constraint submissions_class_id_name_key_dob_key
+    do update set student_id = excluded.student_id, student_name = excluded.student_name, name_key = excluded.name_key, dob = excluded.dob, status = 'approved', updated_at = now();
+  end loop;
+
+  delete from submissions s
+  where s.student_id = target_student_id
+    and can_access_class(teacher_key, s.class_id)
+    and not (s.class_id = any(api_update_student_profile_classes.class_ids));
+
+  return jsonb_build_object('ok', true);
+end; $$;
+
+create or replace function api_student_class(student_key text, class_id text, student_name text, dob date)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  c classes;
+  target_key text := name_key(student_name);
+begin
+  perform require_student(student_key);
+  if target_key = '' or dob is null then raise exception 'Nhập họ tên và ngày sinh để tra cứu'; end if;
+  select * into c from classes where id = api_student_class.class_id and not archived;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+
+  return jsonb_build_object(
+    'id', c.id,
+    'name', c.name,
+    'sessions', c.sessions,
+    'currentSlots', c.current_slots,
+    'finalSubjects', c.final_subjects,
+    'canRequestChange', exists (
+      select 1 from submissions s left join students st on st.id = s.student_id
+      where s.class_id = c.id and s.status = 'approved' and coalesce(st.name_key, s.name_key) = target_key and coalesce(st.dob, s.dob) = api_student_class.dob
+    ),
+    'submissions', coalesce((
+      with approved as (
+        select s.*, coalesce(st.student_name, s.student_name) as display_student_name,
+               coalesce(st.name_key, s.name_key) as display_name_key,
+               coalesce(st.dob, s.dob) as display_dob,
+               count(*) over (partition by coalesce(st.name_key, s.name_key)) as same_name_count
+        from submissions s
+        left join students st on st.id = s.student_id
+        where s.class_id = c.id and s.status = 'approved'
+      )
+      select jsonb_agg(jsonb_build_object(
+        'studentName', a.display_student_name,
+        'displayName', case when a.same_name_count >= 2 then a.display_student_name || ' (' || dob_note(a.display_dob) || ')' else a.display_student_name end,
+        'busySlots', a.busy_slots,
+        'status', a.status,
+        'canEdit', a.display_name_key = target_key and a.display_dob = api_student_class.dob
+      ) order by lower(a.display_student_name), a.display_student_name, a.display_dob)
+      from approved a
+    ), '[]'::jsonb)
+  );
+end;
+$$;
+
+grant execute on all functions in schema public to anon;
