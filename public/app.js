@@ -1387,7 +1387,7 @@ function buildLightExportTable(sourceTable, imageTitleOptions = null, exportOpti
       background = '#fee2e2'; color = '#b91c1c'; weight = '700';
     }
     if (cell.classList.contains('other-class-slot')) {
-      background = '#fed7aa'; color = '#9a3412'; weight = '800';
+      background = '#dbeafe'; color = '#1d4ed8'; weight = '800';
     }
     if (cell.classList.contains('worst')) color = '#b91c1c';
     if (cell.classList.contains('current-slot')) {

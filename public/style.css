@@ -499,7 +499,7 @@ table.schedule thead tr:first-child th { border-top: 1px solid var(--border); }
 table.schedule th:first-child, table.schedule td:first-child { border-left: 1px solid var(--border); }
 table.schedule td.name { text-align: left; font-weight: 600; white-space: nowrap; }
 .busy { background: #fee2e2; color: #b91c1c; font-weight: 700; }
-.other-class-slot { background: #fed7aa !important; color: #9a3412 !important; font-weight: 800; letter-spacing: .01em; }
+.other-class-slot { background: #dbeafe !important; color: #1d4ed8 !important; font-weight: 800; letter-spacing: .01em; }
 .free { color: #d1d5db; }
 .current-slot, td.current-slot, tr.summary td.current-slot {
   background: rgba(253, 253, 10) !important;
@@ -696,7 +696,7 @@ body.dark table.schedule thead th,
 body.dark table.grid th { background: #20242f; color: #cbd5e1; }
 body.dark table.grid tbody th { background: var(--surface); color: var(--text); }
 body.dark .busy { background: #43232a; color: #fca5a5; }
-body.dark .other-class-slot { background: #7c2d12 !important; color: #fed7aa !important; }
+body.dark .other-class-slot { background: #1e3a8a !important; color: #bfdbfe !important; }
 body.dark .current-slot, body.dark td.current-slot, body.dark tr.summary td.current-slot { background: rgba(253, 253, 10) !important; color: #3f3f00 !important; }
 body.dark .free { color: #3a3f4f; }
 body.dark tr.summary td { background: #20242f; }
