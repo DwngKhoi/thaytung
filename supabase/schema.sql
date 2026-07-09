@@ -2131,3 +2131,124 @@ end;
 $$;
 
 grant execute on all functions in schema public to anon;
+
+
+-- Cross-class conflicts for students enrolled in 2+ classes.
+-- Orange cells on the frontend use this map: slot id -> other class name(s).
+create or replace function submission_other_class_slots(source_submission submissions)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with src as (
+    select
+      coalesce(st.name_key, source_submission.name_key) as src_key,
+      coalesce(st.dob, source_submission.dob) as src_dob
+    from (select 1) one
+    left join students st on st.id = source_submission.student_id
+  ), slot_classes as (
+    select distinct slot_value as slot, oc.name as class_name
+    from submissions x
+    join classes oc on oc.id = x.class_id and not oc.archived
+    left join students xst on xst.id = x.student_id
+    cross join unnest(coalesce(oc.current_slots, '{}')) as slots(slot_value)
+    cross join src
+    where x.status = 'approved'
+      and x.class_id <> source_submission.class_id
+      and coalesce(xst.name_key, x.name_key) = src.src_key
+      and coalesce(xst.dob, x.dob) = src.src_dob
+  ), grouped as (
+    select slot, string_agg(class_name, '/' order by lower(class_name), class_name) as label
+    from slot_classes
+    group by slot
+  )
+  select coalesce(jsonb_object_agg(slot, label), '{}'::jsonb)
+  from grouped;
+$$;
+
+create or replace function teacher_submission_json(s submissions)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'studentName', coalesce(st.student_name, s.student_name),
+    'dob', coalesce(st.dob, s.dob)::text,
+    'busySlots', s.busy_slots,
+    'otherClassSlots', submission_other_class_slots(s),
+    'status', s.status,
+    'studentId', s.student_id,
+    'classIds', coalesce((
+      select jsonb_agg(x.class_id order by lower(c.name), c.name, x.class_id)
+      from submissions x
+      join classes c on c.id = x.class_id and not c.archived
+      left join students xst on xst.id = x.student_id
+      where coalesce(xst.name_key, x.name_key) = coalesce(st.name_key, s.name_key)
+        and coalesce(xst.dob, x.dob) = coalesce(st.dob, s.dob)
+    ), '[]'::jsonb)
+  )
+  from (select 1) one
+  left join students st on st.id = s.student_id;
+$$;
+
+-- Effective private lookup override with cross-class conflicts included.
+create or replace function api_student_class(
+  student_key text,
+  class_id text,
+  student_name text,
+  dob date
+)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  c classes;
+  target_key text := name_key(api_student_class.student_name);
+  matched boolean;
+begin
+  perform require_student(student_key);
+  if target_key = '' or api_student_class.dob is null then
+    raise exception 'Nhap ho ten va ngay sinh de tra cuu';
+  end if;
+  select * into c from classes
+  where classes.id = api_student_class.class_id and not classes.archived;
+  if not found then raise exception 'Khong tim thay lop'; end if;
+
+  select exists (
+    select 1 from submissions s
+    left join students st on st.id = s.student_id
+    where s.class_id = c.id and s.status = 'approved'
+      and coalesce(st.name_key, s.name_key) = target_key
+      and coalesce(st.dob, s.dob) = api_student_class.dob
+  ) into matched;
+
+  return jsonb_build_object(
+    'id', c.id,
+    'name', c.name,
+    'sessions', c.sessions,
+    'currentSlots', case when matched then to_jsonb(c.current_slots) else '[]'::jsonb end,
+    'finalSubjects', case when matched then c.final_subjects else '{}'::jsonb end,
+    'canRequestChange', matched,
+    'submissions', case when matched then coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'studentName', coalesce(st.student_name, s.student_name),
+        'displayName', coalesce(st.student_name, s.student_name),
+        'dob', coalesce(st.dob, s.dob)::text,
+        'busySlots', s.busy_slots,
+        'otherClassSlots', submission_other_class_slots(s),
+        'status', s.status,
+        'canEdit', true
+      ) order by lower(coalesce(st.student_name, s.student_name)), coalesce(st.student_name, s.student_name), coalesce(st.dob, s.dob))
+      from submissions s
+      left join students st on st.id = s.student_id
+      where s.class_id = c.id and s.status = 'approved'
+        and coalesce(st.name_key, s.name_key) = target_key
+        and coalesce(st.dob, s.dob) = api_student_class.dob
+    ), '[]'::jsonb) else '[]'::jsonb end
+  );
+end;
+$$;
+
+grant execute on all functions in schema public to anon;

@@ -1054,6 +1054,16 @@ function busySlotLabels(slotIds, sessions = DEFAULT_SESSIONS) {
   });
 }
 
+function otherClassSlotLabel(student, slotId) {
+  const value = student?.otherClassSlots?.[slotId];
+  if (Array.isArray(value)) return value.filter(Boolean).join('/');
+  return value ? String(value) : '';
+}
+
+function isStudentUnavailable(student, slotId) {
+  return (student.busySlots || []).includes(slotId) || Boolean(otherClassSlotLabel(student, slotId));
+}
+
 function renderScheduleTable({ slots, sessions, submissions, editable, showDelete, nameCounts, studentLookup, currentSlots = [], currentEditable = false, finalSubjects = {} }) {
   const busyCount = countBusy(slots, submissions);
   const zeroSlotIds = new Set(slots
@@ -1097,15 +1107,21 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
       : '';
     html += `<tr><td>${idx + 1}</td><td class="name student-name-cell"><span class="student-name-wrap"><span>${escapeHtml(displayName(student, nameCounts))}</span>${studentActions}</span></td>`;
     slots.forEach((slot) => {
-      const busy = (student.busySlots || []).includes(slot.id);
+      const manualBusy = (student.busySlots || []).includes(slot.id);
+      const otherClassLabel = otherClassSlotLabel(student, slot.id);
       const current = currentSlots.includes(slot.id);
-      if (canEdit && !current) {
-        const editBase = busy ? 'cell-edit busy' : 'cell-edit';
-        html += `<td class="${slotClass(slot.id, editBase)}" data-slot="${slot.id}"><input type="checkbox" class="busy-chk" data-key="${key}" data-slot="${slot.id}" ${busy ? 'checked' : ''}></td>`;
+      if (otherClassLabel) {
+        const preserveManualBusy = canEdit && manualBusy
+          ? `<input type="checkbox" class="busy-chk hidden" data-key="${key}" data-slot="${slot.id}" checked>`
+          : '';
+        html += `<td class="other-class-slot" data-slot="${slot.id}" title="Trung lich lop khac: ${escapeHtml(otherClassLabel)}">${escapeHtml(otherClassLabel)}${preserveManualBusy}</td>`;
+      } else if (canEdit && !current) {
+        const editBase = manualBusy ? 'cell-edit busy' : 'cell-edit';
+        html += `<td class="${slotClass(slot.id, editBase)}" data-slot="${slot.id}"><input type="checkbox" class="busy-chk" data-key="${key}" data-slot="${slot.id}" ${manualBusy ? 'checked' : ''}></td>`;
       } else {
         html += current
-          ? `<td class="current-slot" data-slot="${slot.id}" title="Lịch học hiện tại">${finalSubjects[slot.id] ? escapeHtml(displayLessonLabel(finalSubjects[slot.id])) : '&middot;'}</td>`
-          : busy ? `<td class="busy" data-slot="${slot.id}">&times;</td>` : `<td class="${slotClass(slot.id, 'free')}" data-slot="${slot.id}">&middot;</td>`;
+          ? `<td class="current-slot" data-slot="${slot.id}" title="Lich hoc hien tai">${finalSubjects[slot.id] ? escapeHtml(displayLessonLabel(finalSubjects[slot.id])) : '&middot;'}</td>`
+          : manualBusy ? `<td class="busy" data-slot="${slot.id}">&times;</td>` : `<td class="${slotClass(slot.id, 'free')}" data-slot="${slot.id}">&middot;</td>`;
       }
     });
     html += '</tr>';
@@ -1134,9 +1150,11 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
 function countBusy(slots, submissions) {
   const busyCount = {};
   slots.forEach((slot) => busyCount[slot.id] = 0);
-  submissions.forEach((student) => (student.busySlots || []).forEach((slotId) => {
-    if (busyCount[slotId] !== undefined) busyCount[slotId]++;
-  }));
+  submissions.forEach((student) => {
+    slots.forEach((slot) => {
+      if (busyCount[slot.id] !== undefined && isStudentUnavailable(student, slot.id)) busyCount[slot.id]++;
+    });
+  });
   return busyCount;
 }
 
@@ -1367,6 +1385,9 @@ function buildLightExportTable(sourceTable, imageTitleOptions = null, exportOpti
     }
     if (cell.classList.contains('busy')) {
       background = '#fee2e2'; color = '#b91c1c'; weight = '700';
+    }
+    if (cell.classList.contains('other-class-slot')) {
+      background = '#fed7aa'; color = '#9a3412'; weight = '800';
     }
     if (cell.classList.contains('worst')) color = '#b91c1c';
     if (cell.classList.contains('current-slot')) {
