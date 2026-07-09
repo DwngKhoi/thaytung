@@ -1068,8 +1068,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
 
   let html = '<div class="schedule-scroll"><table class="schedule"><thead><tr><th rowspan="2">STT</th><th rowspan="2">H&#7885;c sinh</th>';
   DAYS.forEach((day) => html += `<th colspan="${sessions.length}">${escapeHtml(day)}</th>`);
-  html += showDelete ? '<th class="schedule-actions" rowspan="2">X&#243;a HS</th>' : '</tr>';
-  if (showDelete) html += '</tr>';
+  html += '</tr>';
   html += '<tr>';
   DAYS.forEach((day, dayIdx) => sessions.forEach((session, sessionIdx) => {
     const slotId = `${dayIdx}-${sessionIdx}`;
@@ -1087,14 +1086,16 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
         html += `<td class="${slotClass(slot.id, current ? '' : 'free')}" data-slot="${slot.id}">${current && finalSubjects[slot.id] ? escapeHtml(displayLessonLabel(finalSubjects[slot.id])) : '&middot;'}</td>`;
       }
     });
-    if (showDelete) html += '<td class="schedule-actions"></td>';
     html += '</tr>';
   }
 
   submissions.forEach((student, idx) => {
     const key = encodeKey(student);
     const canEdit = editable && (!studentLookup || student.canEdit);
-    html += `<tr><td>${idx + 1}</td><td class="name">${escapeHtml(displayName(student, nameCounts))}</td>`;
+    const studentActions = showDelete
+      ? `<span class="student-row-actions"><button class="btn-del-stu" data-key="${key}" title="Xoá học sinh">&times;</button><button class="btn-manage-stu" data-key="${key}" data-classes="${escapeHtml((student.classIds || []).join(','))}" title="Quản lý học sinh">&#9881;</button></span>`
+      : '';
+    html += `<tr><td>${idx + 1}</td><td class="name student-name-cell"><span class="student-name-wrap"><span>${escapeHtml(displayName(student, nameCounts))}</span>${studentActions}</span></td>`;
     slots.forEach((slot) => {
       const busy = (student.busySlots || []).includes(slot.id);
       const current = currentSlots.includes(slot.id);
@@ -1107,25 +1108,26 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
           : busy ? `<td class="busy" data-slot="${slot.id}">&times;</td>` : `<td class="${slotClass(slot.id, 'free')}" data-slot="${slot.id}">&middot;</td>`;
       }
     });
-    if (showDelete) html += `<td class="act-cell schedule-actions"><span class="student-row-actions"><button class="btn-del-stu" data-key="${key}" title="Xoá học sinh">&times;</button><button class="btn-manage-stu" data-key="${key}" data-classes="${escapeHtml((student.classIds || []).join(','))}" title="Quản lý học sinh">&#9881;</button></span></td>`;
     html += '</tr>';
   });
 
-  html += '<tr class="summary"><td></td><td class="name">S&#7889; ng&#432;&#7901;i b&#7853;n</td>';
-  const values = slots.map((slot) => busyCount[slot.id]);
-  const minBusy = Math.min(...values);
-  const maxBusy = Math.max(...values);
-  slots.forEach((slot) => {
-    const n = busyCount[slot.id];
-    let className = '';
-    if (currentSlots.includes(slot.id)) className = 'current-slot';
-    else if (n === 0) className = 'best zero-slot';
-    else if (n === minBusy) className = 'best';
-    else if (n === maxBusy && maxBusy > 0) className = 'worst';
-    html += `<td class="${className}" data-slot="${slot.id}">${n}</td>`;
-  });
-  if (showDelete) html += '<td class="schedule-actions"></td>';
-  html += '</tr></tbody></table></div>';
+  if (!studentLookup) {
+    html += '<tr class="summary"><td></td><td class="name">S&#7889; ng&#432;&#7901;i b&#7853;n</td>';
+    const values = slots.map((slot) => busyCount[slot.id]);
+    const minBusy = Math.min(...values);
+    const maxBusy = Math.max(...values);
+    slots.forEach((slot) => {
+      const n = busyCount[slot.id];
+      let className = '';
+      if (currentSlots.includes(slot.id)) className = 'current-slot';
+      else if (n === 0) className = 'best zero-slot';
+      else if (n === minBusy) className = 'best';
+      else if (n === maxBusy && maxBusy > 0) className = 'worst';
+      html += `<td class="${className}" data-slot="${slot.id}">${n}</td>`;
+    });
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
   return html;
 }
 
@@ -1328,6 +1330,7 @@ function compactPlannerForImage(table) {
 function buildLightExportTable(sourceTable, imageTitleOptions = null, exportOptions = {}) {
   const table = sourceTable.cloneNode(true);
   table.querySelectorAll('.schedule-actions').forEach((cell) => cell.remove());
+  table.querySelectorAll('.student-row-actions').forEach((actions) => actions.remove());
   table.querySelectorAll('.slot-edit-btn').forEach((button) => button.remove());
   if (exportOptions.compactPlanner) compactPlannerForImage(table);
   const isPlanner = table.classList.contains('week-planner');
@@ -2978,11 +2981,11 @@ async function lookupClassSchedule() {
     const results = await Promise.all(classes.map((cls) =>
       api(`/classes/${cls.id}/student-class`, { method: 'POST', body: JSON.stringify({ studentName, dob }) })
     ));
-    lookupStates = results;
-    const editableCount = lookupStates.filter((item) => item.canRequestChange).length;
+    lookupStates = results.filter((item) => item.canRequestChange);
+    const editableCount = lookupStates.length;
     showMsg(
       msg,
-      editableCount ? `Tìm thấy ${editableCount}/${lookupStates.length} lớp có học sinh khớp.` : 'Không tìm thấy học sinh khớp họ tên và ngày sinh trong các lớp đã chọn.',
+      editableCount ? `Đã tìm thấy lịch của bạn trong ${editableCount} lớp.` : 'Không tìm thấy học sinh khớp họ tên và ngày sinh trong các lớp đã chọn.',
       editableCount ? 'ok' : 'err'
     );
     renderLookupResults();

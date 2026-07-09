@@ -465,6 +465,13 @@ button.secondary:hover { background: var(--primary-soft); }
   gap: 4px;
   white-space: nowrap;
 }
+.student-name-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.student-name-cell { min-width: 180px; }
 .btn-del-stu {
   border: none; background: #fef2f2; color: var(--danger); width: 24px; height: 24px;
   border-radius: 6px; font-size: 13px; line-height: 1; display: grid; place-items: center;

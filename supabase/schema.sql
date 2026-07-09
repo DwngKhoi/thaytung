@@ -496,6 +496,74 @@ $$;
 
 grant execute on all functions in schema public to anon;
 
+-- Student lookup privacy: return only the matching student row and reveal the
+-- class final schedule only when full name + date of birth match.
+create or replace function api_student_class(
+  student_key text,
+  class_id text,
+  student_name text,
+  dob date
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  c classes;
+  target_key text := name_key(api_student_class.student_name);
+  matched boolean;
+begin
+  perform require_student(student_key);
+  if target_key = '' or api_student_class.dob is null then
+    raise exception 'Nhập họ tên và ngày sinh để tra cứu';
+  end if;
+
+  select * into c
+  from classes
+  where classes.id = api_student_class.class_id and not classes.archived;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+
+  select exists (
+    select 1
+    from submissions s
+    left join students st on st.id = s.student_id
+    where s.class_id = c.id
+      and s.status = 'approved'
+      and coalesce(st.name_key, s.name_key) = target_key
+      and coalesce(st.dob, s.dob) = api_student_class.dob
+  ) into matched;
+
+  return jsonb_build_object(
+    'id', c.id,
+    'name', c.name,
+    'sessions', c.sessions,
+    'currentSlots', case when matched then to_jsonb(c.current_slots) else '[]'::jsonb end,
+    'finalSubjects', case when matched then c.final_subjects else '{}'::jsonb end,
+    'canRequestChange', matched,
+    'submissions', case when matched then coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'studentName', coalesce(st.student_name, s.student_name),
+        'displayName', coalesce(st.student_name, s.student_name),
+        'dob', coalesce(st.dob, s.dob)::text,
+        'busySlots', s.busy_slots,
+        'status', s.status,
+        'canEdit', true
+      ))
+      from submissions s
+      left join students st on st.id = s.student_id
+      where s.class_id = c.id
+        and s.status = 'approved'
+        and coalesce(st.name_key, s.name_key) = target_key
+        and coalesce(st.dob, s.dob) = api_student_class.dob
+    ), '[]'::jsonb) else '[]'::jsonb end
+  );
+end;
+$$;
+
+grant execute on all functions in schema public to anon;
+
 -- Keep these weekly-planner overrides last because earlier migration blocks also
 -- define the legacy current-schedule RPCs.
 create or replace function api_set_current_slots(
@@ -1531,7 +1599,7 @@ insert into students (student_name, name_key, dob)
 select distinct title_name(s.student_name), name_key(title_name(s.student_name)), s.dob
 from submissions s
 where s.dob is not null
-on conflict (name_key, dob) do update
+on conflict on constraint students_name_key_dob_key do update
 set student_name = excluded.student_name,
     updated_at = now();
 
@@ -1558,7 +1626,7 @@ begin
 
   insert into students (student_name, name_key, dob, updated_at)
   values (clean, name_key(clean), dob, now())
-  on conflict (name_key, dob) do update
+  on conflict on constraint students_name_key_dob_key do update
   set student_name = excluded.student_name,
       updated_at = now()
   returning id into result_id;
@@ -2001,6 +2069,63 @@ begin
     'activeSlots', coalesce(w.active_slots, c.current_slots),
     'slots', coalesce(w.slots, c.final_subjects, '{}'::jsonb),
     'details', coalesce(w.details, '{}'::jsonb)
+  );
+end;
+$$;
+
+grant execute on all functions in schema public to anon;
+
+-- Effective private lookup override. Keep after all legacy api_student_class definitions.
+create or replace function api_student_class(
+  student_key text,
+  class_id text,
+  student_name text,
+  dob date
+)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  c classes;
+  target_key text := name_key(api_student_class.student_name);
+  matched boolean;
+begin
+  perform require_student(student_key);
+  if target_key = '' or api_student_class.dob is null then
+    raise exception 'Nhập họ tên và ngày sinh để tra cứu';
+  end if;
+  select * into c from classes
+  where classes.id = api_student_class.class_id and not classes.archived;
+  if not found then raise exception 'Không tìm thấy lớp'; end if;
+
+  select exists (
+    select 1 from submissions s
+    left join students st on st.id = s.student_id
+    where s.class_id = c.id and s.status = 'approved'
+      and coalesce(st.name_key, s.name_key) = target_key
+      and coalesce(st.dob, s.dob) = api_student_class.dob
+  ) into matched;
+
+  return jsonb_build_object(
+    'id', c.id,
+    'name', c.name,
+    'sessions', c.sessions,
+    'currentSlots', case when matched then to_jsonb(c.current_slots) else '[]'::jsonb end,
+    'finalSubjects', case when matched then c.final_subjects else '{}'::jsonb end,
+    'canRequestChange', matched,
+    'submissions', case when matched then coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'studentName', coalesce(st.student_name, s.student_name),
+        'displayName', coalesce(st.student_name, s.student_name),
+        'dob', coalesce(st.dob, s.dob)::text,
+        'busySlots', s.busy_slots,
+        'status', s.status,
+        'canEdit', true
+      ))
+      from submissions s
+      left join students st on st.id = s.student_id
+      where s.class_id = c.id and s.status = 'approved'
+        and coalesce(st.name_key, s.name_key) = target_key
+        and coalesce(st.dob, s.dob) = api_student_class.dob
+    ), '[]'::jsonb) else '[]'::jsonb end
   );
 end;
 $$;
