@@ -2511,6 +2511,248 @@ function saveOverviewFromDom() {
   }));
 }
 
+
+function buildOverviewExportTable(sourceTable) {
+  const table = sourceTable.cloneNode(true);
+  table.querySelectorAll('.overview-col-resizer, .overview-row-resizer').forEach((item) => item.remove());
+  table.querySelectorAll('.overview-selected-cell').forEach((item) => item.classList.remove('overview-selected-cell'));
+  table.classList.add('overview-export-table');
+  table.style.cssText = 'border-collapse:collapse;border-spacing:0;width:max-content;min-width:0;table-layout:fixed;font:13px Arial,sans-serif;color:#111827;background:#ffffff;';
+
+  const widths = [];
+  const occupied = new Set();
+  const sourceRows = [...sourceTable.rows];
+  const cloneRows = [...table.rows];
+  sourceRows.forEach((row, rowIndex) => {
+    let logicalColumn = 0;
+    [...row.cells].forEach((sourceCell, cellIndex) => {
+      while (occupied.has(`${rowIndex}:${logicalColumn}`)) logicalColumn++;
+      const cloneCell = cloneRows[rowIndex]?.cells[cellIndex];
+      if (!cloneCell) return;
+      const rowSpan = Number(sourceCell.rowSpan || 1);
+      const colSpan = Number(sourceCell.colSpan || 1);
+      const rect = sourceCell.getBoundingClientRect();
+      const style = getComputedStyle(sourceCell);
+      const width = Math.max(28, Number(sourceCell.dataset.width?.replace('px', '')) || rect.width || 48);
+      const height = Math.max(20, Number(sourceCell.dataset.height?.replace('px', '')) || rect.height || 24);
+      const perColumn = Math.max(28, Math.ceil(width / Math.max(1, colSpan)));
+      for (let offset = 0; offset < colSpan; offset++) {
+        widths[logicalColumn + offset] = Math.max(widths[logicalColumn + offset] || 0, perColumn);
+      }
+      for (let rowOffset = 0; rowOffset < rowSpan; rowOffset++) {
+        for (let colOffset = 0; colOffset < colSpan; colOffset++) {
+          occupied.add(`${rowIndex + rowOffset}:${logicalColumn + colOffset}`);
+        }
+      }
+      cloneCell.style.cssText = [
+        'box-sizing:border-box',
+        'border:1px solid #111827',
+        `padding:${style.paddingTop || '4px'} ${style.paddingRight || '6px'} ${style.paddingBottom || '4px'} ${style.paddingLeft || '6px'}`,
+        `text-align:${style.textAlign || 'center'}`,
+        'vertical-align:middle',
+        `background:${style.backgroundColor || '#ffffff'}`,
+        `color:${style.color || '#111827'}`,
+        `font-size:${style.fontSize || '13px'}`,
+        `font-weight:${style.fontWeight || '600'}`,
+        `width:${Math.ceil(width)}px`,
+        `min-width:${Math.ceil(width)}px`,
+        `height:${Math.ceil(height)}px`,
+        'white-space:nowrap'
+      ].join(';');
+      cloneCell.setAttribute('width', String(Math.ceil(width)));
+      logicalColumn += colSpan;
+    });
+  });
+  const colgroup = document.createElement('colgroup');
+  widths.forEach((width) => {
+    const col = document.createElement('col');
+    const safeWidth = Math.ceil(Math.max(28, width || 48));
+    col.style.cssText = `width:${safeWidth}px;min-width:${safeWidth}px;max-width:${safeWidth}px;mso-width-source:userset;mso-width-alt:${Math.round(safeWidth * 48)};`;
+    col.setAttribute('width', String(safeWidth));
+    colgroup.appendChild(col);
+  });
+  table.insertBefore(colgroup, table.firstChild);
+  const totalWidth = widths.reduce((sum, width) => sum + Math.ceil(Math.max(28, width || 48)), 0);
+  table.style.width = `${totalWidth}px`;
+  table.setAttribute('width', String(totalWidth));
+  return table;
+}
+
+function overviewExportTitle() {
+  const weekStart = overviewWeekStart();
+  const note = $('#overview-note')?.value.trim() || loadOverviewData(weekStart).note || 'Lich tong quan';
+  return `${note} ${weekRangeText(weekStart)}`.replace(/[\\/:*?"<>|]/g, '-').trim() || 'lich-tong-quan';
+}
+
+async function copyOverviewToExcel(button) {
+  if (scheduleOverviewEditMode) saveOverviewFromDom();
+  const source = $('#schedule-overview table.overview-grid');
+  if (!source) return;
+  const table = buildOverviewExportTable(source);
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>table{border-collapse:collapse;table-layout:fixed}col,td,th{mso-width-source:userset;white-space:nowrap}</style></head><body>${table.outerHTML}</body></html>`;
+  const textValue = exportTableText(table);
+  try {
+    if (navigator.clipboard?.write && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([textValue], { type: 'text/plain' })
+      })]);
+    } else {
+      fallbackCopyHtml(table);
+    }
+    setExportButtonStatus(button, '\u2713 \u0110\u00e3 copy');
+  } catch (err) {
+    try {
+      fallbackCopyHtml(table);
+      setExportButtonStatus(button, '\u2713 \u0110\u00e3 copy');
+    } catch (fallbackError) {
+      setExportButtonStatus(button, 'Copy l\u1ed7i', true);
+      alert(fallbackError.message || err.message);
+    }
+  }
+}
+
+async function downloadOverviewExcel(button) {
+  if (scheduleOverviewEditMode) saveOverviewFromDom();
+  const source = $('#schedule-overview table.overview-grid');
+  if (!source) return;
+  button.dataset.originalText = button.dataset.originalText || button.textContent;
+  button.disabled = true;
+  button.textContent = '\u0110ang t\u1ea1o file...';
+  try {
+    const ExcelJS = await loadExcelJs();
+    const table = buildOverviewExportTable(source);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Olympus English';
+    const worksheet = workbook.addWorksheet(overviewExportTitle().replace(/[\\/*?:[\]]/g, '-').slice(0, 31) || 'Lich tong quan', {
+      views: [{ state: 'frozen', xSplit: 3, ySplit: 2 }],
+      pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+    });
+    [...(table.querySelector('colgroup')?.children || [])].forEach((col, index) => {
+      const pixels = Number.parseFloat(col.style.width) || Number(col.getAttribute('width')) || 48;
+      worksheet.getColumn(index + 1).width = Math.max(3.5, pixels / 7);
+    });
+    const occupied = new Set();
+    [...table.rows].forEach((row, rowIndex) => {
+      const excelRow = rowIndex + 1;
+      worksheet.getRow(excelRow).height = Math.max(18, Number.parseFloat(row.cells[0]?.style.height) || 22);
+      let excelColumn = 1;
+      [...row.cells].forEach((htmlCell) => {
+        while (occupied.has(`${excelRow}:${excelColumn}`)) excelColumn++;
+        const rowSpan = Number(htmlCell.rowSpan || 1);
+        const colSpan = Number(htmlCell.colSpan || 1);
+        const excelCell = worksheet.getCell(excelRow, excelColumn);
+        excelCell.value = htmlCell.textContent.trim().replace(/\s+/g, ' ');
+        excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: excelArgb(htmlCell.style.backgroundColor, 'FFFFFFFF') } };
+        excelCell.font = {
+          name: 'Arial',
+          size: Number.parseFloat(htmlCell.style.fontSize) || 13,
+          bold: Number.parseInt(htmlCell.style.fontWeight, 10) >= 600,
+          color: { argb: excelArgb(htmlCell.style.color, 'FF111827') }
+        };
+        excelCell.alignment = { horizontal: htmlCell.style.textAlign === 'left' ? 'left' : 'center', vertical: 'middle', wrapText: false };
+        excelCell.border = {
+          top: { style: 'thin', color: { argb: 'FF111827' } },
+          left: { style: 'thin', color: { argb: 'FF111827' } },
+          bottom: { style: 'thin', color: { argb: 'FF111827' } },
+          right: { style: 'thin', color: { argb: 'FF111827' } }
+        };
+        for (let rowOffset = 0; rowOffset < rowSpan; rowOffset++) {
+          for (let colOffset = 0; colOffset < colSpan; colOffset++) occupied.add(`${excelRow + rowOffset}:${excelColumn + colOffset}`);
+        }
+        if (rowSpan > 1 || colSpan > 1) worksheet.mergeCells(excelRow, excelColumn, excelRow + rowSpan - 1, excelColumn + colSpan - 1);
+        excelColumn += colSpan;
+      });
+    });
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${overviewExportTitle()}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    setExportButtonStatus(button, '\u2713 \u0110\u00e3 t\u1ea3i Excel');
+  } catch (err) {
+    setExportButtonStatus(button, 'T\u1ea1o Excel l\u1ed7i', true);
+    alert(err.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function renderOverviewImage(sourceTable) {
+  const table = buildOverviewExportTable(sourceTable);
+  const stage = document.createElement('div');
+  stage.style.cssText = 'position:fixed;left:-10000px;top:0;width:max-content;background:#fff;z-index:-1;';
+  stage.appendChild(table);
+  document.body.appendChild(stage);
+  await document.fonts?.ready;
+  const rect = table.getBoundingClientRect();
+  const width = Math.ceil(rect.width);
+  const height = Math.ceil(rect.height);
+  const maxPixels = 45000000;
+  const scale = Math.min(3, Math.sqrt(maxPixels / Math.max(1, width * height)));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(width * scale));
+  canvas.height = Math.max(1, Math.ceil(height * scale));
+  const context = canvas.getContext('2d');
+  context.scale(scale, scale);
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, height);
+  const stageRect = stage.getBoundingClientRect();
+  table.querySelectorAll('th,td').forEach((cell) => {
+    const cellRect = cell.getBoundingClientRect();
+    const x = cellRect.left - stageRect.left;
+    const y = cellRect.top - stageRect.top;
+    const style = getComputedStyle(cell);
+    context.fillStyle = style.backgroundColor || '#ffffff';
+    context.fillRect(x, y, cellRect.width, cellRect.height);
+    context.strokeStyle = '#111827';
+    context.lineWidth = 1;
+    context.strokeRect(x + .5, y + .5, Math.max(0, cellRect.width - 1), Math.max(0, cellRect.height - 1));
+    const value = cell.textContent.trim().replace(/\s+/g, ' ');
+    if (!value) return;
+    context.save();
+    context.beginPath();
+    context.rect(x + 2, y + 2, Math.max(0, cellRect.width - 4), Math.max(0, cellRect.height - 4));
+    context.clip();
+    context.fillStyle = style.color || '#111827';
+    context.font = `${style.fontWeight || '600'} ${style.fontSize || '13px'} Arial, sans-serif`;
+    context.textBaseline = 'middle';
+    context.textAlign = 'center';
+    context.fillText(value, x + cellRect.width / 2, y + cellRect.height / 2, Math.max(0, cellRect.width - 8));
+    context.restore();
+  });
+  stage.remove();
+  return canvas;
+}
+
+async function copyOverviewImage(button) {
+  if (scheduleOverviewEditMode) saveOverviewFromDom();
+  const source = $('#schedule-overview table.overview-grid');
+  if (!source) return;
+  if (!navigator.clipboard?.write || !window.ClipboardItem) {
+    setExportButtonStatus(button, 'Kh\u00f4ng h\u1ed7 tr\u1ee3', true);
+    return;
+  }
+  button.dataset.originalText = button.dataset.originalText || button.textContent;
+  button.disabled = true;
+  button.textContent = '\u0110ang t\u1ea1o \u1ea3nh...';
+  try {
+    const canvas = await renderOverviewImage(source);
+    const png = await canvasBlob(canvas, 'image/png');
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    setExportButtonStatus(button, '\u2713 \u0110\u00e3 copy \u1ea3nh');
+  } catch (err) {
+    setExportButtonStatus(button, 'T\u1ea1o \u1ea3nh l\u1ed7i', true);
+    alert(err.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderScheduleOverview() {
   const weekStart = overviewWeekStart();
   const data = loadOverviewData(weekStart);
@@ -2530,14 +2772,17 @@ function renderScheduleOverview() {
     <div class="overview-head">
       <div>
         <h3>To\u00e0n c\u1ea3nh l\u1ecbch tu\u1ea7n</h3>
-        <p class="hint">B\u1ea5m B\u00fat \u0111i\u1ec1n \u0111\u1ec3 s\u1eeda nhanh. Khi \u0111ang s\u1eeda, gi\u1eef Ctrl r\u1ed3i b\u1ea5m nhi\u1ec1u \u00f4 \u0111\u1ec3 \u00e1p d\u1ee5ng h\u00e0ng lo\u1ea1t.</p>
+        <p class="hint">B\u1ea5m Ch\u1ec9nh s\u1eeda \u0111\u1ec3 s\u1eeda nhanh. Khi \u0111ang s\u1eeda, gi\u1eef Ctrl r\u1ed3i b\u1ea5m nhi\u1ec1u \u00f4 \u0111\u1ec3 \u00e1p d\u1ee5ng h\u00e0ng lo\u1ea1t.</p>
       </div>
       <div class="overview-actions">
         <label>Ng\u00e0y \u0111\u1ea7u tu\u1ea7n <input id="overview-week-start" type="date" value="${escapeHtml(weekStart)}" /></label>
         <label>Tu\u1ea7n c\u0169 <select id="overview-week-select"><option value="">Ch\u1ecdn tu\u1ea7n...</option>${weeks.map((item) => `<option value="${escapeHtml(item.weekStart)}" ${item.weekStart === weekStart ? 'selected' : ''}>${escapeHtml(item.note || 'Tu\u1ea7n')} (${escapeHtml(weekRangeText(item.weekStart))})</option>`).join('')}</select></label>
         <button id="overview-new-week" type="button">+ Tu\u1ea7n m\u1edbi</button>
+        <button id="overview-copy-excel" class="btn-export" type="button">Copy Excel</button>
+        <button id="overview-download-excel" class="btn-export btn-download-excel" type="button">T\u1ea3i Excel</button>
+        <button id="overview-copy-image" class="btn-export btn-export-image" type="button">In \u1ea2nh</button>
         <button id="overview-toggle" type="button">${collapsed ? 'M\u1edf b\u1ea3ng' : 'Thu g\u1ecdn'}</button>
-        <button id="overview-edit" type="button">${scheduleOverviewEditMode ? 'L\u01b0u to\u00e0n c\u1ea3nh' : 'B\u00fat \u0111i\u1ec1n'}</button>
+        <button id="overview-edit" type="button">${scheduleOverviewEditMode ? 'L\u01b0u to\u00e0n c\u1ea3nh' : 'Ch\u1ec9nh s\u1eeda'}</button>
       </div>
     </div>
     ${scheduleOverviewEditMode ? `<div id="overview-edit-panel" class="overview-edit-panel hidden">
@@ -2839,6 +3084,9 @@ function wireScheduleOverview() {
     setScheduleOverviewCollapsed(!scheduleOverviewCollapsed());
     renderScheduleHome();
   });
+  $('#overview-copy-excel')?.addEventListener('click', (event) => copyOverviewToExcel(event.currentTarget));
+  $('#overview-download-excel')?.addEventListener('click', (event) => downloadOverviewExcel(event.currentTarget));
+  $('#overview-copy-image')?.addEventListener('click', (event) => copyOverviewImage(event.currentTarget));
   $('#overview-edit')?.addEventListener('click', () => {
     if (scheduleOverviewEditMode) {
       saveOverviewFromDom();
