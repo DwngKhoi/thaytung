@@ -1161,3 +1161,61 @@ body.dark .lesson-builder { background: #20213a; border-color: #3d4361; }
 body.dark .system-nav-group, body.dark .schedule-overview-card { background: var(--surface); border-color: #30364a; }
 body.dark .overview-grid .overview-row-label { background: #111827 !important; color: #e5e7eb !important; }
 body.dark .overview-ghi-chu { background: #111827; }
+
+
+/* ---- Owner schedule overview v2 ---- */
+.overview-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  gap: 14px;
+  align-items: start;
+}
+.overview-table-wrap { padding-bottom: 8px; }
+.overview-side { display: grid; gap: 12px; }
+.overview-mini-box {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  min-height: 150px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.45);
+}
+.overview-note-box {
+  aspect-ratio: 1 / .82;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.overview-note-box label { display: grid; gap: 7px; font-size: 12px; font-weight: 900; color: #111827; }
+.overview-note-box input:not(.mini-color) {
+  width: 100%; border: 1px solid rgba(17,24,39,.18); border-radius: 9px;
+  padding: 8px; font-weight: 800; background: rgba(255,255,255,.78);
+}
+.overview-note-box b { color: #111827; font-size: 18px; }
+.mini-color { width: 36px; height: 28px; padding: 0; border: none; background: transparent; }
+.overview-legend-box { background: #f8fafc; }
+.legend-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.legend-head button {
+  width: 28px; height: 28px; border-radius: 9px; border: none;
+  background: var(--primary); color: #fff; font-size: 18px; font-weight: 900; cursor: pointer;
+}
+.legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.legend-item {
+  display: grid; grid-template-columns: 42px 1fr 26px;
+  gap: 5px; align-items: center;
+  border: 1px solid rgba(17,24,39,.14); border-radius: 10px; padding: 6px;
+}
+.legend-item input { min-width: 0; border: none; border-radius: 6px; padding: 5px; background: rgba(255,255,255,.78); font-size: 12px; }
+.legend-item .legend-code { font-weight: 900; text-align: center; }
+.legend-item .legend-color { width: 24px; height: 24px; padding: 0; background: transparent; }
+.overview-color-picker { display: flex; align-items: center; gap: 7px; }
+.overview-color-picker input { width: 38px; min-width: 38px; height: 34px; padding: 0; }
+.overview-selected-cell { box-shadow: inset 0 0 0 3px #2563eb !important; }
+.overview-grid .overview-room { background: #fb923c; color: #111827; }
+.overview-grid .overview-lop { background: #22c55e; color: #052e16; font-weight: 900; }
+.overview-grid .overview-ky-nang { background: #fef3c7; font-weight: 800; }
+@media (max-width: 980px) {
+  .overview-layout { grid-template-columns: 1fr; }
+  .overview-side { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+}
+body.dark .overview-legend-box { background: #111827; }
+body.dark .legend-item input, body.dark .overview-note-box input:not(.mini-color) { background: rgba(255,255,255,.85); color: #111827; }

@@ -2320,24 +2320,74 @@ function overviewWeekStart() {
 
 function overviewRooms() {
   return [
-    { id: 'A1', label: 'A1', place: 'Tang 1' },
-    { id: 'A2', label: 'A2', place: 'Tang 2' },
-    { id: 'CS2', label: 'CS2', place: 'Co so 2' }
+    { id: 'A1', label: 'A1', place: 'T\u1ea7ng 1' },
+    { id: 'A2', label: 'A2', place: 'T\u1ea7ng 2' },
+    { id: 'CS2', label: 'CS2', place: 'C\u01a1 s\u1edf 2' }
   ];
 }
 
 function overviewSubRows() {
-  return ['Gio', 'Lop', 'Ky nang', 'Ghi chu'];
+  return ['Gi\u1edd', 'L\u1edbp', 'K\u1ef9 n\u0103ng', 'Ghi ch\u00fa'];
+}
+
+function defaultOverviewLegend() {
+  return overviewRooms().map((room) => ({ code: room.label, text: room.place, color: room.id === 'CS2' ? '#fdfd0a' : '#fb923c' }));
+}
+
+function overviewSessions() {
+  const sessions = selectedGridSessions(teacherClasses);
+  return sessions.length ? sessions : (DEFAULT_SESSIONS.length ? DEFAULT_SESSIONS : ['S1', 'S2', 'C', '57', 'T']);
 }
 
 function loadOverviewData(weekStart = overviewWeekStart()) {
   try {
     const raw = localStorage.getItem(SCHEDULE_OVERVIEW_DATA_PREFIX + weekStart);
     const data = JSON.parse(raw || '{}');
-    return { note: data.note || '', cells: data.cells || {} };
+    return {
+      note: data.note || '',
+      noteStyle: data.noteStyle || {},
+      legend: Array.isArray(data.legend) && data.legend.length ? data.legend : defaultOverviewLegend(),
+      cells: data.cells || {},
+      styles: data.styles || {}
+    };
   } catch (err) {
-    return { note: '', cells: {} };
+    return { note: '', noteStyle: {}, legend: defaultOverviewLegend(), cells: {}, styles: {} };
   }
+}
+
+function overviewRowClass(rowName) {
+  const key = String(rowName || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (key.includes('lop')) return 'lop';
+  if (key.includes('ky')) return 'ky-nang';
+  if (key.includes('gio')) return 'gio';
+  return 'ghi-chu';
+}
+
+function autoOverviewCells(sessions, rooms) {
+  const cells = {};
+  const occupied = {};
+  sortClasses(teacherClasses).forEach((cls) => {
+    const clsSessions = getSessions(cls);
+    (cls.currentSlots || []).forEach((slotId) => {
+      const [dayIdx, clsSessionIdx] = String(slotId).split('-').map(Number);
+      const sessionName = clsSessions[clsSessionIdx];
+      const overviewSession = sessions.find((item) => sessionKey(item) === sessionKey(sessionName));
+      if (dayIdx < 0 || dayIdx > 6 || !overviewSession) return;
+      const occKey = `${overviewSession}|${dayIdx}`;
+      const room = rooms[(occupied[occKey] || 0) % rooms.length];
+      occupied[occKey] = (occupied[occKey] || 0) + 1;
+      const base = `${overviewSession}|${dayIdx}|${room.id}`;
+      if (!cells[`${base}|L\u1edbp`]) cells[`${base}|L\u1edbp`] = cls.name;
+      const skill = displayLessonLabel(cls.finalSubjects?.[slotId] || '');
+      if (skill && !cells[`${base}|K\u1ef9 n\u0103ng`]) cells[`${base}|K\u1ef9 n\u0103ng`] = skill;
+    });
+  });
+  return cells;
+}
+
+function overviewCellStyle(style = {}) {
+  const color = String(style.backgroundColor || '').trim();
+  return color ? ` style="background:${escapeHtml(color)} !important;"` : '';
 }
 
 function saveOverviewFromDom() {
@@ -2345,35 +2395,54 @@ function saveOverviewFromDom() {
   if (!root) return;
   const weekStart = $('#overview-week-start')?.value || overviewWeekStart();
   const cells = {};
+  const styles = {};
   root.querySelectorAll('[data-overview-cell]').forEach((cell) => {
     const value = cell.textContent.trim();
-    if (value) cells[cell.dataset.overviewCell] = value;
+    const autoValue = cell.dataset.auto || '';
+    if (value && value !== autoValue) cells[cell.dataset.overviewCell] = value;
+    const bg = cell.dataset.bg || '';
+    if (bg) styles[cell.dataset.overviewCell] = { backgroundColor: bg };
   });
   const note = $('#overview-note')?.value.trim() || '';
-  localStorage.setItem(SCHEDULE_OVERVIEW_DATA_PREFIX + weekStart, JSON.stringify({ note, cells }));
+  const noteBg = $('#overview-note-box')?.dataset.bg || '';
+  const legend = [...root.querySelectorAll('.legend-item')].map((item) => ({
+    code: item.querySelector('.legend-code')?.value.trim() || '',
+    text: item.querySelector('.legend-text')?.value.trim() || '',
+    color: item.querySelector('.legend-color')?.value || item.dataset.bg || '#ffffff'
+  })).filter((item) => item.code || item.text);
+  localStorage.setItem(SCHEDULE_OVERVIEW_DATA_PREFIX + weekStart, JSON.stringify({
+    note,
+    noteStyle: noteBg ? { backgroundColor: noteBg } : {},
+    legend: legend.length ? legend : defaultOverviewLegend(),
+    cells,
+    styles
+  }));
 }
 
 function renderScheduleOverview() {
   const weekStart = overviewWeekStart();
   const data = loadOverviewData(weekStart);
-  const sessions = DEFAULT_SESSIONS.length ? DEFAULT_SESSIONS : ['S1', 'S2', 'C', '57', 'T'];
+  const sessions = overviewSessions();
   const rooms = overviewRooms();
   const subRows = overviewSubRows();
+  const autoCells = autoOverviewCells(sessions, rooms);
   const editable = scheduleOverviewEditMode ? 'true' : 'false';
+  const noteBg = data.noteStyle?.backgroundColor || '#fef08a';
   let html = `<section id="schedule-overview" class="schedule-overview-card ${scheduleOverviewEditMode ? 'overview-editing' : ''}">
     <div class="overview-head">
       <div>
-        <h3>Toan canh lich tuan</h3>
-        <p class="hint">Excel minimal cho owner: dien nhanh gio, lop, ky nang/giao vien va ghi chu. Du lieu tam luu tren trinh duyet.</p>
+        <h3>To\u00e0n c\u1ea3nh l\u1ecbch tu\u1ea7n</h3>
+        <p class="hint">B\u1ea3ng Excel t\u1ed1i gi\u1ea3n cho owner: t\u1ef1 l\u1ea5y m\u00e3 l\u1edbp/k\u1ef9 n\u0103ng t\u1eeb l\u1ecbch t\u1eebng l\u1edbp, v\u1eabn c\u00f3 th\u1ec3 b\u1ea5m B\u00fat \u0111i\u1ec1n \u0111\u1ec3 s\u1eeda n\u1ed9i dung v\u00e0 m\u00e0u t\u1eebng \u00f4.</p>
       </div>
       <div class="overview-actions">
-        <label>Ngay dau tuan <input id="overview-week-start" type="date" value="${escapeHtml(weekStart)}" /></label>
-        <button id="overview-edit" type="button">${scheduleOverviewEditMode ? 'Luu toan canh' : 'But dien'}</button>
+        <label>Ng\u00e0y \u0111\u1ea7u tu\u1ea7n <input id="overview-week-start" type="date" value="${escapeHtml(weekStart)}" /></label>
+        <label class="overview-color-picker">M\u00e0u \u00f4 <input id="overview-cell-color" type="color" value="#dbeafe" ${scheduleOverviewEditMode ? '' : 'disabled'} /></label>
+        <button id="overview-edit" type="button">${scheduleOverviewEditMode ? 'L\u01b0u to\u00e0n c\u1ea3nh' : 'B\u00fat \u0111i\u1ec1n'}</button>
       </div>
     </div>
-    <div class="schedule-scroll"><table class="schedule overview-grid"><thead><tr>
-      <th rowspan="2" class="overview-corner"><label>Note tuan<input id="overview-note" value="${escapeHtml(data.note)}" placeholder="vd: Tuan 26" ${scheduleOverviewEditMode ? '' : 'readonly'} /></label><small>${escapeHtml(weekRangeText(weekStart))}</small></th>
-      <th rowspan="2">BUOI</th><th rowspan="2">Ca</th>`;
+    <div class="overview-layout">
+      <div class="schedule-scroll overview-table-wrap"><table class="schedule overview-grid"><thead><tr>
+        <th rowspan="2">BU\u1ed4I</th><th rowspan="2">Ca</th><th rowspan="2">N\u1ed9i dung</th>`;
   DAYS.forEach((day, dayIdx) => {
     html += `<th colspan="${rooms.length}">${escapeHtml(DAYS_SHORT[dayIdx] || day)}<br><small>${escapeHtml(dayDateLabel(weekStart, dayIdx))}</small></th>`;
   });
@@ -2389,17 +2458,50 @@ function renderScheduleOverview() {
       html += `<th class="overview-row-label">${escapeHtml(rowName)}</th>`;
       DAYS.forEach((day, dayIdx) => rooms.forEach((room) => {
         const key = `${session}|${dayIdx}|${room.id}|${rowName}`;
-        const value = data.cells[key] || '';
-        html += `<td class="overview-cell overview-${rowName.toLowerCase().replace(/\s+/g, '-')}" data-overview-cell="${escapeHtml(key)}" contenteditable="${editable}" spellcheck="false">${escapeHtml(value)}</td>`;
+        const autoValue = autoCells[key] || '';
+        const value = data.cells[key] ?? autoValue;
+        const style = data.styles[key] || {};
+        html += `<td class="overview-cell overview-${overviewRowClass(rowName)}" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(autoValue)}" data-bg="${escapeHtml(style.backgroundColor || '')}" data-row-label="${escapeHtml(rowName)}" contenteditable="${editable}" spellcheck="false"${overviewCellStyle(style)}>${escapeHtml(value)}</td>`;
       }));
       html += '</tr>';
     });
   });
-  html += '</tbody></table></div></section>';
+  html += `</tbody></table></div>
+      <aside class="overview-side">
+        <div id="overview-note-box" class="overview-mini-box overview-note-box" data-bg="${escapeHtml(noteBg)}" style="background:${escapeHtml(noteBg)};">
+          <label>Ghi ch\u00fa tu\u1ea7n<input id="overview-note" value="${escapeHtml(data.note)}" placeholder="vd: Tu\u1ea7n 26" ${scheduleOverviewEditMode ? '' : 'readonly'} /></label>
+          <b>${escapeHtml(weekRangeText(weekStart))}</b>
+          ${scheduleOverviewEditMode ? '<input id="overview-note-color" class="mini-color" type="color" value="' + escapeHtml(noteBg) + '" title="M\u00e0u \u00f4 ghi ch\u00fa" />' : ''}
+        </div>
+        <div class="overview-mini-box overview-legend-box">
+          <div class="legend-head"><b>K\u00fd hi\u1ec7u</b>${scheduleOverviewEditMode ? '<button id="overview-add-legend" type="button" title="Th\u00eam k\u00fd hi\u1ec7u">+</button>' : ''}</div>
+          <div id="overview-legend-list" class="legend-grid">
+            ${data.legend.map((item, index) => `
+              <div class="legend-item" data-index="${index}" style="background:${escapeHtml(item.color || '#ffffff')};" data-bg="${escapeHtml(item.color || '#ffffff')}">
+                <input class="legend-code" value="${escapeHtml(item.code || '')}" ${scheduleOverviewEditMode ? '' : 'readonly'} />
+                <input class="legend-text" value="${escapeHtml(item.text || '')}" ${scheduleOverviewEditMode ? '' : 'readonly'} />
+                ${scheduleOverviewEditMode ? `<input class="legend-color" type="color" value="${escapeHtml(item.color || '#ffffff')}" title="M\u00e0u k\u00fd hi\u1ec7u" />` : ''}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>`;
   return html;
 }
 
 function wireScheduleOverview() {
+  let selectedCell = null;
+  const root = $('#schedule-overview');
+  const colorInput = $('#overview-cell-color');
+  const selectCell = (cell) => {
+    if (!scheduleOverviewEditMode || !cell) return;
+    root?.querySelectorAll('.overview-selected-cell').forEach((item) => item.classList.remove('overview-selected-cell'));
+    selectedCell = cell;
+    selectedCell.classList.add('overview-selected-cell');
+    if (colorInput && selectedCell.dataset.bg) colorInput.value = selectedCell.dataset.bg;
+  };
   $('#overview-week-start')?.addEventListener('change', (event) => {
     if (scheduleOverviewEditMode) saveOverviewFromDom();
     localStorage.setItem(SCHEDULE_OVERVIEW_WEEK_KEY, event.target.value || localIsoDate(mondayOf(new Date())));
@@ -2415,6 +2517,37 @@ function wireScheduleOverview() {
     }
     renderScheduleHome();
   });
+  root?.querySelectorAll('[data-overview-cell]').forEach((cell) => {
+    cell.addEventListener('click', () => selectCell(cell));
+    cell.addEventListener('focus', () => selectCell(cell));
+  });
+  colorInput?.addEventListener('input', () => {
+    if (!scheduleOverviewEditMode || !selectedCell) return;
+    selectedCell.dataset.bg = colorInput.value;
+    selectedCell.style.setProperty('background', colorInput.value, 'important');
+  });
+  $('#overview-note-color')?.addEventListener('input', (event) => {
+    const box = $('#overview-note-box');
+    if (!box) return;
+    box.dataset.bg = event.target.value;
+    box.style.background = event.target.value;
+  });
+  root?.querySelectorAll('.legend-color').forEach((input) => {
+    input.addEventListener('input', () => {
+      const item = input.closest('.legend-item');
+      if (!item) return;
+      item.dataset.bg = input.value;
+      item.style.background = input.value;
+    });
+  });
+  $('#overview-add-legend')?.addEventListener('click', () => {
+    saveOverviewFromDom();
+    const weekStart = overviewWeekStart();
+    const data = loadOverviewData(weekStart);
+    data.legend.push({ code: '', text: '', color: '#ffffff' });
+    localStorage.setItem(SCHEDULE_OVERVIEW_DATA_PREFIX + weekStart, JSON.stringify(data));
+    renderScheduleHome();
+  });
 }
 
 function renderScheduleHome() {
@@ -2427,7 +2560,7 @@ function renderScheduleHome() {
   }
   const expanded = scheduleExpandedSectorIds();
   const overviewHtml = isOwner() ? renderScheduleOverview() : '';
-  target.innerHTML = `${overviewHtml}<div class="schedule-directory"><div class="schedule-directory-head"><h3>Lich chia theo lop</h3><p class="hint">Mo tung lop de chinh chi tiet, keo tha S/W/LR va xuat Excel/anh.</p></div>${groups.map((group) => {
+  target.innerHTML = `${overviewHtml}<div class="schedule-directory"><div class="schedule-directory-head"><h3>L\u1ecbch chia theo l\u1edbp</h3><p class="hint">M\u1edf t\u1eebng l\u1edbp \u0111\u1ec3 ch\u1ec9nh chi ti\u1ebft, k\u00e9o th\u1ea3 S/W/LR v\u00e0 xu\u1ea5t Excel/\u1ea3nh.</p></div>${groups.map((group) => {
     const open = expanded.has(String(group.id));
     return `<section class="schedule-sector${open ? ' expanded' : ''}">
       <button class="schedule-sector-head" type="button" data-sector="${escapeHtml(group.id)}">
