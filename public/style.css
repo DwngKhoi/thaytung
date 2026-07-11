@@ -1417,3 +1417,53 @@ body.dark .overview-edit-panel { background: var(--surface); }
   .overview-layout { grid-template-columns: 1fr; }
   .overview-side { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 }
+
+
+/* ---- Owner overview v4: weeks, full-cell customization, CS2 marker ---- */
+.overview-body.hidden { display: none; }
+.overview-actions select {
+  min-width: 140px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+}
+.overview-actions #overview-new-week,
+.overview-actions #overview-toggle {
+  background: #eef2ff;
+  color: #1d4ed8;
+  border: 1px solid #c7d2fe;
+}
+.overview-grid .overview-room-cs2,
+.overview-grid .overview-room-col-cs2 {
+  background: #fdfd0a !important;
+  color: #111827 !important;
+}
+.overview-grid .overview-room-col-cs2.overview-lop.has-value {
+  background: #22c55e !important;
+  color: #052e16 !important;
+}
+.overview-grid .overview-room-col-cs2.overview-ky-nang.has-value {
+  background: #fef3c7 !important;
+  color: #111827 !important;
+}
+.overview-grid .overview-header-cell,
+.overview-grid .overview-day-header,
+.overview-grid .overview-room,
+.overview-grid .overview-session,
+.overview-grid .overview-ca,
+.overview-grid .overview-row-label {
+  user-select: none;
+}
+.overview-edit-panel input#overview-edit-width,
+.overview-edit-panel input#overview-edit-height {
+  min-width: 90px;
+  width: 90px;
+}
+.overview-collapsed .overview-head { margin-bottom: 0; }
+.overview-collapsed .overview-edit-panel { display: none; }
+body.dark .overview-actions select { background: #111827; color: #e5e7eb; border-color: #30364a; }
+body.dark .overview-actions #overview-new-week,
+body.dark .overview-actions #overview-toggle { background: #172554; color: #bfdbfe; border-color: #1d4ed8; }

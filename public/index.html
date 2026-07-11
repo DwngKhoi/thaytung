@@ -1,13 +1,13 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lá»‹ch lá»›p - GiÃ¡o viÃªn</title>
+  <title>L&#7883;ch l&#7899;p - Gi&#225;o vi&#234;n</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260712-3" />
+  <link rel="stylesheet" href="style.css?v=20260712-4" />
 </head>
 <body>
   <header>
@@ -15,13 +15,13 @@
       <div class="brand">
         <div class="logo" aria-label="Olympus English"></div>
         <div>
-          <h1>Lá»‹ch Lá»›p <span class="badge-soft">Console</span></h1>
-          <p class="sub">Quáº£n lÃ½ lá»›p, duyá»‡t lá»‹ch báº­n vÃ  tÃ¬m buá»•i há»c phÃ¹ há»£p nháº¥t.</p>
+          <h1>L&#7883;ch L&#7899;p <span class="badge-soft">Console</span></h1>
+          <p class="sub">Qu&#7843;n l&#253; l&#7899;p, duy&#7879;t l&#7883;ch b&#7853;n v&#224; t&#236;m bu&#7893;i h&#7885;c ph&#249; h&#7907;p nh&#7845;t.</p>
         </div>
       </div>
       <div class="header-actions">
-        <a class="student-link" href="student.html">Trang há»c sinh</a>
-        <button id="btn-theme" class="theme-toggle" title="Chuyá»ƒn Light/Dark">ðŸŒ™</button>
+        <a class="student-link" href="student.html">Trang h&#7885;c sinh</a>
+        <button id="btn-theme" class="theme-toggle" title="Chuy&#7875;n Light/Dark">&#127769;</button>
       </div>
     </div>
 
@@ -44,21 +44,21 @@
 
   <section id="tab-teacher" class="tab-panel active">
     <div id="teacher-login" class="card login-card">
-      <h2>ÄÄƒng nháº­p giÃ¡o viÃªn</h2>
-      <label>TÃ i khoáº£n
+      <h2>&#272;&#259;ng nh&#7853;p gi&#225;o vi&#234;n</h2>
+      <label>T&#224;i kho&#7843;n
         <input id="t-username" type="text" placeholder="vd: gv" autocomplete="username" />
       </label>
-      <label>Máº­t kháº©u
-        <input id="t-password" type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢" autocomplete="current-password" />
+      <label>M&#7853;t kh&#7849;u
+        <input id="t-password" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="current-password" />
       </label>
-      <button id="btn-login" class="primary">ÄÄƒng nháº­p</button>
+      <button id="btn-login" class="primary">&#272;&#259;ng nh&#7853;p</button>
       <p id="login-error" class="error"></p>
     </div>
 
     <div id="teacher-dashboard" class="hidden">
       <div class="dash-top">
-        <span>Xin chÃ o, <b id="teacher-name"></b></span>
-        <button id="btn-logout" class="link">ÄÄƒng xuáº¥t</button>
+        <span>Xin ch&#224;o, <b id="teacher-name"></b></span>
+        <button id="btn-logout" class="link">&#272;&#259;ng xu&#7845;t</button>
       </div>
 
     <div id="bulk-sessions-panel" class="card bulk-sessions-card bulk-sessions-panel hidden">
@@ -99,13 +99,13 @@
           <ul id="class-list"></ul>
           <div id="sector-editor" class="sector-editor hidden"></div>
           <div class="add-class owner-only">
-            <input id="new-class-name" type="text" placeholder="TÃªn lá»›p má»›i..." />
-            <button id="btn-add-class">+ ThÃªm</button>
+            <input id="new-class-name" type="text" placeholder="T&#234;n l&#7899;p m&#7899;i..." />
+            <button id="btn-add-class">+ Th&#234;m</button>
           </div>
         </aside>
 
         <main id="class-detail" class="class-detail">
-          <p class="placeholder">â† Chá»n má»™t lá»›p Ä‘á»ƒ xem lá»‹ch</p>
+          <p class="placeholder">&#8592; Ch&#7885;n m&#7897;t l&#7899;p &#273;&#7875; xem l&#7883;ch</p>
         </main>
       </div>
     </div>
@@ -166,28 +166,28 @@
   <section id="tab-accounts" class="tab-panel">
     <div class="accounts-layout">
       <aside class="card accounts-list-card">
-        <h2>TÃ i khoáº£n giÃ¡o viÃªn</h2>
+        <h2>T&#224;i kho&#7843;n gi&#225;o vi&#234;n</h2>
         <ul id="teacher-account-list" class="account-list"></ul>
       </aside>
       <main class="card account-detail-card">
         <div class="account-create">
-          <h2>ThÃªm giÃ¡o viÃªn bá»™ mÃ´n</h2>
+          <h2>Th&#234;m gi&#225;o vi&#234;n b&#7897; m&#244;n</h2>
           <div class="account-create-fields">
-            <label>TÃªn hiá»ƒn thá»‹<input id="account-name" type="text" placeholder="vd: CÃ´ Nguyá»…n Thu HÃ " /></label>
-            <label>TÃ i khoáº£n<input id="account-username" type="text" autocomplete="off" placeholder="vd: nguyenthuha" /></label>
-            <label>Máº­t kháº©u<input id="account-password" type="password" autocomplete="new-password" placeholder="Tá»« 6 kÃ½ tá»±" /></label>
+            <label>T&#234;n hi&#7875;n th&#7883;<input id="account-name" type="text" placeholder="vd: C&#244; Nguy&#7877;n Thu H&#224;" /></label>
+            <label>T&#224;i kho&#7843;n<input id="account-username" type="text" autocomplete="off" placeholder="vd: nguyenthuha" /></label>
+            <label>M&#7853;t kh&#7849;u<input id="account-password" type="password" autocomplete="new-password" placeholder="T&#7915; 6 k&#253; t&#7921;" /></label>
           </div>
-          <button id="btn-add-account" class="primary">ThÃªm tÃ i khoáº£n</button>
+          <button id="btn-add-account" class="primary">Th&#234;m t&#224;i kho&#7843;n</button>
           <p id="account-create-msg" class="msg"></p>
         </div>
         <div id="account-assignment" class="account-assignment">
-          <p class="placeholder">Chá»n má»™t giÃ¡o viÃªn Ä‘á»ƒ phÃ¢n cÃ´ng lá»›p.</p>
+          <p class="placeholder">Ch&#7885;n m&#7897;t gi&#225;o vi&#234;n &#273;&#7875; ph&#226;n c&#244;ng l&#7899;p.</p>
         </div>
       </main>
     </div>
   </section>
 
   <script src="config.js"></script>
-  <script src="app.js?v=20260712-3"></script>
+  <script src="app.js?v=20260712-4"></script>
 </body>
 </html>
