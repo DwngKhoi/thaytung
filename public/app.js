@@ -2560,17 +2560,15 @@ function renderScheduleOverview() {
           const style = data.styles[key] || {};
           const normalizedStyle = normalizeOverviewStyle(style);
           const value = data.cells[key] ?? label;
-          return `<th rowspan="2" class="overview-cell overview-header-cell has-value" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(label)}" data-bg="${escapeHtml(normalizedStyle.backgroundColor || '')}" data-fg="${escapeHtml(normalizedStyle.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}"${overviewCellStyle(style)}>${escapeHtml(value)}</th>`;
+          return `<th rowspan="2" class="overview-cell overview-header-cell has-value" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(label)}" data-bg="${escapeHtml(normalizedStyle.backgroundColor || '')}" data-fg="${escapeHtml(normalizedStyle.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}" data-col="main-${escapeHtml(label)}" data-row-id="header-main"${overviewCellStyle(style)}>${escapeHtml(value)}</th>`;
         }).join('')}`;
   DAYS.forEach((day, dayIdx) => {
-    const label = `${DAYS_SHORT[dayIdx] || day} ${dayDateLabel(weekStart, dayIdx)}`;
+    const label = overviewDayLabel(weekStart, dayIdx);
     const key = `header|day|${dayIdx}`;
     const style = data.styles[key] || {};
     const normalizedStyle = normalizeOverviewStyle(style);
     const value = data.cells[key] ?? label;
-    const dayParts = String(value || '').split(' ');
-    const dayHtml = dayParts.length > 1 ? `${escapeHtml(dayParts.shift())}<br><small>${escapeHtml(dayParts.join(' '))}</small>` : escapeHtml(value);
-    html += `<th colspan="${rooms.length}" class="overview-cell overview-day-header has-value" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(label)}" data-bg="${escapeHtml(normalizedStyle.backgroundColor || '')}" data-fg="${escapeHtml(normalizedStyle.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}"${overviewCellStyle(style)}>${dayHtml}</th>`;
+    html += `<th colspan="${rooms.length}" class="overview-cell overview-day-header has-value" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(label)}" data-bg="${escapeHtml(normalizedStyle.backgroundColor || '')}" data-fg="${escapeHtml(normalizedStyle.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}" data-col="day-${dayIdx}" data-row-id="header-days"${overviewCellStyle(style)}>${escapeHtml(value)}</th>`;
   });
   html += '</tr><tr>';
   DAYS.forEach((day, dayIdx) => rooms.forEach((room) => {
@@ -2578,7 +2576,7 @@ function renderScheduleOverview() {
     const style = data.styles[key] || {};
     const normalizedStyle = normalizeOverviewStyle(style);
     const value = data.cells[key] ?? room.label;
-    html += `<th class="overview-cell overview-room overview-room-${escapeHtml(room.id.toLowerCase())} has-value" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(room.label)}" data-bg="${escapeHtml(normalizedStyle.backgroundColor || '')}" data-fg="${escapeHtml(normalizedStyle.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}"${overviewCellStyle(style)}>${escapeHtml(value)}</th>`;
+    html += `<th class="overview-cell overview-room overview-room-${escapeHtml(room.id.toLowerCase())} has-value" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(room.label)}" data-bg="${escapeHtml(normalizedStyle.backgroundColor || '')}" data-fg="${escapeHtml(normalizedStyle.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}" data-col="slot-${dayIdx}-${escapeHtml(room.id)}" data-row-id="header-rooms"${overviewCellStyle(style)}>${escapeHtml(value)}</th>`;
   }));
   html += '</tr></thead><tbody>';
   sessions.forEach((session, sessionIdx) => {
@@ -2593,13 +2591,13 @@ function renderScheduleOverview() {
         const caNorm = normalizeOverviewStyle(caStyle);
         const sessionValue = data.cells[sessionKeyCell] ?? session;
         const caValue = data.cells[caKeyCell] ?? String(sessionIdx + 1);
-        html += `<th rowspan="${subRows.length}" class="overview-cell overview-session has-value" data-overview-cell="${escapeHtml(sessionKeyCell)}" data-auto="${escapeHtml(session)}" data-bg="${escapeHtml(sessionNorm.backgroundColor || '')}" data-fg="${escapeHtml(sessionNorm.color || '')}" data-width="${escapeHtml(sessionStyle.width || '')}" data-height="${escapeHtml(sessionStyle.height || '')}"${overviewCellStyle(sessionStyle)}>${escapeHtml(sessionValue)}</th><th rowspan="${subRows.length}" class="overview-cell overview-ca has-value" data-overview-cell="${escapeHtml(caKeyCell)}" data-auto="${sessionIdx + 1}" data-bg="${escapeHtml(caNorm.backgroundColor || '')}" data-fg="${escapeHtml(caNorm.color || '')}" data-width="${escapeHtml(caStyle.width || '')}" data-height="${escapeHtml(caStyle.height || '')}"${overviewCellStyle(caStyle)}>${escapeHtml(caValue)}</th>`;
+        html += `<th rowspan="${subRows.length}" class="overview-cell overview-session has-value" data-overview-cell="${escapeHtml(sessionKeyCell)}" data-auto="${escapeHtml(session)}" data-bg="${escapeHtml(sessionNorm.backgroundColor || '')}" data-fg="${escapeHtml(sessionNorm.color || '')}" data-width="${escapeHtml(sessionStyle.width || '')}" data-height="${escapeHtml(sessionStyle.height || '')}" data-col="main-session" data-row-id="session-${escapeHtml(session)}"${overviewCellStyle(sessionStyle)}>${escapeHtml(sessionValue)}</th><th rowspan="${subRows.length}" class="overview-cell overview-ca has-value" data-overview-cell="${escapeHtml(caKeyCell)}" data-auto="${sessionIdx + 1}" data-bg="${escapeHtml(caNorm.backgroundColor || '')}" data-fg="${escapeHtml(caNorm.color || '')}" data-width="${escapeHtml(caStyle.width || '')}" data-height="${escapeHtml(caStyle.height || '')}" data-col="main-ca" data-row-id="session-${escapeHtml(session)}"${overviewCellStyle(caStyle)}>${escapeHtml(caValue)}</th>`;
       }
       const rowKey = `label|row|${session}|${rowName}`;
       const rowStyle = data.styles[rowKey] || {};
       const rowNorm = normalizeOverviewStyle(rowStyle);
       const rowValue = data.cells[rowKey] ?? rowName;
-      html += `<th class="overview-cell overview-row-label has-value" data-overview-cell="${escapeHtml(rowKey)}" data-auto="${escapeHtml(rowName)}" data-bg="${escapeHtml(rowNorm.backgroundColor || '')}" data-fg="${escapeHtml(rowNorm.color || '')}" data-width="${escapeHtml(rowStyle.width || '')}" data-height="${escapeHtml(rowStyle.height || '')}"${overviewCellStyle(rowStyle)}>${escapeHtml(rowValue)}</th>`;
+      html += `<th class="overview-cell overview-row-label has-value" data-overview-cell="${escapeHtml(rowKey)}" data-auto="${escapeHtml(rowName)}" data-bg="${escapeHtml(rowNorm.backgroundColor || '')}" data-fg="${escapeHtml(rowNorm.color || '')}" data-width="${escapeHtml(rowStyle.width || '')}" data-height="${escapeHtml(rowStyle.height || '')}" data-col="main-content" data-row-id="row-${escapeHtml(session)}-${escapeHtml(rowName)}"${overviewCellStyle(rowStyle)}>${escapeHtml(rowValue)}</th>`;
       DAYS.forEach((day, dayIdx) => rooms.forEach((room) => {
         const key = `${session}|${dayIdx}|${room.id}|${rowName}`;
         const autoValue = autoCells[key] || '';
@@ -2607,7 +2605,7 @@ function renderScheduleOverview() {
         const style = data.styles[key] || {};
         const hasValue = String(value || '').trim() ? ' has-value' : '';
         const normalizedStyle = normalizeOverviewStyle(style);
-        html += `<td class="overview-cell overview-${overviewRowClass(rowName)} overview-room-col-${escapeHtml(room.id.toLowerCase())}${hasValue}" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(autoValue)}" data-bg="${escapeHtml(normalizedStyle.backgroundColor || '')}" data-fg="${escapeHtml(normalizedStyle.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}" data-row-label="${escapeHtml(rowName)}" spellcheck="false"${overviewCellStyle(style)}>${escapeHtml(value)}</td>`;
+        html += `<td class="overview-cell overview-${overviewRowClass(rowName)} overview-room-col-${escapeHtml(room.id.toLowerCase())}${hasValue}" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(autoValue)}" data-bg="${escapeHtml(normalizedStyle.backgroundColor || '')}" data-fg="${escapeHtml(normalizedStyle.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}" data-col="slot-${dayIdx}-${escapeHtml(room.id)}" data-row-id="row-${escapeHtml(session)}-${escapeHtml(rowName)}" data-row-label="${escapeHtml(rowName)}" spellcheck="false"${overviewCellStyle(style)}>${escapeHtml(value)}</td>`;
       }));
       html += '</tr>';
     });
@@ -2635,6 +2633,27 @@ function renderScheduleOverview() {
     </div></div>
   </section>`;
   return html;
+}
+
+function addOverviewResizeHandles(scope) {
+  if (!scheduleOverviewEditMode) return;
+  const cells = scope?.classList?.contains('overview-cell')
+    ? [scope]
+    : [...(scope || document).querySelectorAll('.overview-cell')];
+  cells.forEach((cell) => {
+    if (!cell.querySelector(':scope > .overview-col-resizer')) {
+      const col = document.createElement('span');
+      col.className = 'overview-col-resizer';
+      col.title = 'K\u00e9o \u0111\u1ec3 \u0111\u1ed5i \u0111\u1ed9 r\u1ed9ng c\u1ed9t';
+      cell.appendChild(col);
+    }
+    if (!cell.querySelector(':scope > .overview-row-resizer')) {
+      const row = document.createElement('span');
+      row.className = 'overview-row-resizer';
+      row.title = 'K\u00e9o \u0111\u1ec3 \u0111\u1ed5i chi\u1ec1u cao h\u00e0ng';
+      cell.appendChild(row);
+    }
+  });
 }
 
 function rgbToHex(value) {
@@ -2682,6 +2701,7 @@ function wireScheduleOverview() {
     }
     target.textContent = text;
     target.classList.toggle('has-value', Boolean(String(text || '').trim()));
+    addOverviewResizeHandles(target);
   };
   const syncPanel = () => {
     const targets = selectedTargets();
@@ -2737,6 +2757,55 @@ function wireScheduleOverview() {
       if (options.text !== undefined) applyTargetText(target, options.text);
     });
   };
+  const sameColumnCells = (cell) => {
+    const col = cell.dataset.col || '';
+    return col ? [...root.querySelectorAll('.overview-cell')].filter((item) => item.dataset.col === col) : [cell];
+  };
+  const sameRowCells = (cell) => {
+    const row = cell.dataset.rowId || '';
+    return row ? [...root.querySelectorAll('.overview-cell')].filter((item) => item.dataset.rowId === row) : [cell];
+  };
+  const startOverviewResize = (event, cell, type) => {
+    if (!scheduleOverviewEditMode || !cell) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const targets = type === 'col' ? sameColumnCells(cell) : sameRowCells(cell);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = cell.getBoundingClientRect().width;
+    const startHeight = cell.getBoundingClientRect().height;
+    const onMove = (moveEvent) => {
+      if (type === 'col') {
+        const width = `${Math.max(28, Math.round(startWidth + moveEvent.clientX - startX))}px`;
+        targets.forEach((target) => {
+          target.dataset.width = width;
+          target.style.width = width;
+          target.style.minWidth = width;
+        });
+        if (widthInput && cell.classList.contains('overview-selected-cell')) widthInput.value = width;
+      } else {
+        const height = `${Math.max(20, Math.round(startHeight + moveEvent.clientY - startY))}px`;
+        targets.forEach((target) => {
+          target.dataset.height = height;
+          target.style.height = height;
+        });
+        if (heightInput && cell.classList.contains('overview-selected-cell')) heightInput.value = height;
+      }
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+  addOverviewResizeHandles(root);
+  root.querySelectorAll('.overview-col-resizer').forEach((handle) => {
+    handle.addEventListener('mousedown', (event) => startOverviewResize(event, handle.closest('.overview-cell'), 'col'));
+  });
+  root.querySelectorAll('.overview-row-resizer').forEach((handle) => {
+    handle.addEventListener('mousedown', (event) => startOverviewResize(event, handle.closest('.overview-cell'), 'row'));
+  });
 
   $('#overview-week-start')?.addEventListener('change', (event) => {
     if (scheduleOverviewEditMode) saveOverviewFromDom();
@@ -2888,6 +2957,10 @@ function shortDate(value) {
 function dayDateLabel(weekStart, dayIndex) {
   const date = addDays(new Date(`${weekStart}T12:00:00`), dayIndex);
   return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function overviewDayLabel(weekStart, dayIndex) {
+  return `${dayIndex === 6 ? 'Ch\u1ee7 nh\u1eadt' : `Th\u1ee9 ${dayIndex + 2}`} (${dayDateLabel(weekStart, dayIndex)})`;
 }
 
 function weekRangeText(weekStart) {

@@ -1467,3 +1467,47 @@ body.dark .overview-edit-panel { background: var(--surface); }
 body.dark .overview-actions select { background: #111827; color: #e5e7eb; border-color: #30364a; }
 body.dark .overview-actions #overview-new-week,
 body.dark .overview-actions #overview-toggle { background: #172554; color: #bfdbfe; border-color: #1d4ed8; }
+
+
+/* ---- Owner overview v5: drag resize rows/columns ---- */
+.overview-editing .overview-cell {
+  position: relative;
+  overflow: visible;
+}
+.overview-col-resizer,
+.overview-row-resizer {
+  position: absolute;
+  z-index: 8;
+  display: block;
+  opacity: 0;
+  transition: opacity .12s ease, background .12s ease;
+}
+.overview-col-resizer {
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+}
+.overview-row-resizer {
+  left: 0;
+  bottom: -3px;
+  width: 100%;
+  height: 7px;
+  cursor: row-resize;
+}
+.overview-editing .overview-cell:hover > .overview-col-resizer,
+.overview-editing .overview-cell:hover > .overview-row-resizer,
+.overview-editing .overview-selected-cell > .overview-col-resizer,
+.overview-editing .overview-selected-cell > .overview-row-resizer {
+  opacity: 1;
+}
+.overview-editing .overview-cell:hover > .overview-col-resizer,
+.overview-editing .overview-selected-cell > .overview-col-resizer {
+  background: rgba(37, 99, 235, .35);
+}
+.overview-editing .overview-cell:hover > .overview-row-resizer,
+.overview-editing .overview-selected-cell > .overview-row-resizer {
+  background: rgba(37, 99, 235, .25);
+}
+.overview-day-header { white-space: nowrap; }
