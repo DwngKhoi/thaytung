@@ -2891,24 +2891,12 @@ function renderScheduleOverview() {
 
 function positionCellEditPanel(panel, targets, topClass = 'cell-panel-docked') {
   if (!panel) return;
-  panel.classList.remove('cell-panel-floating', topClass);
+  panel.classList.remove('cell-panel-floating', 'cell-panel-docked', 'overview-panel-docked', 'homeroom-panel-docked');
   panel.style.left = '';
   panel.style.top = '';
   panel.style.right = '';
   if (!targets?.length) return;
-  if (targets.length > 1) {
-    panel.classList.add(topClass);
-    return;
-  }
-  const rect = targets[0].getBoundingClientRect();
-  const width = Math.min(420, Math.max(260, panel.offsetWidth || 320));
-  const maxLeft = window.scrollX + window.innerWidth - width - 12;
-  const left = Math.min(maxLeft, Math.max(window.scrollX + 12, window.scrollX + rect.right + 8));
-  const top = Math.max(window.scrollY + 12, window.scrollY + rect.bottom + 8);
-  panel.classList.add('cell-panel-floating');
-  panel.style.left = `${left}px`;
-  panel.style.top = `${top}px`;
-  panel.style.right = 'auto';
+  panel.classList.add(topClass);
 }
 
 function addOverviewResizeHandles(scope) {
@@ -2920,12 +2908,14 @@ function addOverviewResizeHandles(scope) {
     if (!cell.querySelector(':scope > .overview-col-resizer')) {
       const col = document.createElement('span');
       col.className = 'overview-col-resizer';
+      col.contentEditable = 'false';
       col.title = 'K\u00e9o \u0111\u1ec3 \u0111\u1ed5i \u0111\u1ed9 r\u1ed9ng c\u1ed9t';
       cell.appendChild(col);
     }
     if (!cell.querySelector(':scope > .overview-row-resizer')) {
       const row = document.createElement('span');
       row.className = 'overview-row-resizer';
+      row.contentEditable = 'false';
       row.title = 'K\u00e9o \u0111\u1ec3 \u0111\u1ed5i chi\u1ec1u cao h\u00e0ng';
       cell.appendChild(row);
     }
@@ -3127,6 +3117,16 @@ function wireScheduleOverview() {
       scheduleOverviewEditMode = true;
     }
     renderScheduleHome();
+  });
+  root.querySelectorAll('[data-overview-cell]').forEach((cell) => {
+    cell.contentEditable = 'true';
+    cell.spellcheck = false;
+    cell.addEventListener('input', () => {
+      cell.classList.toggle('has-value', Boolean(cell.textContent.trim()));
+      if (cell.classList.contains('overview-selected-cell') && selectedTargets().length === 1 && contentInput) {
+        contentInput.value = cell.textContent.trim();
+      }
+    });
   });
   root.querySelectorAll('[data-overview-cell], .overview-selectable-box').forEach((target) => {
     target.addEventListener('click', (event) => {
@@ -3757,7 +3757,7 @@ function homeroomDefaultCells(cls, type) {
     set(headerRow, base + 2, type === 'S' ? 'Nh\u1eadn x\u00e9t BTVN' : 'T\u1eeb v\u1ef1ng');
     set(headerRow, base + 3, type === 'W' ? 'BTVN' : 'Ghi ch\u00fa');
   });
-  const rows = Math.max(students.length + metaRows + 5, metaRows + 18);
+  const rows = metaRows + students.length;
   for (let index = 0; index < rows - metaRows; index++) {
     const row = metaRows + index;
     const student = students[index];
@@ -3910,12 +3910,14 @@ function addHomeroomResizeHandles(scope) {
     if (!cell.querySelector(':scope > .overview-col-resizer')) {
       const col = document.createElement('span');
       col.className = 'overview-col-resizer';
+      col.contentEditable = 'false';
       col.title = 'K\u00e9o \u0111\u1ec3 \u0111\u1ed5i \u0111\u1ed9 r\u1ed9ng c\u1ed9t';
       cell.appendChild(col);
     }
     if (!cell.querySelector(':scope > .overview-row-resizer')) {
       const row = document.createElement('span');
       row.className = 'overview-row-resizer';
+      row.contentEditable = 'false';
       row.title = 'K\u00e9o \u0111\u1ec3 \u0111\u1ed5i chi\u1ec1u cao h\u00e0ng';
       cell.appendChild(row);
     }
@@ -4016,7 +4018,17 @@ function wireHomeroomRecord() {
     document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
   };
   addHomeroomResizeHandles(root);
-  root.querySelectorAll('.homeroom-cell').forEach((cell) => cell.addEventListener('click', (event) => selectTarget(cell, event.ctrlKey || event.metaKey)));
+  root.querySelectorAll('.homeroom-cell').forEach((cell) => {
+    cell.contentEditable = 'true';
+    cell.spellcheck = false;
+    cell.addEventListener('input', () => {
+      cell.classList.toggle('has-value', Boolean(cell.textContent.trim()));
+      if (cell.classList.contains('homeroom-selected-cell') && selectedTargets().length === 1 && contentInput) {
+        contentInput.value = cell.textContent.trim();
+      }
+    });
+    cell.addEventListener('click', (event) => selectTarget(cell, event.ctrlKey || event.metaKey));
+  });
   root.querySelectorAll('.overview-col-resizer').forEach((handle) => handle.addEventListener('mousedown', (event) => startResize(event, handle.closest('.homeroom-cell'), 'col')));
   root.querySelectorAll('.overview-row-resizer').forEach((handle) => handle.addEventListener('mousedown', (event) => startResize(event, handle.closest('.homeroom-cell'), 'row')));
   contentInput?.addEventListener('input', () => { if (selectedTargets().length === 1) applyToSelection(undefined, undefined, { text: contentInput.value }); });

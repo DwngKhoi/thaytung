@@ -1649,3 +1649,28 @@ body.dark .homeroom-record-tab { background: #1a1d27; border-color: #30364a; col
 .homeroom-grid td:nth-child(2):not([style*="background"]) {
   background: #ffffff;
 }
+
+
+/* ---- Direct cell editing + auto wrap ---- */
+.overview-grid .overview-cell,
+.homeroom-grid th,
+.homeroom-grid td {
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.25;
+}
+.overview-editing .overview-cell[contenteditable="true"],
+.homeroom-editing .homeroom-cell[contenteditable="true"] {
+  cursor: text;
+  caret-color: var(--primary);
+}
+.overview-editing .overview-cell[contenteditable="true"]:focus,
+.homeroom-editing .homeroom-cell[contenteditable="true"]:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.overview-col-resizer,
+.overview-row-resizer {
+  user-select: none;
+}
