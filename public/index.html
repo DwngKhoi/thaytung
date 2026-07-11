@@ -1,13 +1,13 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lịch lớp - Giáo viên</title>
+  <title>Lá»‹ch lá»›p - GiÃ¡o viÃªn</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260712-2" />
+  <link rel="stylesheet" href="style.css?v=20260712-3" />
 </head>
 <body>
   <header>
@@ -15,13 +15,13 @@
       <div class="brand">
         <div class="logo" aria-label="Olympus English"></div>
         <div>
-          <h1>Lịch Lớp <span class="badge-soft">Console</span></h1>
-          <p class="sub">Quản lý lớp, duyệt lịch bận và tìm buổi học phù hợp nhất.</p>
+          <h1>Lá»‹ch Lá»›p <span class="badge-soft">Console</span></h1>
+          <p class="sub">Quáº£n lÃ½ lá»›p, duyá»‡t lá»‹ch báº­n vÃ  tÃ¬m buá»•i há»c phÃ¹ há»£p nháº¥t.</p>
         </div>
       </div>
       <div class="header-actions">
-        <a class="student-link" href="student.html">Trang học sinh</a>
-        <button id="btn-theme" class="theme-toggle" title="Chuyển Light/Dark">🌙</button>
+        <a class="student-link" href="student.html">Trang há»c sinh</a>
+        <button id="btn-theme" class="theme-toggle" title="Chuyá»ƒn Light/Dark">ðŸŒ™</button>
       </div>
     </div>
 
@@ -44,21 +44,21 @@
 
   <section id="tab-teacher" class="tab-panel active">
     <div id="teacher-login" class="card login-card">
-      <h2>Đăng nhập giáo viên</h2>
-      <label>Tài khoản
+      <h2>ÄÄƒng nháº­p giÃ¡o viÃªn</h2>
+      <label>TÃ i khoáº£n
         <input id="t-username" type="text" placeholder="vd: gv" autocomplete="username" />
       </label>
-      <label>Mật khẩu
-        <input id="t-password" type="password" placeholder="••••••" autocomplete="current-password" />
+      <label>Máº­t kháº©u
+        <input id="t-password" type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢" autocomplete="current-password" />
       </label>
-      <button id="btn-login" class="primary">Đăng nhập</button>
+      <button id="btn-login" class="primary">ÄÄƒng nháº­p</button>
       <p id="login-error" class="error"></p>
     </div>
 
     <div id="teacher-dashboard" class="hidden">
       <div class="dash-top">
-        <span>Xin chào, <b id="teacher-name"></b></span>
-        <button id="btn-logout" class="link">Đăng xuất</button>
+        <span>Xin chÃ o, <b id="teacher-name"></b></span>
+        <button id="btn-logout" class="link">ÄÄƒng xuáº¥t</button>
       </div>
 
     <div id="bulk-sessions-panel" class="card bulk-sessions-card bulk-sessions-panel hidden">
@@ -99,13 +99,13 @@
           <ul id="class-list"></ul>
           <div id="sector-editor" class="sector-editor hidden"></div>
           <div class="add-class owner-only">
-            <input id="new-class-name" type="text" placeholder="Tên lớp mới..." />
-            <button id="btn-add-class">+ Thêm</button>
+            <input id="new-class-name" type="text" placeholder="TÃªn lá»›p má»›i..." />
+            <button id="btn-add-class">+ ThÃªm</button>
           </div>
         </aside>
 
         <main id="class-detail" class="class-detail">
-          <p class="placeholder">← Chọn một lớp để xem lịch</p>
+          <p class="placeholder">â† Chá»n má»™t lá»›p Ä‘á»ƒ xem lá»‹ch</p>
         </main>
       </div>
     </div>
@@ -166,28 +166,28 @@
   <section id="tab-accounts" class="tab-panel">
     <div class="accounts-layout">
       <aside class="card accounts-list-card">
-        <h2>Tài khoản giáo viên</h2>
+        <h2>TÃ i khoáº£n giÃ¡o viÃªn</h2>
         <ul id="teacher-account-list" class="account-list"></ul>
       </aside>
       <main class="card account-detail-card">
         <div class="account-create">
-          <h2>Thêm giáo viên bộ môn</h2>
+          <h2>ThÃªm giÃ¡o viÃªn bá»™ mÃ´n</h2>
           <div class="account-create-fields">
-            <label>Tên hiển thị<input id="account-name" type="text" placeholder="vd: Cô Nguyễn Thu Hà" /></label>
-            <label>Tài khoản<input id="account-username" type="text" autocomplete="off" placeholder="vd: nguyenthuha" /></label>
-            <label>Mật khẩu<input id="account-password" type="password" autocomplete="new-password" placeholder="Từ 6 ký tự" /></label>
+            <label>TÃªn hiá»ƒn thá»‹<input id="account-name" type="text" placeholder="vd: CÃ´ Nguyá»…n Thu HÃ " /></label>
+            <label>TÃ i khoáº£n<input id="account-username" type="text" autocomplete="off" placeholder="vd: nguyenthuha" /></label>
+            <label>Máº­t kháº©u<input id="account-password" type="password" autocomplete="new-password" placeholder="Tá»« 6 kÃ½ tá»±" /></label>
           </div>
-          <button id="btn-add-account" class="primary">Thêm tài khoản</button>
+          <button id="btn-add-account" class="primary">ThÃªm tÃ i khoáº£n</button>
           <p id="account-create-msg" class="msg"></p>
         </div>
         <div id="account-assignment" class="account-assignment">
-          <p class="placeholder">Chọn một giáo viên để phân công lớp.</p>
+          <p class="placeholder">Chá»n má»™t giÃ¡o viÃªn Ä‘á»ƒ phÃ¢n cÃ´ng lá»›p.</p>
         </div>
       </main>
     </div>
   </section>
 
   <script src="config.js"></script>
-  <script src="app.js?v=20260712-2"></script>
+  <script src="app.js?v=20260712-3"></script>
 </body>
 </html>

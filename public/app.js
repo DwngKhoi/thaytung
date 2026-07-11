@@ -2331,12 +2331,38 @@ function overviewSubRows() {
 }
 
 function defaultOverviewLegend() {
-  return overviewRooms().map((room) => ({ code: room.label, text: room.place, color: room.id === 'CS2' ? '#fdfd0a' : '#fb923c' }));
+  return overviewRooms().map((room) => ({
+    code: room.label,
+    text: room.place,
+    backgroundColor: room.id === 'CS2' ? '#fdfd0a' : '#fb923c',
+    color: '#111827'
+  }));
 }
 
 function overviewSessions() {
   const sessions = selectedGridSessions(teacherClasses);
   return sessions.length ? sessions : (DEFAULT_SESSIONS.length ? DEFAULT_SESSIONS : ['S1', 'S2', 'C', '57', 'T']);
+}
+
+function normalizeOverviewStyle(style = {}) {
+  if (!style || typeof style !== 'object') return {};
+  const explicitBg = style.backgroundColor || style.bg;
+  const backgroundColor = String(explicitBg || (!explicitBg ? style.color : '') || '').trim();
+  const color = String(style.textColor || style.colorText || style.fg || style.foregroundColor || (explicitBg ? style.color : '') || '').trim();
+  const result = {};
+  if (backgroundColor) result.backgroundColor = backgroundColor;
+  if (color) result.color = color;
+  return result;
+}
+
+function normalizeOverviewLegendItem(item = {}) {
+  const style = normalizeOverviewStyle(item);
+  return {
+    code: item.code || '',
+    text: item.text || '',
+    backgroundColor: style.backgroundColor || item.backgroundColor || item.color || '#ffffff',
+    color: style.color || item.textColor || '#111827'
+  };
 }
 
 function loadOverviewData(weekStart = overviewWeekStart()) {
@@ -2345,13 +2371,16 @@ function loadOverviewData(weekStart = overviewWeekStart()) {
     const data = JSON.parse(raw || '{}');
     return {
       note: data.note || '',
-      noteStyle: data.noteStyle || {},
-      legend: Array.isArray(data.legend) && data.legend.length ? data.legend : defaultOverviewLegend(),
+      noteStyle: normalizeOverviewStyle(data.noteStyle || {}),
+      legendBoxStyle: normalizeOverviewStyle(data.legendBoxStyle || {}),
+      legend: Array.isArray(data.legend) && data.legend.length
+        ? data.legend.map(normalizeOverviewLegendItem)
+        : defaultOverviewLegend(),
       cells: data.cells || {},
-      styles: data.styles || {}
+      styles: Object.fromEntries(Object.entries(data.styles || {}).map(([key, style]) => [key, normalizeOverviewStyle(style)]))
     };
   } catch (err) {
-    return { note: '', noteStyle: {}, legend: defaultOverviewLegend(), cells: {}, styles: {} };
+    return { note: '', noteStyle: {}, legendBoxStyle: {}, legend: defaultOverviewLegend(), cells: {}, styles: {} };
   }
 }
 
@@ -2386,8 +2415,28 @@ function autoOverviewCells(sessions, rooms) {
 }
 
 function overviewCellStyle(style = {}) {
-  const color = String(style.backgroundColor || '').trim();
-  return color ? ` style="background:${escapeHtml(color)} !important;"` : '';
+  const normalized = normalizeOverviewStyle(style);
+  const parts = [];
+  if (normalized.backgroundColor) parts.push(`background:${escapeHtml(normalized.backgroundColor)} !important`);
+  if (normalized.color) parts.push(`color:${escapeHtml(normalized.color)} !important`);
+  return parts.length ? ` style="${parts.join(';')}"` : '';
+}
+
+function overviewPalette() {
+  return [
+    { name: 'M\u00e0u da', bg: '#fde7cf', fg: '#111827' },
+    { name: 'V\u00e0ng', bg: '#fdfd0a', fg: '#111827' },
+    { name: 'Xanh l\u00e1', bg: '#22c55e', fg: '#052e16' },
+    { name: 'H\u1ed3ng', bg: '#f9a8d4', fg: '#111827' },
+    { name: 'Xanh lam', bg: '#7dd3fc', fg: '#111827' },
+    { name: 'Xanh \u0111\u1eadm', bg: '#1d4ed8', fg: '#ffffff' },
+    { name: '\u0110\u1ecf', bg: '#dc2626', fg: '#ffffff' }
+  ];
+}
+
+function scheduleOverviewSelection() {
+  const root = $('#schedule-overview');
+  return root ? [...root.querySelectorAll('.overview-selected-cell')] : [];
 }
 
 function saveOverviewFromDom() {
@@ -2401,18 +2450,26 @@ function saveOverviewFromDom() {
     const autoValue = cell.dataset.auto || '';
     if (value && value !== autoValue) cells[cell.dataset.overviewCell] = value;
     const bg = cell.dataset.bg || '';
-    if (bg) styles[cell.dataset.overviewCell] = { backgroundColor: bg };
+    const fg = cell.dataset.fg || '';
+    if (bg || fg) styles[cell.dataset.overviewCell] = { backgroundColor: bg, color: fg };
   });
   const note = $('#overview-note')?.value.trim() || '';
-  const noteBg = $('#overview-note-box')?.dataset.bg || '';
+  const noteBox = $('#overview-note-box');
+  const noteBg = noteBox?.dataset.bg || '';
+  const noteFg = noteBox?.dataset.fg || '';
+  const legendBox = root.querySelector('.overview-legend-box');
+  const legendBoxBg = legendBox?.dataset.bg || '';
+  const legendBoxFg = legendBox?.dataset.fg || '';
   const legend = [...root.querySelectorAll('.legend-item')].map((item) => ({
     code: item.querySelector('.legend-code')?.value.trim() || '',
     text: item.querySelector('.legend-text')?.value.trim() || '',
-    color: item.querySelector('.legend-color')?.value || item.dataset.bg || '#ffffff'
+    backgroundColor: item.dataset.bg || '#ffffff',
+    color: item.dataset.fg || '#111827'
   })).filter((item) => item.code || item.text);
   localStorage.setItem(SCHEDULE_OVERVIEW_DATA_PREFIX + weekStart, JSON.stringify({
     note,
-    noteStyle: noteBg ? { backgroundColor: noteBg } : {},
+    noteStyle: (noteBg || noteFg) ? { backgroundColor: noteBg, color: noteFg } : {},
+    legendBoxStyle: (legendBoxBg || legendBoxFg) ? { backgroundColor: legendBoxBg, color: legendBoxFg } : {},
     legend: legend.length ? legend : defaultOverviewLegend(),
     cells,
     styles
@@ -2426,20 +2483,33 @@ function renderScheduleOverview() {
   const rooms = overviewRooms();
   const subRows = overviewSubRows();
   const autoCells = autoOverviewCells(sessions, rooms);
-  const editable = scheduleOverviewEditMode ? 'true' : 'false';
   const noteBg = data.noteStyle?.backgroundColor || '#fef08a';
+  const noteFg = data.noteStyle?.color || '#111827';
+  const legendBoxBg = data.legendBoxStyle?.backgroundColor || '#f8fafc';
+  const legendBoxFg = data.legendBoxStyle?.color || '#111827';
+  const palette = overviewPalette();
   let html = `<section id="schedule-overview" class="schedule-overview-card ${scheduleOverviewEditMode ? 'overview-editing' : ''}">
     <div class="overview-head">
       <div>
         <h3>To\u00e0n c\u1ea3nh l\u1ecbch tu\u1ea7n</h3>
-        <p class="hint">B\u1ea3ng Excel t\u1ed1i gi\u1ea3n cho owner: t\u1ef1 l\u1ea5y m\u00e3 l\u1edbp/k\u1ef9 n\u0103ng t\u1eeb l\u1ecbch t\u1eebng l\u1edbp, v\u1eabn c\u00f3 th\u1ec3 b\u1ea5m B\u00fat \u0111i\u1ec1n \u0111\u1ec3 s\u1eeda n\u1ed9i dung v\u00e0 m\u00e0u t\u1eebng \u00f4.</p>
+        <p class="hint">B\u1ea5m B\u00fat \u0111i\u1ec1n \u0111\u1ec3 s\u1eeda nhanh. Khi \u0111ang s\u1eeda, gi\u1eef Ctrl r\u1ed3i b\u1ea5m nhi\u1ec1u \u00f4 \u0111\u1ec3 \u00e1p d\u1ee5ng h\u00e0ng lo\u1ea1t.</p>
       </div>
       <div class="overview-actions">
         <label>Ng\u00e0y \u0111\u1ea7u tu\u1ea7n <input id="overview-week-start" type="date" value="${escapeHtml(weekStart)}" /></label>
-        <label class="overview-color-picker">M\u00e0u \u00f4 <input id="overview-cell-color" type="color" value="#dbeafe" ${scheduleOverviewEditMode ? '' : 'disabled'} /></label>
         <button id="overview-edit" type="button">${scheduleOverviewEditMode ? 'L\u01b0u to\u00e0n c\u1ea3nh' : 'B\u00fat \u0111i\u1ec1n'}</button>
       </div>
     </div>
+    ${scheduleOverviewEditMode ? `<div id="overview-edit-panel" class="overview-edit-panel hidden">
+      <div class="overview-edit-panel-head"><b>Ch\u1ec9nh \u00f4 \u0111ang ch\u1ecdn</b><small id="overview-edit-count">0 \u00f4</small></div>
+      <label>N\u1ed9i dung<input id="overview-edit-content" placeholder="Nh\u1eadp n\u1ed9i dung..." /></label>
+      <div class="overview-panel-row">
+        <label>M\u00e0u \u00f4<input id="overview-edit-bg" type="color" value="#ffffff" /></label>
+        <label>M\u00e0u ch\u1eef<input id="overview-edit-fg" type="color" value="#111827" /></label>
+      </div>
+      <div class="overview-palette">${palette.map((item) => `<button type="button" data-bg="${item.bg}" data-fg="${item.fg}" style="background:${item.bg};color:${item.fg};" title="${item.name}">${item.name}</button>`).join('')}</div>
+      <div class="overview-panel-actions"><button id="overview-apply-cell" type="button">\u00c1p d\u1ee5ng</button><button id="overview-clear-cell" type="button">Xo\u00e1 m\u00e0u</button></div>
+      <small>Gi\u1eef Ctrl khi b\u1ea5m \u0111\u1ec3 ch\u1ecdn nhi\u1ec1u \u00f4 v\u00e0 s\u1eeda h\u00e0ng lo\u1ea1t.</small>
+    </div>` : ''}
     <div class="overview-layout">
       <div class="schedule-scroll overview-table-wrap"><table class="schedule overview-grid"><thead><tr>
         <th rowspan="2">BU\u1ed4I</th><th rowspan="2">Ca</th><th rowspan="2">N\u1ed9i dung</th>`;
@@ -2461,28 +2531,30 @@ function renderScheduleOverview() {
         const autoValue = autoCells[key] || '';
         const value = data.cells[key] ?? autoValue;
         const style = data.styles[key] || {};
-        html += `<td class="overview-cell overview-${overviewRowClass(rowName)}" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(autoValue)}" data-bg="${escapeHtml(style.backgroundColor || '')}" data-row-label="${escapeHtml(rowName)}" contenteditable="${editable}" spellcheck="false"${overviewCellStyle(style)}>${escapeHtml(value)}</td>`;
+        const hasValue = String(value || '').trim() ? ' has-value' : '';
+        const normalizedStyle = normalizeOverviewStyle(style);
+        html += `<td class="overview-cell overview-${overviewRowClass(rowName)}${hasValue}" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(autoValue)}" data-bg="${escapeHtml(normalizedStyle.backgroundColor || '')}" data-fg="${escapeHtml(normalizedStyle.color || '')}" data-row-label="${escapeHtml(rowName)}" spellcheck="false"${overviewCellStyle(normalizedStyle)}>${escapeHtml(value)}</td>`;
       }));
       html += '</tr>';
     });
   });
   html += `</tbody></table></div>
       <aside class="overview-side">
-        <div id="overview-note-box" class="overview-mini-box overview-note-box" data-bg="${escapeHtml(noteBg)}" style="background:${escapeHtml(noteBg)};">
+        <div id="overview-note-box" class="overview-mini-box overview-note-box overview-selectable-box" data-box-kind="note" data-bg="${escapeHtml(noteBg)}" data-fg="${escapeHtml(noteFg)}" style="background:${escapeHtml(noteBg)};color:${escapeHtml(noteFg)};">
           <label>Ghi ch\u00fa tu\u1ea7n<input id="overview-note" value="${escapeHtml(data.note)}" placeholder="vd: Tu\u1ea7n 26" ${scheduleOverviewEditMode ? '' : 'readonly'} /></label>
           <b>${escapeHtml(weekRangeText(weekStart))}</b>
-          ${scheduleOverviewEditMode ? '<input id="overview-note-color" class="mini-color" type="color" value="' + escapeHtml(noteBg) + '" title="M\u00e0u \u00f4 ghi ch\u00fa" />' : ''}
         </div>
-        <div class="overview-mini-box overview-legend-box">
+        <div class="overview-mini-box overview-legend-box overview-selectable-box" data-box-kind="legend" data-bg="${escapeHtml(legendBoxBg)}" data-fg="${escapeHtml(legendBoxFg)}" style="background:${escapeHtml(legendBoxBg)};color:${escapeHtml(legendBoxFg)};">
           <div class="legend-head"><b>K\u00fd hi\u1ec7u</b>${scheduleOverviewEditMode ? '<button id="overview-add-legend" type="button" title="Th\u00eam k\u00fd hi\u1ec7u">+</button>' : ''}</div>
-          <div id="overview-legend-list" class="legend-grid">
-            ${data.legend.map((item, index) => `
-              <div class="legend-item" data-index="${index}" style="background:${escapeHtml(item.color || '#ffffff')};" data-bg="${escapeHtml(item.color || '#ffffff')}">
+          <div id="overview-legend-list" class="legend-table">
+            <div class="legend-header"><span>Vi\u1ebft t\u1eaft</span><span>Gi\u1ea3i th\u00edch</span></div>
+            ${data.legend.map((rawItem, index) => {
+              const item = normalizeOverviewLegendItem(rawItem);
+              return `<div class="legend-item overview-selectable-box" data-box-kind="legend-item" data-index="${index}" style="background:${escapeHtml(item.backgroundColor)};color:${escapeHtml(item.color)};" data-bg="${escapeHtml(item.backgroundColor)}" data-fg="${escapeHtml(item.color)}">
                 <input class="legend-code" value="${escapeHtml(item.code || '')}" ${scheduleOverviewEditMode ? '' : 'readonly'} />
                 <input class="legend-text" value="${escapeHtml(item.text || '')}" ${scheduleOverviewEditMode ? '' : 'readonly'} />
-                ${scheduleOverviewEditMode ? `<input class="legend-color" type="color" value="${escapeHtml(item.color || '#ffffff')}" title="M\u00e0u k\u00fd hi\u1ec7u" />` : ''}
-              </div>
-            `).join('')}
+              </div>`;
+            }).join('')}
           </div>
         </div>
       </aside>
@@ -2491,17 +2563,88 @@ function renderScheduleOverview() {
   return html;
 }
 
+function rgbToHex(value) {
+  const match = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (!match) return '';
+  return '#' + [match[1], match[2], match[3]].map((part) => Number(part).toString(16).padStart(2, '0')).join('');
+}
+
 function wireScheduleOverview() {
-  let selectedCell = null;
   const root = $('#schedule-overview');
-  const colorInput = $('#overview-cell-color');
-  const selectCell = (cell) => {
-    if (!scheduleOverviewEditMode || !cell) return;
-    root?.querySelectorAll('.overview-selected-cell').forEach((item) => item.classList.remove('overview-selected-cell'));
-    selectedCell = cell;
-    selectedCell.classList.add('overview-selected-cell');
-    if (colorInput && selectedCell.dataset.bg) colorInput.value = selectedCell.dataset.bg;
+  if (!root) return;
+  const panel = $('#overview-edit-panel');
+  const contentInput = $('#overview-edit-content');
+  const bgInput = $('#overview-edit-bg');
+  const fgInput = $('#overview-edit-fg');
+  const countLabel = $('#overview-edit-count');
+
+  const selectedTargets = () => [...root.querySelectorAll('.overview-selected-cell')];
+  const targetText = (target) => {
+    if (target.dataset.boxKind === 'note') return $('#overview-note')?.value || '';
+    if (target.dataset.boxKind === 'legend') return '';
+    if (target.dataset.boxKind === 'legend-item') {
+      const code = target.querySelector('.legend-code')?.value || '';
+      const text = target.querySelector('.legend-text')?.value || '';
+      return `${code}${text ? ' - ' + text : ''}`.trim();
+    }
+    return target.textContent.trim();
   };
+  const applyTargetText = (target, text) => {
+    if (target.dataset.boxKind === 'note') {
+      const note = $('#overview-note');
+      if (note) note.value = text;
+      return;
+    }
+    if (target.dataset.boxKind === 'legend') return;
+    if (target.dataset.boxKind === 'legend-item') {
+      const parts = String(text || '').split(/\s+-\s+/);
+      const code = target.querySelector('.legend-code');
+      const desc = target.querySelector('.legend-text');
+      if (code) code.value = parts.shift() || '';
+      if (desc) desc.value = parts.join(' - ');
+      return;
+    }
+    target.textContent = text;
+    target.classList.toggle('has-value', Boolean(String(text || '').trim()));
+  };
+  const syncPanel = () => {
+    const targets = selectedTargets();
+    if (!panel) return;
+    panel.classList.toggle('hidden', !scheduleOverviewEditMode || !targets.length);
+    if (countLabel) countLabel.textContent = `${targets.length} \u00f4`;
+    const first = targets[0];
+    if (!first) return;
+    if (contentInput) {
+      contentInput.value = targets.length === 1 ? targetText(first) : '';
+      contentInput.placeholder = targets.length === 1 ? 'Nh\u1eadp n\u1ed9i dung...' : 'B\u1ecf tr\u1ed1ng n\u1ebfu ch\u1ec9 \u0111\u1ed5i m\u00e0u';
+    }
+    if (bgInput) bgInput.value = first.dataset.bg || rgbToHex(getComputedStyle(first).backgroundColor) || '#ffffff';
+    if (fgInput) fgInput.value = first.dataset.fg || rgbToHex(getComputedStyle(first).color) || '#111827';
+  };
+  const selectTarget = (target, additive = false) => {
+    if (!scheduleOverviewEditMode || !target) return;
+    if (!additive) {
+      root.querySelectorAll('.overview-selected-cell').forEach((item) => item.classList.remove('overview-selected-cell'));
+    }
+    target.classList.toggle('overview-selected-cell', additive ? !target.classList.contains('overview-selected-cell') : true);
+    syncPanel();
+  };
+  const applyStyleToSelection = (bg, fg, options = {}) => {
+    selectedTargets().forEach((target) => {
+      if (bg !== undefined) {
+        target.dataset.bg = bg || '';
+        if (bg) target.style.setProperty('background', bg, 'important');
+        else target.style.removeProperty('background');
+      }
+      if (fg !== undefined) {
+        target.dataset.fg = fg || '';
+        if (fg) target.style.setProperty('color', fg, 'important');
+        else target.style.removeProperty('color');
+      }
+      if (options.text !== undefined) applyTargetText(target, options.text);
+    });
+  };
+
   $('#overview-week-start')?.addEventListener('change', (event) => {
     if (scheduleOverviewEditMode) saveOverviewFromDom();
     localStorage.setItem(SCHEDULE_OVERVIEW_WEEK_KEY, event.target.value || localIsoDate(mondayOf(new Date())));
@@ -2517,34 +2660,42 @@ function wireScheduleOverview() {
     }
     renderScheduleHome();
   });
-  root?.querySelectorAll('[data-overview-cell]').forEach((cell) => {
-    cell.addEventListener('click', () => selectCell(cell));
-    cell.addEventListener('focus', () => selectCell(cell));
+  root.querySelectorAll('[data-overview-cell], .overview-selectable-box').forEach((target) => {
+    target.addEventListener('click', (event) => {
+      if (!scheduleOverviewEditMode) return;
+      const item = event.target.closest('[data-overview-cell], .overview-selectable-box');
+      if (!item || !root.contains(item)) return;
+      event.stopPropagation();
+      selectTarget(item, event.ctrlKey || event.metaKey);
+    });
   });
-  colorInput?.addEventListener('input', () => {
-    if (!scheduleOverviewEditMode || !selectedCell) return;
-    selectedCell.dataset.bg = colorInput.value;
-    selectedCell.style.setProperty('background', colorInput.value, 'important');
+  contentInput?.addEventListener('input', () => {
+    const targets = selectedTargets();
+    if (targets.length === 1) applyStyleToSelection(undefined, undefined, { text: contentInput.value });
   });
-  $('#overview-note-color')?.addEventListener('input', (event) => {
-    const box = $('#overview-note-box');
-    if (!box) return;
-    box.dataset.bg = event.target.value;
-    box.style.background = event.target.value;
+  $('#overview-apply-cell')?.addEventListener('click', () => {
+    const text = contentInput?.value ?? '';
+    const applyText = selectedTargets().length === 1 || text.trim();
+    applyStyleToSelection(bgInput?.value || '', fgInput?.value || '', applyText ? { text } : {});
   });
-  root?.querySelectorAll('.legend-color').forEach((input) => {
-    input.addEventListener('input', () => {
-      const item = input.closest('.legend-item');
-      if (!item) return;
-      item.dataset.bg = input.value;
-      item.style.background = input.value;
+  bgInput?.addEventListener('input', () => applyStyleToSelection(bgInput.value, undefined));
+  fgInput?.addEventListener('input', () => applyStyleToSelection(undefined, fgInput.value));
+  $('#overview-clear-cell')?.addEventListener('click', () => {
+    applyStyleToSelection('', '');
+    syncPanel();
+  });
+  root.querySelectorAll('.overview-palette button').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (bgInput) bgInput.value = button.dataset.bg || '#ffffff';
+      if (fgInput) fgInput.value = button.dataset.fg || '#111827';
+      applyStyleToSelection(button.dataset.bg || '', button.dataset.fg || '');
     });
   });
   $('#overview-add-legend')?.addEventListener('click', () => {
     saveOverviewFromDom();
     const weekStart = overviewWeekStart();
     const data = loadOverviewData(weekStart);
-    data.legend.push({ code: '', text: '', color: '#ffffff' });
+    data.legend.push({ code: '', text: '', backgroundColor: '#ffffff', color: '#111827' });
     localStorage.setItem(SCHEDULE_OVERVIEW_DATA_PREFIX + weekStart, JSON.stringify(data));
     renderScheduleHome();
   });
