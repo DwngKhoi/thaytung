@@ -2567,7 +2567,7 @@ function renderScheduleOverview() {
     const key = `header|day|${dayIdx}`;
     const style = data.styles[key] || {};
     const normalizedStyle = normalizeOverviewStyle(style);
-    const value = data.cells[key] ?? label;
+    const value = normalizeOverviewDayHeaderValue(data.cells[key] ?? label, label, dayIdx, weekStart);
     html += `<th colspan="${rooms.length}" class="overview-cell overview-day-header has-value" data-overview-cell="${escapeHtml(key)}" data-auto="${escapeHtml(label)}" data-bg="${escapeHtml(normalizedStyle.backgroundColor || '')}" data-fg="${escapeHtml(normalizedStyle.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}" data-col="day-${dayIdx}" data-row-id="header-days"${overviewCellStyle(style)}>${escapeHtml(value)}</th>`;
   });
   html += '</tr><tr>';
@@ -2961,6 +2961,29 @@ function dayDateLabel(weekStart, dayIndex) {
 
 function overviewDayLabel(weekStart, dayIndex) {
   return `${dayIndex === 6 ? 'Ch\u1ee7 nh\u1eadt' : `Th\u1ee9 ${dayIndex + 2}`} (${dayDateLabel(weekStart, dayIndex)})`;
+}
+
+function normalizeOverviewDayHeaderValue(value, label, dayIndex, weekStart) {
+  const raw = String(value || '').trim();
+  if (!raw) return label;
+  const date = dayDateLabel(weekStart, dayIndex);
+  const oldShort = (DAYS_SHORT[dayIndex] || DAYS[dayIndex] || '').trim();
+  const oldFull = (DAYS[dayIndex] || '').trim();
+  const compact = raw.replace(/\s+/g, '');
+  const legacyCandidates = [
+    `${oldShort}${date}`,
+    `${oldShort}(${date})`,
+    `${oldShort}-${date}`,
+    `${oldFull}${date}`,
+    `${oldFull}(${date})`,
+    `T${dayIndex + 2}${date}`,
+    `T${dayIndex + 2}(${date})`,
+    dayIndex === 6 ? `CN${date}` : '',
+    dayIndex === 6 ? `CN(${date})` : ''
+  ].filter(Boolean).map((item) => item.replace(/\s+/g, ''));
+  if (legacyCandidates.includes(compact)) return label;
+  if (/^(T[2-8]|CN)\d{2}\/\d{2}$/i.test(compact)) return label;
+  return raw;
 }
 
 function weekRangeText(weekStart) {
