@@ -2902,8 +2902,9 @@ function positionCellEditPanel(panel, targets, topClass = 'cell-panel-docked') {
   }
   const rect = targets[0].getBoundingClientRect();
   const width = Math.min(420, Math.max(260, panel.offsetWidth || 320));
-  const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.right + 8));
-  const top = Math.min(window.innerHeight - 140, Math.max(12, rect.bottom + 8));
+  const maxLeft = window.scrollX + window.innerWidth - width - 12;
+  const left = Math.min(maxLeft, Math.max(window.scrollX + 12, window.scrollX + rect.right + 8));
+  const top = Math.max(window.scrollY + 12, window.scrollY + rect.bottom + 8);
   panel.classList.add('cell-panel-floating');
   panel.style.left = `${left}px`;
   panel.style.top = `${top}px`;
@@ -3761,7 +3762,7 @@ function homeroomDefaultCells(cls, type) {
     const row = metaRows + index;
     const student = students[index];
     set(row, 0, index + 1);
-    set(row, 1, student ? displayStudentName(student, countNames(students)) : '');
+    set(row, 1, student ? displayName(student, countNames(students)) : '');
     set(row, 2, '');
   }
   return { cells, rowCount: rows, colCount: defaultHomeroomColCount(type), metaRows };

@@ -1521,7 +1521,7 @@ body.dark .overview-actions #overview-toggle { background: #172554; color: #bfdb
   z-index: 1000;
 }
 .overview-edit-panel.cell-panel-floating {
-  position: fixed;
+  position: absolute;
   max-width: min(420px, calc(100vw - 24px));
   margin: 0;
 }
@@ -1623,3 +1623,29 @@ body.dark .overview-actions #overview-toggle { background: #172554; color: #bfdb
 body.dark .homeroom-toolbar { background: #111827; border-color: #30364a; }
 body.dark .homeroom-toolbar select,
 body.dark .homeroom-record-tab { background: #1a1d27; border-color: #30364a; color: #e5e7eb; }
+
+
+/* ---- Homeroom sticky A/B columns ---- */
+.homeroom-grid th:nth-child(1),
+.homeroom-grid td:nth-child(1) {
+  position: sticky;
+  left: 0;
+  z-index: 7;
+  min-width: 46px;
+  background-clip: padding-box;
+}
+.homeroom-grid th:nth-child(2),
+.homeroom-grid td:nth-child(2) {
+  position: sticky;
+  left: 46px;
+  z-index: 7;
+  background-clip: padding-box;
+}
+.homeroom-grid th:nth-child(1),
+.homeroom-grid th:nth-child(2) {
+  z-index: 9;
+}
+.homeroom-grid td:nth-child(1):not([style*="background"]),
+.homeroom-grid td:nth-child(2):not([style*="background"]) {
+  background: #ffffff;
+}
