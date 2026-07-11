@@ -430,6 +430,18 @@ async function supabaseApi(path, opts = {}) {
       lesson_starts: body.lessonStarts || {}
     });
   }
+  if (action.startsWith('homeroom-record/')) {
+    const type = decodeURIComponent(action.split('/')[1] || '');
+    if (method === 'GET') return supabaseRpc('api_homeroom_record', { teacher_key: teacherToken(), class_id, record_type: type });
+    return supabaseRpc('api_save_homeroom_record', {
+      teacher_key: teacherToken(),
+      class_id,
+      record_type: type,
+      cells: body.cells || {},
+      styles: body.styles || {},
+      lesson_count: body.lessonCount || 3
+    });
+  }
   if (action === 'add-student') return supabaseRpc('api_add_student', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob });
   if (action === 'approve') return supabaseRpc('api_set_submission_status', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob, status: 'approved' });
   if (action === 'reject') return supabaseRpc('api_delete_submission', { teacher_key: teacherToken(), class_id, student_name: body.studentName, dob: body.dob });
@@ -3794,25 +3806,94 @@ function inferHomeroomLessonCount(data = {}) {
   return Math.max(3, Math.ceil(Math.max(0, maxCol - 2) / 4));
 }
 
-function loadHomeroomData(classId, type) {
+function sameStyleColor(a = {}, b = {}) {
+  const left = normalizeOverviewStyle(a);
+  const right = normalizeOverviewStyle(b);
+  return (left.backgroundColor || '') === (right.backgroundColor || '') && (left.color || '') === (right.color || '');
+}
+
+function compactHomeroomStyles(styles = {}, type = '') {
+  if (!type) return styles;
+  const metaRows = homeroomMetaRows(type);
+  return Object.fromEntries(Object.entries(styles).filter(([key, style]) => {
+    if (style?.width || style?.height) return true;
+    const [row, col] = String(key).split('|').map(Number);
+    if (!Number.isFinite(row) || !Number.isFinite(col)) return false;
+    return !sameStyleColor(style, homeroomDefaultStyle(row, col, type, metaRows))
+      && !sameStyleColor(style, legacyHomeroomDefaultStyle(row, col, type, metaRows));
+  }));
+}
+
+function normalizeHomeroomData(data = {}, type = '') {
+  const styles = Object.fromEntries(Object.entries(data.styles || {}).map(([key, style]) => [key, { ...normalizeOverviewStyle(style), width: style?.width || '', height: style?.height || '' }]));
+  return {
+    cells: Object.fromEntries(Object.entries(data.cells || {}).filter(([, value]) => String(value || '').trim())),
+    styles: compactHomeroomStyles(styles, type),
+    lessonCount: Math.max(3, Number(data.lessonCount || data.lesson_count) || inferHomeroomLessonCount(data))
+  };
+}
+
+function emptyHomeroomData(data = {}) {
+  return !Object.keys(data.cells || {}).length && !Object.keys(data.styles || {}).length && Math.max(3, Number(data.lessonCount || data.lesson_count) || 3) <= 3;
+}
+
+function loadLocalHomeroomData(classId, type) {
   try {
     const raw = localStorage.getItem(homeroomStorageKey(classId, type));
-    const data = JSON.parse(raw || '{}');
-    return {
-      cells: data.cells || {},
-      styles: Object.fromEntries(Object.entries(data.styles || {}).map(([key, style]) => [key, { ...normalizeOverviewStyle(style), width: style?.width || '', height: style?.height || '' }])),
-      lessonCount: Math.max(3, Number(data.lessonCount) || inferHomeroomLessonCount(data))
-    };
+    return normalizeHomeroomData(JSON.parse(raw || '{}'), type);
   } catch (err) {
     return { cells: {}, styles: {}, lessonCount: 3 };
   }
 }
 
-function saveHomeroomFromDom() {
+async function saveHomeroomPayload(classId, type, data) {
+  const normalized = normalizeHomeroomData(data, type);
+  localStorage.setItem(homeroomStorageKey(classId, type), JSON.stringify(normalized));
+  if (SUPABASE_URL && SUPABASE_ANON_KEY && teacherToken()) {
+    try {
+      await api(`/classes/${classId}/homeroom-record/${encodeURIComponent(type)}`, {
+        method: 'POST',
+        body: JSON.stringify(normalized)
+      });
+    } catch (err) {
+      console.warn('Không lưu được sổ chủ nhiệm lên Supabase, đã giữ bản local:', err);
+    }
+  }
+}
+
+async function loadHomeroomData(classId, type) {
+  const local = loadLocalHomeroomData(classId, type);
+  if (!(SUPABASE_URL && SUPABASE_ANON_KEY && teacherToken())) return local;
+  try {
+    const remote = normalizeHomeroomData(await api(`/classes/${classId}/homeroom-record/${encodeURIComponent(type)}`), type);
+    if (emptyHomeroomData(remote) && !emptyHomeroomData(local)) {
+      await saveHomeroomPayload(classId, type, local);
+      return local;
+    }
+    localStorage.setItem(homeroomStorageKey(classId, type), JSON.stringify(remote));
+    return remote;
+  } catch (err) {
+    console.warn('Không tải được sổ chủ nhiệm từ Supabase, dùng bản local:', err);
+    return local;
+  }
+}
+
+function styleChangedFromDefault(cell, type, metaRows) {
+  const [row, col] = String(cell.dataset.homeroomCell || '0|0').split('|').map(Number);
+  const defaults = normalizeOverviewStyle(homeroomDefaultStyle(row, col, type, metaRows));
+  const bg = cell.dataset.bg || '';
+  const fg = cell.dataset.fg || '';
+  const width = cell.dataset.width || '';
+  const height = cell.dataset.height || '';
+  return Boolean(width || height || bg !== (defaults.backgroundColor || '') || fg !== (defaults.color || ''));
+}
+
+function collectHomeroomDataFromDom() {
   const root = $('#homeroom-record');
-  if (!root || !homeroomClassId || !homeroomRecordType || homeroomRecordType === 'ALL') return;
+  if (!root || !homeroomClassId || !homeroomRecordType || homeroomRecordType === 'ALL') return null;
   const cells = {};
   const styles = {};
+  const metaRows = homeroomMetaRows(homeroomRecordType);
   root.querySelectorAll('[data-homeroom-cell]').forEach((cell) => {
     const key = cell.dataset.homeroomCell;
     const value = cell.textContent.trim();
@@ -3822,9 +3903,15 @@ function saveHomeroomFromDom() {
     const fg = cell.dataset.fg || '';
     const width = cell.dataset.width || '';
     const height = cell.dataset.height || '';
-    if (bg || fg || width || height) styles[key] = { backgroundColor: bg, color: fg, width, height };
+    if (styleChangedFromDefault(cell, homeroomRecordType, metaRows)) styles[key] = { backgroundColor: bg, color: fg, width, height };
   });
-  localStorage.setItem(homeroomStorageKey(homeroomClassId, homeroomRecordType), JSON.stringify({ cells, styles, lessonCount: Number(root.dataset.lessonCount || 3) }));
+  return { cells, styles, lessonCount: Number(root.dataset.lessonCount || 3) };
+}
+
+async function saveHomeroomFromDom() {
+  const data = collectHomeroomDataFromDom();
+  if (!data) return;
+  await saveHomeroomPayload(homeroomClassId, homeroomRecordType, data);
 }
 
 function homeroomCellStyle(style = {}) {
@@ -3875,11 +3962,30 @@ function homeroomDefaultStyle(row, col, type, metaRows) {
   return {};
 }
 
-function renderHomeroomTable(cls, type) {
+function legacyHomeroomDefaultStyle(row, col, type, metaRows) {
+  if (row < metaRows) {
+    if (row === metaRows - 1) return { backgroundColor: '#dbeafe', color: '#111827' };
+    if (col < 3) return { backgroundColor: '#fde68a', color: '#111827' };
+    return { backgroundColor: row === 0 ? '#fb923c' : '#fef3c7', color: '#111827' };
+  }
+  if (col === 0) return { backgroundColor: '#f8fafc', color: '#111827' };
+  if (col === 1) return { backgroundColor: '#ffffff', color: '#111827' };
+  return {};
+}
+
+function isLegacyHomeroomDefaultStyle(style, row, col, type, metaRows) {
+  if (!style?.backgroundColor && !style?.color && !style?.width && !style?.height) return false;
+  if (style?.width || style?.height) return false;
+  const saved = normalizeOverviewStyle(style);
+  const legacy = normalizeOverviewStyle(legacyHomeroomDefaultStyle(row, col, type, metaRows));
+  return (saved.backgroundColor || '') === (legacy.backgroundColor || '') && (saved.color || '') === (legacy.color || '');
+}
+
+async function renderHomeroomTable(cls, type) {
   if (type === 'ALL') {
     return `<div class="placeholder">To\u00e0n b\u1ed9 s\u1ebd g\u1ed9p LR/S/W \u1edf b\u01b0\u1edbc sau. Hi\u1ec7n t\u1ea1i h\u00e3y ch\u1ecdn LR-rec, S-rec ho\u1eb7c W-rec.</div>`;
   }
-  const saved = loadHomeroomData(cls.id, type);
+  const saved = await loadHomeroomData(cls.id, type);
   const lessonCount = Math.max(3, saved.lessonCount || 3);
   const defaults = homeroomDefaultCells(cls, type, lessonCount);
   const palette = overviewPalette();
@@ -3908,7 +4014,10 @@ function renderHomeroomTable(cls, type) {
       const key = `${row}|${col}`;
       const autoValue = defaults.cells[key] || '';
       const value = saved.cells[key] ?? autoValue;
-      const style = saved.styles[key] || homeroomDefaultStyle(row, col, type, defaults.metaRows);
+      const savedStyle = saved.styles[key];
+      const style = savedStyle && !isLegacyHomeroomDefaultStyle(savedStyle, row, col, type, defaults.metaRows)
+        ? savedStyle
+        : homeroomDefaultStyle(row, col, type, defaults.metaRows);
       const normalized = normalizeOverviewStyle(style);
       const tag = row < defaults.metaRows ? 'th' : 'td';
       const hasValue = String(value || '').trim() ? ' has-value' : '';
@@ -3939,16 +4048,16 @@ async function renderHomeroomHome() {
     <label>Ch\u1ecdn l\u1edbp<select id="homeroom-class-select">${groups.map((group) => `<optgroup label="${escapeHtml(group.name)}">${group.classes.map((cls) => `<option value="${escapeHtml(cls.id)}" ${cls.id === homeroomClassId ? 'selected' : ''}>${escapeHtml(cls.name)}</option>`).join('')}</optgroup>`).join('')}</select></label>
     <div class="homeroom-record-tabs">${homeroomRecordTypes().map((type) => `<button type="button" class="homeroom-record-tab${type.key === homeroomRecordType ? ' active' : ''}" data-type="${type.key}">${type.label}</button>`).join('')}</div>
   </div><div id="homeroom-detail"><p class="placeholder">\u0110ang t\u1ea3i s\u1ed5...</p></div>`;
-  $('#homeroom-class-select')?.addEventListener('change', (event) => {
-    if (homeroomEditMode) saveHomeroomFromDom();
+  $('#homeroom-class-select')?.addEventListener('change', async (event) => {
+    if (homeroomEditMode) await saveHomeroomFromDom();
     homeroomClassId = event.target.value;
     localStorage.setItem(HOMEROOM_SELECTED_CLASS_KEY, homeroomClassId);
     homeroomEditMode = false;
     renderHomeroomHome();
   });
   root.querySelectorAll('.homeroom-record-tab').forEach((button) => {
-    button.addEventListener('click', () => {
-      if (homeroomEditMode) saveHomeroomFromDom();
+    button.addEventListener('click', async () => {
+      if (homeroomEditMode) await saveHomeroomFromDom();
       homeroomRecordType = button.dataset.type || 'LR';
       localStorage.setItem(HOMEROOM_RECORD_TYPE_KEY, homeroomRecordType);
       homeroomEditMode = false;
@@ -3957,7 +4066,7 @@ async function renderHomeroomHome() {
   });
   try {
     const cls = await api('/classes/' + homeroomClassId);
-    $('#homeroom-detail').innerHTML = renderHomeroomTable(cls, homeroomRecordType);
+    $('#homeroom-detail').innerHTML = await renderHomeroomTable(cls, homeroomRecordType);
     wireHomeroomRecord();
   } catch (err) {
     $('#homeroom-detail').innerHTML = `<p class="placeholder">${escapeHtml(err.message)}</p>`;
@@ -4054,12 +4163,12 @@ function fillSelectedFromFirst(targets) {
   return true;
 }
 
-function addHomeroomLesson() {
+async function addHomeroomLesson() {
   if (!homeroomClassId || !homeroomRecordType || homeroomRecordType === 'ALL') return;
-  saveHomeroomFromDom();
-  const data = loadHomeroomData(homeroomClassId, homeroomRecordType);
+  await saveHomeroomFromDom();
+  const data = await loadHomeroomData(homeroomClassId, homeroomRecordType);
   data.lessonCount = Math.max(3, Number(data.lessonCount) || 3) + 1;
-  localStorage.setItem(homeroomStorageKey(homeroomClassId, homeroomRecordType), JSON.stringify(data));
+  await saveHomeroomPayload(homeroomClassId, homeroomRecordType, data);
   homeroomEditMode = true;
   renderHomeroomHome();
 }
@@ -4068,9 +4177,9 @@ function wireHomeroomRecord() {
   const root = $('#homeroom-record');
   if (!root || homeroomRecordType === 'ALL') return;
   $('#homeroom-add-lesson')?.addEventListener('click', addHomeroomLesson);
-  $('#homeroom-edit')?.addEventListener('click', () => {
+  $('#homeroom-edit')?.addEventListener('click', async () => {
     if (homeroomEditMode) {
-      saveHomeroomFromDom();
+      await saveHomeroomFromDom();
       homeroomEditMode = false;
     } else {
       homeroomEditMode = true;
