@@ -1511,3 +1511,115 @@ body.dark .overview-actions #overview-toggle { background: #172554; color: #bfdb
   background: rgba(37, 99, 235, .25);
 }
 .overview-day-header { white-space: nowrap; }
+
+
+/* ---- Floating edit panel shared by overview + homeroom ---- */
+.overview-edit-panel.cell-panel-floating,
+.overview-edit-panel.cell-panel-docked,
+.overview-edit-panel.overview-panel-docked,
+.overview-edit-panel.homeroom-panel-docked {
+  z-index: 1000;
+}
+.overview-edit-panel.cell-panel-floating {
+  position: fixed;
+  max-width: min(420px, calc(100vw - 24px));
+  margin: 0;
+}
+.overview-edit-panel.cell-panel-docked,
+.overview-edit-panel.overview-panel-docked,
+.overview-edit-panel.homeroom-panel-docked {
+  position: sticky;
+  top: 8px;
+  margin: 0 0 12px auto;
+}
+
+/* ---- Homeroom record book ---- */
+.homeroom-root { display: grid; gap: 14px; }
+.homeroom-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #f8fafc;
+}
+.homeroom-toolbar label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--muted);
+}
+.homeroom-toolbar select {
+  min-width: 220px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 800;
+}
+.homeroom-record-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.homeroom-record-tab {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 900;
+  cursor: pointer;
+}
+.homeroom-record-tab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.homeroom-record { display: grid; gap: 12px; }
+.homeroom-record-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.homeroom-record-head h3 { margin: 0 0 4px; }
+.homeroom-record-head button {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 900;
+  cursor: pointer;
+}
+.homeroom-grid {
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
+}
+.homeroom-grid th,
+.homeroom-grid td {
+  min-width: 46px;
+  height: 28px;
+  padding: 5px 7px;
+  white-space: nowrap;
+  text-align: center;
+  vertical-align: middle;
+  position: relative;
+}
+.homeroom-grid td:nth-child(2),
+.homeroom-grid th:nth-child(2) {
+  text-align: left;
+  min-width: 170px;
+}
+.homeroom-cell { cursor: default; }
+.homeroom-editing .homeroom-cell { cursor: pointer; overflow: visible; }
+.homeroom-selected-cell {
+  box-shadow: inset 0 0 0 3px #2563eb, 0 0 0 2px rgba(37,99,235,.18) !important;
+}
+body.dark .homeroom-toolbar { background: #111827; border-color: #30364a; }
+body.dark .homeroom-toolbar select,
+body.dark .homeroom-record-tab { background: #1a1d27; border-color: #30364a; color: #e5e7eb; }

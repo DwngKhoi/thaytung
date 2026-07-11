@@ -22,6 +22,12 @@ let scheduleSelectedWeekStart = '';
 let scheduleLessonType = '';
 let scheduleDirty = false;
 let scheduleOverviewEditMode = false;
+let homeroomClassId = '';
+let homeroomRecordType = 'LR';
+let homeroomEditMode = false;
+const HOMEROOM_DATA_PREFIX = 'lichlop-homeroom-record:';
+const HOMEROOM_SELECTED_CLASS_KEY = 'lichlop-homeroom-class';
+const HOMEROOM_RECORD_TYPE_KEY = 'lichlop-homeroom-record-type';
 const SCHEDULE_OVERVIEW_WEEK_KEY = 'lichlop-overview-week-start';
 const SCHEDULE_OVERVIEW_DATA_PREFIX = 'lichlop-overview-data:';
 const SCHEDULE_OVERVIEW_WEEKS_KEY = 'lichlop-overview-weeks';
@@ -565,6 +571,7 @@ function initTabs() {
       if (btn.dataset.tab === 'archived') loadArchived();
       if (btn.dataset.tab === 'accounts') loadTeacherAccounts();
       if (btn.dataset.tab === 'schedule') loadScheduleHome();
+      if (btn.dataset.tab === 'homeroom') renderHomeroomHome();
     });
   });
 }
@@ -697,6 +704,7 @@ async function loadClasses() {
   renderClassList(classes);
   if (!$('#bulk-sessions-panel')?.classList.contains('hidden')) renderBulkSessions();
   if ($('#tab-schedule')?.classList.contains('active')) renderScheduleHome();
+  if ($('#tab-homeroom')?.classList.contains('active')) renderHomeroomHome();
   activateInitialScheduleRoute();
 }
 
@@ -2880,6 +2888,28 @@ function renderScheduleOverview() {
   return html;
 }
 
+
+function positionCellEditPanel(panel, targets, topClass = 'cell-panel-docked') {
+  if (!panel) return;
+  panel.classList.remove('cell-panel-floating', topClass);
+  panel.style.left = '';
+  panel.style.top = '';
+  panel.style.right = '';
+  if (!targets?.length) return;
+  if (targets.length > 1) {
+    panel.classList.add(topClass);
+    return;
+  }
+  const rect = targets[0].getBoundingClientRect();
+  const width = Math.min(420, Math.max(260, panel.offsetWidth || 320));
+  const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.right + 8));
+  const top = Math.min(window.innerHeight - 140, Math.max(12, rect.bottom + 8));
+  panel.classList.add('cell-panel-floating');
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
+  panel.style.right = 'auto';
+}
+
 function addOverviewResizeHandles(scope) {
   if (!scheduleOverviewEditMode) return;
   const cells = scope?.classList?.contains('overview-cell')
@@ -2952,6 +2982,7 @@ function wireScheduleOverview() {
     const targets = selectedTargets();
     if (!panel) return;
     panel.classList.toggle('hidden', !scheduleOverviewEditMode || !targets.length);
+    positionCellEditPanel(panel, targets, 'overview-panel-docked');
     if (countLabel) countLabel.textContent = `${targets.length} \u00f4`;
     const first = targets[0];
     if (!first) return;
@@ -3664,6 +3695,345 @@ function renderPublicSchedule(data) {
     </div>
     ${table}
     <p class="hint public-readonly-note">Lịch chỉ xem, được cập nhật từ giáo viên.</p>`;
+}
+
+
+function homeroomRecordTypes() {
+  return [
+    { key: 'LR', label: 'LR-rec' },
+    { key: 'S', label: 'S-rec' },
+    { key: 'W', label: 'W-rec' },
+    { key: 'ALL', label: 'To\u00e0n b\u1ed9' }
+  ];
+}
+
+function homeroomStorageKey(classId, type) {
+  return `${HOMEROOM_DATA_PREFIX}${classId}:${type}`;
+}
+
+function homeroomMetaRows(type) {
+  return type === 'LR' ? 2 : 6;
+}
+
+function defaultHomeroomColCount(type) {
+  return type === 'LR' ? 15 : 15;
+}
+
+function homeroomSkillName(type) {
+  if (type === 'S') return 'S';
+  if (type === 'W') return 'W';
+  return 'LR';
+}
+
+function homeroomDefaultCells(cls, type) {
+  const cells = {};
+  const metaRows = homeroomMetaRows(type);
+  const students = sortSubmissions((cls.submissions || []).filter((item) => item.status === 'approved'));
+  const skill = homeroomSkillName(type);
+  const set = (r, c, value) => { if (value !== undefined && value !== null) cells[`${r}|${c}`] = String(value); };
+  set(0, 1, type === 'LR' ? 'Bu\u1ed5i' : (cls.name || 'L\u1edbp'));
+  [0, 1, 2].forEach((lesson, index) => {
+    const base = 3 + index * 4;
+    set(0, base, `B${index + 1}`);
+    set(0, base + 1, `${skill}${index + 1}`);
+    set(0, base + 2, 'Ng\u00e0y');
+    set(0, base + 3, 'GV');
+  });
+  if (type !== 'LR') {
+    set(1, 1, 'N\u1ed9i dung h\u1ecdc');
+    set(2, 1, 'Ghi ch\u00fa l\u1edbp h\u1ecdc');
+    set(3, 1, 'BTVN');
+    set(4, 1, 'Ghi ch\u00fa cho h\u1ecdc sinh');
+  }
+  const headerRow = metaRows - 1;
+  set(headerRow, 0, '#');
+  set(headerRow, 1, 'H\u1ecdc vi\u00ean');
+  set(headerRow, 2, 'L\u01b0u \u00fd');
+  [0, 1, 2].forEach((lesson, index) => {
+    const base = 3 + index * 4;
+    set(headerRow, base, '\u0110i\u1ec3m danh');
+    set(headerRow, base + 1, 'M');
+    set(headerRow, base + 2, type === 'S' ? 'Nh\u1eadn x\u00e9t BTVN' : 'T\u1eeb v\u1ef1ng');
+    set(headerRow, base + 3, type === 'W' ? 'BTVN' : 'Ghi ch\u00fa');
+  });
+  const rows = Math.max(students.length + metaRows + 5, metaRows + 18);
+  for (let index = 0; index < rows - metaRows; index++) {
+    const row = metaRows + index;
+    const student = students[index];
+    set(row, 0, index + 1);
+    set(row, 1, student ? displayStudentName(student, countNames(students)) : '');
+    set(row, 2, '');
+  }
+  return { cells, rowCount: rows, colCount: defaultHomeroomColCount(type), metaRows };
+}
+
+function loadHomeroomData(classId, type) {
+  try {
+    const raw = localStorage.getItem(homeroomStorageKey(classId, type));
+    const data = JSON.parse(raw || '{}');
+    return {
+      cells: data.cells || {},
+      styles: Object.fromEntries(Object.entries(data.styles || {}).map(([key, style]) => [key, { ...normalizeOverviewStyle(style), width: style?.width || '', height: style?.height || '' }]))
+    };
+  } catch (err) {
+    return { cells: {}, styles: {} };
+  }
+}
+
+function saveHomeroomFromDom() {
+  const root = $('#homeroom-record');
+  if (!root || !homeroomClassId || !homeroomRecordType || homeroomRecordType === 'ALL') return;
+  const cells = {};
+  const styles = {};
+  root.querySelectorAll('[data-homeroom-cell]').forEach((cell) => {
+    const key = cell.dataset.homeroomCell;
+    const value = cell.textContent.trim();
+    const autoValue = cell.dataset.auto || '';
+    if (value && value !== autoValue) cells[key] = value;
+    const bg = cell.dataset.bg || '';
+    const fg = cell.dataset.fg || '';
+    const width = cell.dataset.width || '';
+    const height = cell.dataset.height || '';
+    if (bg || fg || width || height) styles[key] = { backgroundColor: bg, color: fg, width, height };
+  });
+  localStorage.setItem(homeroomStorageKey(homeroomClassId, homeroomRecordType), JSON.stringify({ cells, styles }));
+}
+
+function homeroomCellStyle(style = {}) {
+  return overviewCellStyle(style);
+}
+
+function homeroomDefaultStyle(row, col, type, metaRows) {
+  if (row < metaRows) {
+    if (row === metaRows - 1) return { backgroundColor: '#dbeafe', color: '#111827' };
+    if (col < 3) return { backgroundColor: '#fde68a', color: '#111827' };
+    return { backgroundColor: row === 0 ? '#fb923c' : '#fef3c7', color: '#111827' };
+  }
+  if (col === 0) return { backgroundColor: '#f8fafc', color: '#111827' };
+  if (col === 1) return { backgroundColor: '#ffffff', color: '#111827' };
+  return {};
+}
+
+function renderHomeroomTable(cls, type) {
+  if (type === 'ALL') {
+    return `<div class="placeholder">To\u00e0n b\u1ed9 s\u1ebd g\u1ed9p LR/S/W \u1edf b\u01b0\u1edbc sau. Hi\u1ec7n t\u1ea1i h\u00e3y ch\u1ecdn LR-rec, S-rec ho\u1eb7c W-rec.</div>`;
+  }
+  const defaults = homeroomDefaultCells(cls, type);
+  const saved = loadHomeroomData(cls.id, type);
+  const palette = overviewPalette();
+  let html = `<section id="homeroom-record" class="homeroom-record ${homeroomEditMode ? 'homeroom-editing' : ''}">
+    <div class="homeroom-record-head">
+      <div><h3>${escapeHtml(cls.name)} - ${escapeHtml(type)}-rec</h3><p class="hint">Gi\u1eef Ctrl \u0111\u1ec3 ch\u1ecdn nhi\u1ec1u \u00f4; k\u00e9o m\u00e9p ph\u1ea3i/m\u00e9p d\u01b0\u1edbi \u0111\u1ec3 ch\u1ec9nh c\u1ed9t/h\u00e0ng.</p></div>
+      <button id="homeroom-edit" type="button">${homeroomEditMode ? 'L\u01b0u record' : 'Ch\u1ec9nh s\u1eeda'}</button>
+    </div>
+    ${homeroomEditMode ? `<div id="homeroom-edit-panel" class="overview-edit-panel homeroom-edit-panel hidden">
+      <div class="overview-edit-panel-head"><b>Ch\u1ec9nh \u00f4 record</b><small id="homeroom-edit-count">0 \u00f4</small></div>
+      <label>N\u1ed9i dung<input id="homeroom-edit-content" placeholder="Nh\u1eadp n\u1ed9i dung..." /></label>
+      <div class="overview-panel-row">
+        <label>M\u00e0u \u00f4<input id="homeroom-edit-bg" type="color" value="#ffffff" /></label>
+        <label>M\u00e0u ch\u1eef<input id="homeroom-edit-fg" type="color" value="#111827" /></label>
+        <label>R\u1ed9ng<input id="homeroom-edit-width" type="text" placeholder="vd: 80px" /></label>
+        <label>Cao<input id="homeroom-edit-height" type="text" placeholder="vd: 32px" /></label>
+      </div>
+      <div class="overview-palette">${palette.map((item) => `<button type="button" data-bg="${item.bg}" data-fg="${item.fg}" style="background:${item.bg};color:${item.fg};" title="${item.name}">${item.name}</button>`).join('')}</div>
+      <div class="overview-panel-actions"><button id="homeroom-apply-cell" type="button">\u00c1p d\u1ee5ng</button><button id="homeroom-clear-cell" type="button">Xo\u00e1 m\u00e0u</button></div>
+      <small>Panel s\u1ebd n\u1ed5i c\u1ea1nh \u00f4; n\u1ebfu ch\u1ecdn nhi\u1ec1u \u00f4 b\u1eb1ng Ctrl th\u00ec panel n\u1eb1m ph\u00eda tr\u00ean.</small>
+    </div>` : ''}
+    <div class="schedule-scroll"><table class="schedule homeroom-grid"><tbody>`;
+  for (let row = 0; row < defaults.rowCount; row++) {
+    html += '<tr>';
+    for (let col = 0; col < defaults.colCount; col++) {
+      const key = `${row}|${col}`;
+      const autoValue = defaults.cells[key] || '';
+      const value = saved.cells[key] ?? autoValue;
+      const style = saved.styles[key] || homeroomDefaultStyle(row, col, type, defaults.metaRows);
+      const normalized = normalizeOverviewStyle(style);
+      const tag = row < defaults.metaRows ? 'th' : 'td';
+      const hasValue = String(value || '').trim() ? ' has-value' : '';
+      html += `<${tag} class="homeroom-cell${hasValue}" data-homeroom-cell="${key}" data-auto="${escapeHtml(autoValue)}" data-bg="${escapeHtml(normalized.backgroundColor || '')}" data-fg="${escapeHtml(normalized.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}" data-col="hr-${col}" data-row-id="hr-${row}"${homeroomCellStyle(style)}>${escapeHtml(value)}</${tag}>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table></div></section>';
+  return html;
+}
+
+async function renderHomeroomHome() {
+  const root = $('#homeroom-root');
+  if (!root) return;
+  if (!teacherSession) {
+    root.innerHTML = '<p class="placeholder">Vui l\u00f2ng \u0111\u0103ng nh\u1eadp gi\u00e1o vi\u00ean.</p>';
+    return;
+  }
+  if (!teacherClasses.length) {
+    root.innerHTML = '<p class="placeholder">Ch\u01b0a c\u00f3 l\u1edbp \u0111\u1ec3 m\u1edf s\u1ed5.</p>';
+    return;
+  }
+  homeroomClassId = localStorage.getItem(HOMEROOM_SELECTED_CLASS_KEY) || homeroomClassId || teacherClasses[0]?.id || '';
+  if (!teacherClasses.some((cls) => cls.id === homeroomClassId)) homeroomClassId = teacherClasses[0]?.id || '';
+  homeroomRecordType = localStorage.getItem(HOMEROOM_RECORD_TYPE_KEY) || homeroomRecordType || 'LR';
+  const groups = buildSectorGroups(teacherClasses).filter((group) => group.classes.length);
+  root.innerHTML = `<div class="homeroom-toolbar">
+    <label>Ch\u1ecdn l\u1edbp<select id="homeroom-class-select">${groups.map((group) => `<optgroup label="${escapeHtml(group.name)}">${group.classes.map((cls) => `<option value="${escapeHtml(cls.id)}" ${cls.id === homeroomClassId ? 'selected' : ''}>${escapeHtml(cls.name)}</option>`).join('')}</optgroup>`).join('')}</select></label>
+    <div class="homeroom-record-tabs">${homeroomRecordTypes().map((type) => `<button type="button" class="homeroom-record-tab${type.key === homeroomRecordType ? ' active' : ''}" data-type="${type.key}">${type.label}</button>`).join('')}</div>
+  </div><div id="homeroom-detail"><p class="placeholder">\u0110ang t\u1ea3i s\u1ed5...</p></div>`;
+  $('#homeroom-class-select')?.addEventListener('change', (event) => {
+    if (homeroomEditMode) saveHomeroomFromDom();
+    homeroomClassId = event.target.value;
+    localStorage.setItem(HOMEROOM_SELECTED_CLASS_KEY, homeroomClassId);
+    homeroomEditMode = false;
+    renderHomeroomHome();
+  });
+  root.querySelectorAll('.homeroom-record-tab').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (homeroomEditMode) saveHomeroomFromDom();
+      homeroomRecordType = button.dataset.type || 'LR';
+      localStorage.setItem(HOMEROOM_RECORD_TYPE_KEY, homeroomRecordType);
+      homeroomEditMode = false;
+      renderHomeroomHome();
+    });
+  });
+  try {
+    const cls = await api('/classes/' + homeroomClassId);
+    $('#homeroom-detail').innerHTML = renderHomeroomTable(cls, homeroomRecordType);
+    wireHomeroomRecord();
+  } catch (err) {
+    $('#homeroom-detail').innerHTML = `<p class="placeholder">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function addHomeroomResizeHandles(scope) {
+  if (!homeroomEditMode) return;
+  const cells = scope?.classList?.contains('homeroom-cell') ? [scope] : [...(scope || document).querySelectorAll('.homeroom-cell')];
+  cells.forEach((cell) => {
+    if (!cell.querySelector(':scope > .overview-col-resizer')) {
+      const col = document.createElement('span');
+      col.className = 'overview-col-resizer';
+      col.title = 'K\u00e9o \u0111\u1ec3 \u0111\u1ed5i \u0111\u1ed9 r\u1ed9ng c\u1ed9t';
+      cell.appendChild(col);
+    }
+    if (!cell.querySelector(':scope > .overview-row-resizer')) {
+      const row = document.createElement('span');
+      row.className = 'overview-row-resizer';
+      row.title = 'K\u00e9o \u0111\u1ec3 \u0111\u1ed5i chi\u1ec1u cao h\u00e0ng';
+      cell.appendChild(row);
+    }
+  });
+}
+
+function wireHomeroomRecord() {
+  const root = $('#homeroom-record');
+  if (!root || homeroomRecordType === 'ALL') return;
+  $('#homeroom-edit')?.addEventListener('click', () => {
+    if (homeroomEditMode) {
+      saveHomeroomFromDom();
+      homeroomEditMode = false;
+    } else {
+      homeroomEditMode = true;
+    }
+    renderHomeroomHome();
+  });
+  if (!homeroomEditMode) return;
+  const panel = $('#homeroom-edit-panel');
+  const contentInput = $('#homeroom-edit-content');
+  const bgInput = $('#homeroom-edit-bg');
+  const fgInput = $('#homeroom-edit-fg');
+  const widthInput = $('#homeroom-edit-width');
+  const heightInput = $('#homeroom-edit-height');
+  const countLabel = $('#homeroom-edit-count');
+  const selectedTargets = () => [...root.querySelectorAll('.homeroom-selected-cell')];
+  const syncPanel = () => {
+    const targets = selectedTargets();
+    if (!panel) return;
+    panel.classList.toggle('hidden', !targets.length);
+    positionCellEditPanel(panel, targets, 'homeroom-panel-docked');
+    if (countLabel) countLabel.textContent = `${targets.length} \u00f4`;
+    const first = targets[0];
+    if (!first) return;
+    if (contentInput) {
+      contentInput.value = targets.length === 1 ? first.textContent.trim() : '';
+      contentInput.placeholder = targets.length === 1 ? 'Nh\u1eadp n\u1ed9i dung...' : 'B\u1ecf tr\u1ed1ng n\u1ebfu ch\u1ec9 \u0111\u1ed5i m\u00e0u';
+    }
+    if (bgInput) bgInput.value = first.dataset.bg || rgbToHex(getComputedStyle(first).backgroundColor) || '#ffffff';
+    if (fgInput) fgInput.value = first.dataset.fg || rgbToHex(getComputedStyle(first).color) || '#111827';
+    if (widthInput) widthInput.value = first.dataset.width || '';
+    if (heightInput) heightInput.value = first.dataset.height || '';
+  };
+  const selectTarget = (target, additive = false) => {
+    if (!additive) root.querySelectorAll('.homeroom-selected-cell').forEach((item) => item.classList.remove('homeroom-selected-cell'));
+    target.classList.toggle('homeroom-selected-cell', additive ? !target.classList.contains('homeroom-selected-cell') : true);
+    syncPanel();
+  };
+  const applyToSelection = (bg, fg, options = {}) => {
+    selectedTargets().forEach((target) => {
+      if (bg !== undefined) {
+        target.dataset.bg = bg || '';
+        if (bg) target.style.setProperty('background', bg, 'important');
+        else target.style.removeProperty('background');
+      }
+      if (fg !== undefined) {
+        target.dataset.fg = fg || '';
+        if (fg) target.style.setProperty('color', fg, 'important');
+        else target.style.removeProperty('color');
+      }
+      if (options.width !== undefined) {
+        target.dataset.width = options.width || '';
+        if (options.width) { target.style.width = options.width; target.style.minWidth = options.width; }
+        else { target.style.removeProperty('width'); target.style.removeProperty('min-width'); }
+      }
+      if (options.height !== undefined) {
+        target.dataset.height = options.height || '';
+        if (options.height) target.style.height = options.height;
+        else target.style.removeProperty('height');
+      }
+      if (options.text !== undefined) {
+        target.textContent = options.text;
+        target.classList.toggle('has-value', Boolean(String(options.text || '').trim()));
+        addHomeroomResizeHandles(target);
+      }
+    });
+  };
+  const sameColumnCells = (cell) => [...root.querySelectorAll('.homeroom-cell')].filter((item) => item.dataset.col === cell.dataset.col);
+  const sameRowCells = (cell) => [...root.querySelectorAll('.homeroom-cell')].filter((item) => item.dataset.rowId === cell.dataset.rowId);
+  const startResize = (event, cell, type) => {
+    event.preventDefault(); event.stopPropagation();
+    const targets = type === 'col' ? sameColumnCells(cell) : sameRowCells(cell);
+    const startX = event.clientX; const startY = event.clientY;
+    const startWidth = cell.getBoundingClientRect().width; const startHeight = cell.getBoundingClientRect().height;
+    const onMove = (moveEvent) => {
+      if (type === 'col') {
+        const width = `${Math.max(28, Math.round(startWidth + moveEvent.clientX - startX))}px`;
+        targets.forEach((target) => { target.dataset.width = width; target.style.width = width; target.style.minWidth = width; });
+        if (widthInput && cell.classList.contains('homeroom-selected-cell')) widthInput.value = width;
+      } else {
+        const height = `${Math.max(20, Math.round(startHeight + moveEvent.clientY - startY))}px`;
+        targets.forEach((target) => { target.dataset.height = height; target.style.height = height; });
+        if (heightInput && cell.classList.contains('homeroom-selected-cell')) heightInput.value = height;
+      }
+    };
+    const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+  };
+  addHomeroomResizeHandles(root);
+  root.querySelectorAll('.homeroom-cell').forEach((cell) => cell.addEventListener('click', (event) => selectTarget(cell, event.ctrlKey || event.metaKey)));
+  root.querySelectorAll('.overview-col-resizer').forEach((handle) => handle.addEventListener('mousedown', (event) => startResize(event, handle.closest('.homeroom-cell'), 'col')));
+  root.querySelectorAll('.overview-row-resizer').forEach((handle) => handle.addEventListener('mousedown', (event) => startResize(event, handle.closest('.homeroom-cell'), 'row')));
+  contentInput?.addEventListener('input', () => { if (selectedTargets().length === 1) applyToSelection(undefined, undefined, { text: contentInput.value }); });
+  $('#homeroom-apply-cell')?.addEventListener('click', () => {
+    const text = contentInput?.value ?? '';
+    const applyText = selectedTargets().length === 1 || text.trim();
+    applyToSelection(bgInput?.value || '', fgInput?.value || '', { ...(applyText ? { text } : {}), width: widthInput?.value.trim() || '', height: heightInput?.value.trim() || '' });
+  });
+  bgInput?.addEventListener('input', () => applyToSelection(bgInput.value, undefined));
+  fgInput?.addEventListener('input', () => applyToSelection(undefined, fgInput.value));
+  widthInput?.addEventListener('change', () => applyToSelection(undefined, undefined, { width: widthInput.value.trim() }));
+  heightInput?.addEventListener('change', () => applyToSelection(undefined, undefined, { height: heightInput.value.trim() }));
+  $('#homeroom-clear-cell')?.addEventListener('click', () => { applyToSelection('', ''); syncPanel(); });
+  root.querySelectorAll('.overview-palette button').forEach((button) => button.addEventListener('click', () => {
+    if (bgInput) bgInput.value = button.dataset.bg || '#ffffff';
+    if (fgInput) fgInput.value = button.dataset.fg || '#111827';
+    applyToSelection(button.dataset.bg || '', button.dataset.fg || '');
+  }));
 }
 
 function initTeacherAccounts() {
