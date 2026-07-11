@@ -21,6 +21,9 @@ let scheduleEditorData = null;
 let scheduleSelectedWeekStart = '';
 let scheduleLessonType = '';
 let scheduleDirty = false;
+let scheduleOverviewEditMode = false;
+const SCHEDULE_OVERVIEW_WEEK_KEY = 'lichlop-overview-week-start';
+const SCHEDULE_OVERVIEW_DATA_PREFIX = 'lichlop-overview-data:';
 const SCHEDULE_EXPANDED_SECTORS_KEY = 'lichlop-schedule-expanded-sectors';
 
 const $ = (sel) => document.querySelector(sel);
@@ -2310,6 +2313,110 @@ async function loadScheduleHome() {
   renderScheduleHome();
 }
 
+function overviewWeekStart() {
+  const saved = localStorage.getItem(SCHEDULE_OVERVIEW_WEEK_KEY);
+  return saved || localIsoDate(mondayOf(new Date()));
+}
+
+function overviewRooms() {
+  return [
+    { id: 'A1', label: 'A1', place: 'Tang 1' },
+    { id: 'A2', label: 'A2', place: 'Tang 2' },
+    { id: 'CS2', label: 'CS2', place: 'Co so 2' }
+  ];
+}
+
+function overviewSubRows() {
+  return ['Gio', 'Lop', 'Ky nang', 'Ghi chu'];
+}
+
+function loadOverviewData(weekStart = overviewWeekStart()) {
+  try {
+    const raw = localStorage.getItem(SCHEDULE_OVERVIEW_DATA_PREFIX + weekStart);
+    const data = JSON.parse(raw || '{}');
+    return { note: data.note || '', cells: data.cells || {} };
+  } catch (err) {
+    return { note: '', cells: {} };
+  }
+}
+
+function saveOverviewFromDom() {
+  const root = $('#schedule-overview');
+  if (!root) return;
+  const weekStart = $('#overview-week-start')?.value || overviewWeekStart();
+  const cells = {};
+  root.querySelectorAll('[data-overview-cell]').forEach((cell) => {
+    const value = cell.textContent.trim();
+    if (value) cells[cell.dataset.overviewCell] = value;
+  });
+  const note = $('#overview-note')?.value.trim() || '';
+  localStorage.setItem(SCHEDULE_OVERVIEW_DATA_PREFIX + weekStart, JSON.stringify({ note, cells }));
+}
+
+function renderScheduleOverview() {
+  const weekStart = overviewWeekStart();
+  const data = loadOverviewData(weekStart);
+  const sessions = DEFAULT_SESSIONS.length ? DEFAULT_SESSIONS : ['S1', 'S2', 'C', '57', 'T'];
+  const rooms = overviewRooms();
+  const subRows = overviewSubRows();
+  const editable = scheduleOverviewEditMode ? 'true' : 'false';
+  let html = `<section id="schedule-overview" class="schedule-overview-card ${scheduleOverviewEditMode ? 'overview-editing' : ''}">
+    <div class="overview-head">
+      <div>
+        <h3>Toan canh lich tuan</h3>
+        <p class="hint">Excel minimal cho owner: dien nhanh gio, lop, ky nang/giao vien va ghi chu. Du lieu tam luu tren trinh duyet.</p>
+      </div>
+      <div class="overview-actions">
+        <label>Ngay dau tuan <input id="overview-week-start" type="date" value="${escapeHtml(weekStart)}" /></label>
+        <button id="overview-edit" type="button">${scheduleOverviewEditMode ? 'Luu toan canh' : 'But dien'}</button>
+      </div>
+    </div>
+    <div class="schedule-scroll"><table class="schedule overview-grid"><thead><tr>
+      <th rowspan="2" class="overview-corner"><label>Note tuan<input id="overview-note" value="${escapeHtml(data.note)}" placeholder="vd: Tuan 26" ${scheduleOverviewEditMode ? '' : 'readonly'} /></label><small>${escapeHtml(weekRangeText(weekStart))}</small></th>
+      <th rowspan="2">BUOI</th><th rowspan="2">Ca</th>`;
+  DAYS.forEach((day, dayIdx) => {
+    html += `<th colspan="${rooms.length}">${escapeHtml(DAYS_SHORT[dayIdx] || day)}<br><small>${escapeHtml(dayDateLabel(weekStart, dayIdx))}</small></th>`;
+  });
+  html += '</tr><tr>';
+  DAYS.forEach(() => rooms.forEach((room) => {
+    html += `<th class="overview-room">${escapeHtml(room.label)}</th>`;
+  }));
+  html += '</tr></thead><tbody>';
+  sessions.forEach((session, sessionIdx) => {
+    subRows.forEach((rowName, rowIdx) => {
+      html += '<tr>';
+      if (rowIdx === 0) html += `<th rowspan="${subRows.length}" class="overview-session">${escapeHtml(session)}</th><th rowspan="${subRows.length}" class="overview-ca">${sessionIdx + 1}</th>`;
+      html += `<th class="overview-row-label">${escapeHtml(rowName)}</th>`;
+      DAYS.forEach((day, dayIdx) => rooms.forEach((room) => {
+        const key = `${session}|${dayIdx}|${room.id}|${rowName}`;
+        const value = data.cells[key] || '';
+        html += `<td class="overview-cell overview-${rowName.toLowerCase().replace(/\s+/g, '-')}" data-overview-cell="${escapeHtml(key)}" contenteditable="${editable}" spellcheck="false">${escapeHtml(value)}</td>`;
+      }));
+      html += '</tr>';
+    });
+  });
+  html += '</tbody></table></div></section>';
+  return html;
+}
+
+function wireScheduleOverview() {
+  $('#overview-week-start')?.addEventListener('change', (event) => {
+    if (scheduleOverviewEditMode) saveOverviewFromDom();
+    localStorage.setItem(SCHEDULE_OVERVIEW_WEEK_KEY, event.target.value || localIsoDate(mondayOf(new Date())));
+    scheduleOverviewEditMode = false;
+    renderScheduleHome();
+  });
+  $('#overview-edit')?.addEventListener('click', () => {
+    if (scheduleOverviewEditMode) {
+      saveOverviewFromDom();
+      scheduleOverviewEditMode = false;
+    } else {
+      scheduleOverviewEditMode = true;
+    }
+    renderScheduleHome();
+  });
+}
+
 function renderScheduleHome() {
   const target = $('#final-schedule-result');
   if (!target || scheduleClassId) return;
@@ -2319,7 +2426,8 @@ function renderScheduleHome() {
     return;
   }
   const expanded = scheduleExpandedSectorIds();
-  target.innerHTML = `<div class="schedule-directory">${groups.map((group) => {
+  const overviewHtml = isOwner() ? renderScheduleOverview() : '';
+  target.innerHTML = `${overviewHtml}<div class="schedule-directory"><div class="schedule-directory-head"><h3>Lich chia theo lop</h3><p class="hint">Mo tung lop de chinh chi tiet, keo tha S/W/LR va xuat Excel/anh.</p></div>${groups.map((group) => {
     const open = expanded.has(String(group.id));
     return `<section class="schedule-sector${open ? ' expanded' : ''}">
       <button class="schedule-sector-head" type="button" data-sector="${escapeHtml(group.id)}">
@@ -2332,6 +2440,7 @@ function renderScheduleHome() {
       </div>
     </section>`;
   }).join('')}</div>`;
+  wireScheduleOverview();
   target.querySelectorAll('.schedule-sector-head').forEach((button) => {
     button.addEventListener('click', () => toggleScheduleSector(button.dataset.sector));
   });

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260711-1" />
+  <link rel="stylesheet" href="style.css?v=20260712-1" />
 </head>
 <body>
   <header>
@@ -25,11 +25,20 @@
       </div>
     </div>
 
-    <nav class="tabs">
-      <button class="tab active" data-tab="teacher">Lớp học</button>
-      <button class="tab" data-tab="schedule">H&#7879; th&#7889;ng</button>
-      <button class="tab owner-only hidden" data-tab="accounts">Tài khoản giáo viên</button>
-      <button class="tab tab-trash owner-only hidden" data-tab="archived" title="Lớp cũ">&#128465;</button>
+    <nav class="tabs system-nav">
+      <div class="system-nav-title">H&#7879; th&#7889;ng</div>
+      <div class="system-nav-group">
+        <span>L&#7883;ch h&#7885;c</span>
+        <button class="tab active" data-tab="teacher">L&#7899;p h&#7885;c</button>
+        <button class="tab" data-tab="schedule">L&#7883;ch chia</button>
+      </div>
+      <div class="system-nav-group owner-only hidden">
+        <span>Qu&#7843;n l&#253;</span>
+        <button class="tab" data-tab="homeroom">S&#7893; ch&#7911; nhi&#7879;m</button>
+        <button class="tab" data-tab="accounts">T&#224;i kho&#7843;n GV</button>
+        <button class="tab" data-tab="attendance">B&#7843;ng c&#244;ng</button>
+      </div>
+      <button class="tab tab-trash owner-only hidden" data-tab="archived" title="Th&#249;ng r&#225;c">&#128465;</button>
     </nav>
   </header>
 
@@ -120,13 +129,37 @@
     <div class="card final-schedule-card">
       <div class="detail-head">
         <div>
-          <h2>H&#7879; th&#7889;ng</h2>
-          <p class="hint">Ch&#7885;n sector, sau &#273;&#243; m&#7903; t&#7915;ng l&#7899;p &#273;&#7875; l&#7853;p l&#7883;ch theo tu&#7847;n.</p>
+          <h2>L&#7883;ch chia</h2>
+          <p class="hint">Xem to&#224;n c&#7843;nh l&#7883;ch tu&#7847;n ho&#7863;c m&#7903; t&#7915;ng l&#7899;p &#273;&#7875; l&#7853;p l&#7883;ch chi ti&#7871;t.</p>
         </div>
       </div>
       <div id="final-schedule-result" class="final-schedule-result">
         <p class="placeholder">Ch&#432;a t&#7843;i l&#7883;ch.</p>
       </div>
+    </div>
+  </section>
+
+  <section id="tab-homeroom" class="tab-panel">
+    <div class="card">
+      <div class="detail-head">
+        <div>
+          <h2>S&#7893; ch&#7911; nhi&#7879;m</h2>
+          <p class="hint">Khu v&#7921;c n&#224;y s&#7869; th&#234;m sau: ghi ch&#250; h&#7885;c sinh, theo d&#245;i l&#7899;p, nh&#7853;n x&#233;t v&#224; nh&#7855;c vi&#7879;c.</p>
+        </div>
+      </div>
+      <p class="placeholder">Ch&#432;a b&#7853;t t&#237;nh n&#259;ng s&#7893; ch&#7911; nhi&#7879;m.</p>
+    </div>
+  </section>
+
+  <section id="tab-attendance" class="tab-panel">
+    <div class="card">
+      <div class="detail-head">
+        <div>
+          <h2>B&#7843;ng c&#244;ng</h2>
+          <p class="hint">D&#249;ng &#273;&#7875; ch&#7845;m c&#244;ng gi&#225;o vi&#234;n b&#7897; m&#244;n theo bu&#7893;i/l&#7899;p. S&#7869; n&#7889;i v&#7899;i l&#7883;ch chia sau.</p>
+        </div>
+      </div>
+      <p class="placeholder">Ch&#432;a c&#243; d&#7919; li&#7879;u b&#7843;ng c&#244;ng.</p>
     </div>
   </section>
 
@@ -155,6 +188,6 @@
   </section>
 
   <script src="config.js"></script>
-  <script src="app.js?v=20260711-1"></script>
+  <script src="app.js?v=20260712-1"></script>
 </body>
 </html>
