@@ -240,6 +240,8 @@ button.secondary:hover { background: var(--primary-soft); }
 .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
 .panel-head h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .panel-tools { display: flex; align-items: center; gap: 6px; }
+.panel-wide-action { margin: -4px 0 12px; }
+.bulk-open-btn { width: 100%; justify-content: center; }
 .sector-add-btn {
   border: 1px solid #c7c9f7;
   background: var(--surface);
