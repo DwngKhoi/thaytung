@@ -3118,6 +3118,11 @@ function wireScheduleOverview() {
     }
     renderScheduleHome();
   });
+  const writeOverviewCell = (cell, value) => {
+    cell.textContent = value;
+    cell.classList.toggle('has-value', Boolean(String(value || '').trim()));
+    addOverviewResizeHandles(cell);
+  };
   root.querySelectorAll('[data-overview-cell]').forEach((cell) => {
     cell.contentEditable = 'true';
     cell.spellcheck = false;
@@ -3125,6 +3130,18 @@ function wireScheduleOverview() {
       cell.classList.toggle('has-value', Boolean(cell.textContent.trim()));
       if (cell.classList.contains('overview-selected-cell') && selectedTargets().length === 1 && contentInput) {
         contentInput.value = cell.textContent.trim();
+      }
+    });
+    cell.addEventListener('paste', (event) => {
+      const text = event.clipboardData?.getData('text/plain') || '';
+      if (pasteGridIntoTable(root.querySelector('table'), cell, text, writeOverviewCell)) event.preventDefault();
+    });
+    cell.addEventListener('keydown', (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
+        if (fillSelectedFromFirst(selectedTargets())) {
+          event.preventDefault();
+          syncPanel();
+        }
       }
     });
   });
@@ -3716,8 +3733,8 @@ function homeroomMetaRows(type) {
   return type === 'LR' ? 2 : 6;
 }
 
-function defaultHomeroomColCount(type) {
-  return type === 'LR' ? 15 : 15;
+function defaultHomeroomColCount(type, lessonCount = 3) {
+  return 3 + Math.max(1, Number(lessonCount) || 3) * 4;
 }
 
 function homeroomSkillName(type) {
@@ -3726,14 +3743,14 @@ function homeroomSkillName(type) {
   return 'LR';
 }
 
-function homeroomDefaultCells(cls, type) {
+function homeroomDefaultCells(cls, type, lessonCount = 3) {
   const cells = {};
   const metaRows = homeroomMetaRows(type);
   const students = sortSubmissions((cls.submissions || []).filter((item) => item.status === 'approved'));
   const skill = homeroomSkillName(type);
   const set = (r, c, value) => { if (value !== undefined && value !== null) cells[`${r}|${c}`] = String(value); };
   set(0, 1, type === 'LR' ? 'Bu\u1ed5i' : (cls.name || 'L\u1edbp'));
-  [0, 1, 2].forEach((lesson, index) => {
+  Array.from({ length: lessonCount }).forEach((lesson, index) => {
     const base = 3 + index * 4;
     set(0, base, `B${index + 1}`);
     set(0, base + 1, `${skill}${index + 1}`);
@@ -3750,7 +3767,7 @@ function homeroomDefaultCells(cls, type) {
   set(headerRow, 0, '#');
   set(headerRow, 1, 'H\u1ecdc vi\u00ean');
   set(headerRow, 2, 'L\u01b0u \u00fd');
-  [0, 1, 2].forEach((lesson, index) => {
+  Array.from({ length: lessonCount }).forEach((lesson, index) => {
     const base = 3 + index * 4;
     set(headerRow, base, '\u0110i\u1ec3m danh');
     set(headerRow, base + 1, 'M');
@@ -3765,7 +3782,16 @@ function homeroomDefaultCells(cls, type) {
     set(row, 1, student ? displayName(student, countNames(students)) : '');
     set(row, 2, '');
   }
-  return { cells, rowCount: rows, colCount: defaultHomeroomColCount(type), metaRows };
+  return { cells, rowCount: rows, colCount: defaultHomeroomColCount(type, lessonCount), metaRows, lessonCount };
+}
+
+function inferHomeroomLessonCount(data = {}) {
+  const keys = [...Object.keys(data.cells || {}), ...Object.keys(data.styles || {})];
+  const maxCol = keys.reduce((max, key) => {
+    const col = Number(String(key).split('|')[1]);
+    return Number.isFinite(col) ? Math.max(max, col) : max;
+  }, 14);
+  return Math.max(3, Math.ceil(Math.max(0, maxCol - 2) / 4));
 }
 
 function loadHomeroomData(classId, type) {
@@ -3774,10 +3800,11 @@ function loadHomeroomData(classId, type) {
     const data = JSON.parse(raw || '{}');
     return {
       cells: data.cells || {},
-      styles: Object.fromEntries(Object.entries(data.styles || {}).map(([key, style]) => [key, { ...normalizeOverviewStyle(style), width: style?.width || '', height: style?.height || '' }]))
+      styles: Object.fromEntries(Object.entries(data.styles || {}).map(([key, style]) => [key, { ...normalizeOverviewStyle(style), width: style?.width || '', height: style?.height || '' }])),
+      lessonCount: Math.max(3, Number(data.lessonCount) || inferHomeroomLessonCount(data))
     };
   } catch (err) {
-    return { cells: {}, styles: {} };
+    return { cells: {}, styles: {}, lessonCount: 3 };
   }
 }
 
@@ -3797,7 +3824,7 @@ function saveHomeroomFromDom() {
     const height = cell.dataset.height || '';
     if (bg || fg || width || height) styles[key] = { backgroundColor: bg, color: fg, width, height };
   });
-  localStorage.setItem(homeroomStorageKey(homeroomClassId, homeroomRecordType), JSON.stringify({ cells, styles }));
+  localStorage.setItem(homeroomStorageKey(homeroomClassId, homeroomRecordType), JSON.stringify({ cells, styles, lessonCount: Number(root.dataset.lessonCount || 3) }));
 }
 
 function homeroomCellStyle(style = {}) {
@@ -3805,13 +3832,46 @@ function homeroomCellStyle(style = {}) {
 }
 
 function homeroomDefaultStyle(row, col, type, metaRows) {
-  if (row < metaRows) {
-    if (row === metaRows - 1) return { backgroundColor: '#dbeafe', color: '#111827' };
-    if (col < 3) return { backgroundColor: '#fde68a', color: '#111827' };
-    return { backgroundColor: row === 0 ? '#fb923c' : '#fef3c7', color: '#111827' };
+  const colors = {
+    white: '#ffffff',
+    pale: '#fff2cc',
+    header: '#ffe599',
+    meta: '#ffd966',
+    cyan: '#00ffff',
+    yellow: '#ffff00',
+    blue: '#0000ff',
+    red: '#ff0000',
+    noteBlue: '#9cc2e5',
+    homeworkRed: '#ea9999',
+    studentNote: '#deeaf6',
+    cream: '#fef2cb'
+  };
+  const lessonPos = col >= 3 ? (col - 3) % 4 : -1;
+  if (row === 0) {
+    if (col === 0) return { backgroundColor: colors.white, color: '#111827' };
+    if (col === 1 && type === 'W') return { backgroundColor: colors.red, color: '#ffffff' };
+    if (col < 3) return { backgroundColor: colors.pale, color: '#111827' };
+    if (lessonPos === 0) return { backgroundColor: colors.cyan, color: '#111827' };
+    if (lessonPos === 1) return { backgroundColor: colors.yellow, color: '#111827' };
+    if (lessonPos === 2) return { backgroundColor: colors.blue, color: '#ffffff' };
+    return { backgroundColor: colors.yellow, color: '#111827' };
   }
-  if (col === 0) return { backgroundColor: '#f8fafc', color: '#111827' };
-  if (col === 1) return { backgroundColor: '#ffffff', color: '#111827' };
+  if (type !== 'LR' && row > 0 && row < metaRows - 1) {
+    if (col === 0) return { backgroundColor: colors.white, color: '#111827' };
+    if (col === 1) return { backgroundColor: colors.meta, color: '#111827' };
+    if (col === 2) {
+      const rowColors = { 1: colors.cream, 2: colors.noteBlue, 3: colors.homeworkRed, 4: colors.studentNote };
+      return { backgroundColor: rowColors[row] || colors.white, color: '#111827' };
+    }
+    if (row === 1 && lessonPos === 0) return { backgroundColor: colors.yellow, color: '#111827' };
+    if (row === 2 && lessonPos === 0) return { backgroundColor: colors.white, color: '#111827' };
+    return {};
+  }
+  if (row === metaRows - 1) return { backgroundColor: colors.header, color: '#111827' };
+  if (col === 0) return { backgroundColor: colors.yellow, color: '#111827' };
+  if (col === 1) return { backgroundColor: colors.cyan, color: '#111827' };
+  if (col >= 3 && lessonPos === 0) return { backgroundColor: colors.pale, color: '#111827' };
+  if (type === 'W' && col >= 3 && lessonPos === 1) return { backgroundColor: colors.pale, color: '#111827' };
   return {};
 }
 
@@ -3819,13 +3879,14 @@ function renderHomeroomTable(cls, type) {
   if (type === 'ALL') {
     return `<div class="placeholder">To\u00e0n b\u1ed9 s\u1ebd g\u1ed9p LR/S/W \u1edf b\u01b0\u1edbc sau. Hi\u1ec7n t\u1ea1i h\u00e3y ch\u1ecdn LR-rec, S-rec ho\u1eb7c W-rec.</div>`;
   }
-  const defaults = homeroomDefaultCells(cls, type);
   const saved = loadHomeroomData(cls.id, type);
+  const lessonCount = Math.max(3, saved.lessonCount || 3);
+  const defaults = homeroomDefaultCells(cls, type, lessonCount);
   const palette = overviewPalette();
-  let html = `<section id="homeroom-record" class="homeroom-record ${homeroomEditMode ? 'homeroom-editing' : ''}">
+  let html = `<section id="homeroom-record" class="homeroom-record ${homeroomEditMode ? 'homeroom-editing' : ''}" data-lesson-count="${lessonCount}">
     <div class="homeroom-record-head">
-      <div><h3>${escapeHtml(cls.name)} - ${escapeHtml(type)}-rec</h3><p class="hint">Gi\u1eef Ctrl \u0111\u1ec3 ch\u1ecdn nhi\u1ec1u \u00f4; k\u00e9o m\u00e9p ph\u1ea3i/m\u00e9p d\u01b0\u1edbi \u0111\u1ec3 ch\u1ec9nh c\u1ed9t/h\u00e0ng.</p></div>
-      <button id="homeroom-edit" type="button">${homeroomEditMode ? 'L\u01b0u record' : 'Ch\u1ec9nh s\u1eeda'}</button>
+      <div><h3>${escapeHtml(cls.name)} - ${escapeHtml(type)}-rec</h3><p class="hint">Gi\u1eef Ctrl \u0111\u1ec3 ch\u1ecdn nhi\u1ec1u \u00f4; Ctrl+D \u0111\u1ec3 fill xu\u1ed1ng; c\u00f3 th\u1ec3 paste v\u00f9ng t\u1eeb Excel.</p></div>
+      <div class="homeroom-record-actions"><button id="homeroom-add-lesson" type="button">+ Bu\u1ed5i m\u1edbi</button><button id="homeroom-edit" type="button">${homeroomEditMode ? 'L\u01b0u record' : 'Ch\u1ec9nh s\u1eeda'}</button></div>
     </div>
     ${homeroomEditMode ? `<div id="homeroom-edit-panel" class="overview-edit-panel homeroom-edit-panel hidden">
       <div class="overview-edit-panel-head"><b>Ch\u1ec9nh \u00f4 record</b><small id="homeroom-edit-count">0 \u00f4</small></div>
@@ -3838,7 +3899,7 @@ function renderHomeroomTable(cls, type) {
       </div>
       <div class="overview-palette">${palette.map((item) => `<button type="button" data-bg="${item.bg}" data-fg="${item.fg}" style="background:${item.bg};color:${item.fg};" title="${item.name}">${item.name}</button>`).join('')}</div>
       <div class="overview-panel-actions"><button id="homeroom-apply-cell" type="button">\u00c1p d\u1ee5ng</button><button id="homeroom-clear-cell" type="button">Xo\u00e1 m\u00e0u</button></div>
-      <small>Panel s\u1ebd n\u1ed5i c\u1ea1nh \u00f4; n\u1ebfu ch\u1ecdn nhi\u1ec1u \u00f4 b\u1eb1ng Ctrl th\u00ec panel n\u1eb1m ph\u00eda tr\u00ean.</small>
+      <small>Panel lu\u00f4n n\u1eb1m ph\u00eda tr\u00ean cho d\u1ec5 thao t\u00e1c; gi\u1eef Ctrl \u0111\u1ec3 ch\u1ecdn nhi\u1ec1u \u00f4 v\u00e0 \u00e1p d\u1ee5ng h\u00e0ng lo\u1ea1t.</small>
     </div>` : ''}
     <div class="schedule-scroll"><table class="schedule homeroom-grid"><tbody>`;
   for (let row = 0; row < defaults.rowCount; row++) {
@@ -3924,9 +3985,89 @@ function addHomeroomResizeHandles(scope) {
   });
 }
 
+function parseClipboardGrid(text) {
+  return String(text || '').replace(/\r/g, '').split('\n').filter((row, index, rows) => row || index < rows.length - 1).map((row) => row.split('\t'));
+}
+
+function copyCellFormat(source, target, includeText = true) {
+  if (!source || !target) return;
+  if (includeText) {
+    target.textContent = source.textContent;
+    target.classList.toggle('has-value', Boolean(target.textContent.trim()));
+  }
+  ['bg', 'fg', 'width', 'height'].forEach((name) => { target.dataset[name] = source.dataset[name] || ''; });
+  if (source.dataset.bg) target.style.setProperty('background', source.dataset.bg, 'important');
+  else target.style.removeProperty('background');
+  if (source.dataset.fg) target.style.setProperty('color', source.dataset.fg, 'important');
+  else target.style.removeProperty('color');
+  if (source.dataset.width) { target.style.width = source.dataset.width; target.style.minWidth = source.dataset.width; }
+  if (source.dataset.height) target.style.height = source.dataset.height;
+}
+
+function tableCellMatrix(table) {
+  const matrix = [];
+  [...(table?.rows || [])].forEach((row, rowIndex) => {
+    matrix[rowIndex] = matrix[rowIndex] || [];
+    let colIndex = 0;
+    [...row.cells].forEach((cell) => {
+      while (matrix[rowIndex][colIndex]) colIndex++;
+      const rowSpan = Number(cell.rowSpan || 1);
+      const colSpan = Number(cell.colSpan || 1);
+      for (let r = 0; r < rowSpan; r++) {
+        matrix[rowIndex + r] = matrix[rowIndex + r] || [];
+        for (let c = 0; c < colSpan; c++) matrix[rowIndex + r][colIndex + c] = cell;
+      }
+      colIndex += colSpan;
+    });
+  });
+  return matrix;
+}
+
+function locateCell(matrix, cell) {
+  for (let row = 0; row < matrix.length; row++) {
+    const col = matrix[row]?.findIndex((item) => item === cell);
+    if (col >= 0) return { row, col };
+  }
+  return null;
+}
+
+function pasteGridIntoTable(table, startCell, text, writeCell) {
+  const values = parseClipboardGrid(text);
+  if (!values.length || (values.length === 1 && values[0].length === 1)) return false;
+  const matrix = tableCellMatrix(table);
+  const start = locateCell(matrix, startCell);
+  if (!start) return false;
+  const touched = new Set();
+  values.forEach((rowValues, rowOffset) => rowValues.forEach((value, colOffset) => {
+    const cell = matrix[start.row + rowOffset]?.[start.col + colOffset];
+    if (!cell || touched.has(cell)) return;
+    touched.add(cell);
+    writeCell(cell, value);
+  }));
+  return true;
+}
+
+function fillSelectedFromFirst(targets) {
+  if (!targets || targets.length < 2) return false;
+  const first = targets[0];
+  targets.slice(1).forEach((target) => copyCellFormat(first, target, true));
+  return true;
+}
+
+function addHomeroomLesson() {
+  if (!homeroomClassId || !homeroomRecordType || homeroomRecordType === 'ALL') return;
+  saveHomeroomFromDom();
+  const data = loadHomeroomData(homeroomClassId, homeroomRecordType);
+  data.lessonCount = Math.max(3, Number(data.lessonCount) || 3) + 1;
+  localStorage.setItem(homeroomStorageKey(homeroomClassId, homeroomRecordType), JSON.stringify(data));
+  homeroomEditMode = true;
+  renderHomeroomHome();
+}
+
 function wireHomeroomRecord() {
   const root = $('#homeroom-record');
   if (!root || homeroomRecordType === 'ALL') return;
+  $('#homeroom-add-lesson')?.addEventListener('click', addHomeroomLesson);
   $('#homeroom-edit')?.addEventListener('click', () => {
     if (homeroomEditMode) {
       saveHomeroomFromDom();
@@ -4018,6 +4159,11 @@ function wireHomeroomRecord() {
     document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
   };
   addHomeroomResizeHandles(root);
+  const writeHomeroomCell = (cell, value) => {
+    cell.textContent = value;
+    cell.classList.toggle('has-value', Boolean(String(value || '').trim()));
+    addHomeroomResizeHandles(cell);
+  };
   root.querySelectorAll('.homeroom-cell').forEach((cell) => {
     cell.contentEditable = 'true';
     cell.spellcheck = false;
@@ -4025,6 +4171,18 @@ function wireHomeroomRecord() {
       cell.classList.toggle('has-value', Boolean(cell.textContent.trim()));
       if (cell.classList.contains('homeroom-selected-cell') && selectedTargets().length === 1 && contentInput) {
         contentInput.value = cell.textContent.trim();
+      }
+    });
+    cell.addEventListener('paste', (event) => {
+      const text = event.clipboardData?.getData('text/plain') || '';
+      if (pasteGridIntoTable(root.querySelector('table'), cell, text, writeHomeroomCell)) event.preventDefault();
+    });
+    cell.addEventListener('keydown', (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
+        if (fillSelectedFromFirst(selectedTargets())) {
+          event.preventDefault();
+          syncPanel();
+        }
       }
     });
     cell.addEventListener('click', (event) => selectTarget(cell, event.ctrlKey || event.metaKey));

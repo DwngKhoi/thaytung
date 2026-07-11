@@ -1674,3 +1674,29 @@ body.dark .homeroom-record-tab { background: #1a1d27; border-color: #30364a; col
 .overview-row-resizer {
   user-select: none;
 }
+
+
+/* ---- Homeroom record actions + Excel-like shortcuts ---- */
+.homeroom-record-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.homeroom-record-actions button {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+#homeroom-add-lesson {
+  background: #eef2ff;
+  color: #1d4ed8;
+  border: 1px solid #c7d2fe;
+}
+body.dark #homeroom-add-lesson {
+  background: #172554;
+  color: #bfdbfe;
+  border-color: #1d4ed8;
+}
