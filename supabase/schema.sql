@@ -2252,3 +2252,161 @@ end;
 $$;
 
 grant execute on all functions in schema public to anon;
+
+
+-- Trash for deleted pending submissions.
+create table if not exists deleted_submissions (
+  id uuid primary key default gen_random_uuid(),
+  original_submission_id uuid,
+  class_id text not null references classes(id) on delete cascade,
+  student_id uuid references students(id) on delete set null,
+  student_name text not null,
+  name_key text not null,
+  dob date not null,
+  busy_slots text[] not null default '{}',
+  status text not null default 'pending' check (status in ('pending', 'approved')),
+  deleted_at timestamptz not null default now()
+);
+
+alter table deleted_submissions enable row level security;
+drop policy if exists "deny direct deleted_submissions" on deleted_submissions;
+create policy "deny direct deleted_submissions"
+  on deleted_submissions for all using (false) with check (false);
+
+create index if not exists deleted_submissions_deleted_at_idx on deleted_submissions (deleted_at desc);
+create index if not exists deleted_submissions_class_idx on deleted_submissions (class_id);
+
+create or replace function deleted_submission_json(d deleted_submissions)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'id', d.id,
+    'classId', d.class_id,
+    'className', coalesce(c.name, d.class_id),
+    'sessions', coalesce(c.sessions, array[]::text[]),
+    'studentName', d.student_name,
+    'dob', d.dob::text,
+    'busySlots', d.busy_slots,
+    'status', d.status,
+    'deletedAt', d.deleted_at::text
+  )
+  from classes c
+  where c.id = d.class_id;
+$$;
+
+create or replace function api_deleted_submissions(teacher_key text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform require_owner(teacher_key);
+  return coalesce((
+    select jsonb_agg(deleted_submission_json(d) order by d.deleted_at desc)
+    from deleted_submissions d
+  ), '[]'::jsonb);
+end;
+$$;
+
+create or replace function api_restore_deleted_submission(teacher_key text, deleted_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  d deleted_submissions;
+begin
+  perform require_owner(teacher_key);
+  select * into d from deleted_submissions where id = api_restore_deleted_submission.deleted_id;
+  if not found then raise exception 'Khong tim thay yeu cau da xoa'; end if;
+
+  insert into submissions (class_id, student_id, student_name, name_key, dob, busy_slots, status, updated_at)
+  values (d.class_id, d.student_id, d.student_name, d.name_key, d.dob, d.busy_slots, 'pending', now())
+  on conflict on constraint submissions_class_id_name_key_dob_key
+  do update set student_id = excluded.student_id,
+                student_name = excluded.student_name,
+                name_key = excluded.name_key,
+                dob = excluded.dob,
+                busy_slots = excluded.busy_slots,
+                status = 'pending',
+                updated_at = now();
+
+  delete from deleted_submissions where id = d.id;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function api_delete_deleted_submission(teacher_key text, deleted_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform require_owner(teacher_key);
+  delete from deleted_submissions where id = api_delete_deleted_submission.deleted_id;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function api_clear_deleted_submissions(teacher_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform require_owner(teacher_key);
+  delete from deleted_submissions;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- Archive pending requests into trash before deleting. Approved students are still removed directly from class.
+create or replace function api_delete_submission(teacher_key text, class_id text, student_name text, dob date)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  victim submissions;
+  clean_student_name text;
+  clean_name_key text;
+  clean_dob date;
+begin
+  perform require_class_manager(teacher_key, api_delete_submission.class_id);
+
+  select * into victim
+  from submissions s
+  where s.class_id = api_delete_submission.class_id
+    and s.name_key = name_key(api_delete_submission.student_name)
+    and s.dob = api_delete_submission.dob;
+
+  if not found then
+    return jsonb_build_object('ok', true);
+  end if;
+
+  if victim.status = 'pending' then
+    select coalesce(st.student_name, victim.student_name), coalesce(st.name_key, victim.name_key), coalesce(st.dob, victim.dob)
+    into clean_student_name, clean_name_key, clean_dob
+    from (select 1) one
+    left join students st on st.id = victim.student_id;
+
+    insert into deleted_submissions (original_submission_id, class_id, student_id, student_name, name_key, dob, busy_slots, status, deleted_at)
+    values (victim.id, victim.class_id, victim.student_id, clean_student_name, clean_name_key, clean_dob, victim.busy_slots, victim.status, now());
+  end if;
+
+  delete from submissions s where s.id = victim.id;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+grant execute on all functions in schema public to anon;

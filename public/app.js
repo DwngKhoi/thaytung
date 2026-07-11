@@ -370,6 +370,13 @@ async function supabaseApi(path, opts = {}) {
   if (path === '/classes' && method === 'POST') return supabaseRpc('api_add_class', { teacher_key: teacherToken(), name: body.name });
   if (path === '/archived-classes' && method === 'GET') return supabaseRpc('api_archived_classes', { teacher_key: teacherToken() });
   if (path === '/archived-classes' && method === 'DELETE') return supabaseRpc('api_clear_archived', { teacher_key: teacherToken() });
+  if (path === '/deleted-submissions' && method === 'GET') return supabaseRpc('api_deleted_submissions', { teacher_key: teacherToken() });
+  if (path === '/deleted-submissions' && method === 'DELETE') return supabaseRpc('api_clear_deleted_submissions', { teacher_key: teacherToken() });
+  {
+    const deletedMatch = path.match(/^\/deleted-submissions\/([^/]+)(?:\/(restore))?$/);
+    if (deletedMatch && method === 'POST' && deletedMatch[2] === 'restore') return supabaseRpc('api_restore_deleted_submission', { teacher_key: teacherToken(), deleted_id: deletedMatch[1] });
+    if (deletedMatch && method === 'DELETE') return supabaseRpc('api_delete_deleted_submission', { teacher_key: teacherToken(), deleted_id: deletedMatch[1] });
+  }
   if (path === '/teacher-accounts' && method === 'GET') return supabaseRpc('api_teacher_accounts', { teacher_key: teacherToken() });
   if (path === '/teacher-accounts' && method === 'POST') return supabaseRpc('api_add_teacher_account', { teacher_key: teacherToken(), display_name: body.name, username: body.username, password: body.password });
 
@@ -552,7 +559,6 @@ function initTabs() {
       }
       if (btn.dataset.tab === 'archived') loadArchived();
       if (btn.dataset.tab === 'accounts') loadTeacherAccounts();
-      if (btn.dataset.tab === 'sync-sessions') renderBulkSessions();
       if (btn.dataset.tab === 'schedule') loadScheduleHome();
     });
   });
@@ -581,6 +587,7 @@ function initTeacher() {
     manageMode = false;
     setSectorToolsVisible();
     hideSectorEditor();
+    hideBulkSessionsPanel();
     document.querySelectorAll('.owner-only').forEach((el) => el.classList.add('hidden'));
     document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === 'teacher'));
     document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === 'tab-teacher'));
@@ -594,6 +601,8 @@ function initTeacher() {
   });
   $('#btn-add-sector')?.addEventListener('click', () => showSectorEditor());
   $('#btn-add-class')?.addEventListener('click', addClass);
+  $('#btn-open-bulk-sessions')?.addEventListener('click', () => showBulkSessionsPanel());
+  $('#btn-close-bulk-sessions')?.addEventListener('click', () => hideBulkSessionsPanel());
   $('#btn-bulk-select-all')?.addEventListener('click', () => setBulkClassSelection(true));
   $('#btn-bulk-clear')?.addEventListener('click', () => setBulkClassSelection(false));
   $('#btn-bulk-save')?.addEventListener('click', saveBulkSessions);
@@ -654,6 +663,7 @@ function restoreTeacherSession() {
 function showTeacherDashboard(session) {
   if ($('#teacher-name')) $('#teacher-name').textContent = session.name;
   document.querySelectorAll('.owner-only').forEach((el) => el.classList.toggle('hidden', session.role !== 'owner'));
+  if (session.role !== 'owner') hideBulkSessionsPanel();
   setSectorToolsVisible();
   $('#teacher-login')?.classList.add('hidden');
   $('#teacher-dashboard')?.classList.remove('hidden');
@@ -680,9 +690,20 @@ async function loadClasses() {
   }
   sessionStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(classes));
   renderClassList(classes);
-  if ($('#tab-sync-sessions')?.classList.contains('active')) renderBulkSessions();
+  if (!$('#bulk-sessions-panel')?.classList.contains('hidden')) renderBulkSessions();
   if ($('#tab-schedule')?.classList.contains('active')) renderScheduleHome();
   activateInitialScheduleRoute();
+}
+
+function showBulkSessionsPanel() {
+  if (!isOwner()) return;
+  $('#bulk-sessions-panel')?.classList.remove('hidden');
+  renderBulkSessions();
+  $('#bulk-sessions-input')?.focus();
+}
+
+function hideBulkSessionsPanel() {
+  $('#bulk-sessions-panel')?.classList.add('hidden');
 }
 
 function renderBulkSessions() {
@@ -2099,35 +2120,86 @@ function scheduleClassRefresh(id) {
 
 function initArchived() {
   $('#btn-clear-archived')?.addEventListener('click', async () => {
-    if (!confirm('Xoá vĩnh viễn TẤT CẢ lớp đã lưu trữ? Không thể khôi phục.')) return;
-    await api('/archived-classes', { method: 'DELETE' });
+    if (!confirm('Xoa vinh vien tat ca lop cu va yeu cau duyet da xoa? Khong the khoi phuc.')) return;
+    await Promise.all([
+      api('/archived-classes', { method: 'DELETE' }),
+      api('/deleted-submissions', { method: 'DELETE' })
+    ]);
     loadArchived();
   });
 }
 
 async function loadArchived() {
+  const classListEl = $('#archived-list');
+  const deletedListEl = $('#deleted-submission-list');
+  if (!classListEl) return;
+  classListEl.innerHTML = '<li class="placeholder">Dang tai...</li>';
+  if (deletedListEl) deletedListEl.innerHTML = '<li class="placeholder">Dang tai...</li>';
+  try {
+    const [classes, deleted] = await Promise.all([
+      api('/archived-classes'),
+      api('/deleted-submissions')
+    ]);
+    renderArchivedClasses(sortClasses(classes || []));
+    renderDeletedSubmissions(deleted || []);
+    const total = (classes || []).length + (deleted || []).length;
+    if ($('#btn-clear-archived')) $('#btn-clear-archived').style.display = total ? '' : 'none';
+  } catch (err) {
+    classListEl.innerHTML = `<li class="placeholder">${escapeHtml(err.message)}</li>`;
+    if (deletedListEl) deletedListEl.innerHTML = '';
+  }
+}
+
+function renderArchivedClasses(list) {
   const ul = $('#archived-list');
   if (!ul) return;
-  const list = sortClasses(await api('/archived-classes'));
   ul.innerHTML = '';
-  if ($('#btn-clear-archived')) $('#btn-clear-archived').style.display = list.length ? '' : 'none';
   if (list.length === 0) {
-    ul.innerHTML = '<li class="placeholder">Chưa có lớp nào bị xoá.</li>';
+    ul.innerHTML = '<li class="placeholder">Chua co lop cu.</li>';
     return;
   }
   list.forEach((cls) => {
     const li = document.createElement('li');
     li.className = 'archived-item';
-    li.innerHTML = `<span>${escapeHtml(cls.name)} <small>(${cls.approvedCount} học sinh)</small></span>
-      <span class="acts"><button class="btn-approve" data-id="${cls.id}">Khôi phục</button><button class="btn-reject" data-id="${cls.id}">Xoá</button></span>`;
+    li.innerHTML = `<span>${escapeHtml(cls.name)} <small>(${cls.approvedCount} hoc sinh)</small></span>
+      <span class="acts"><button class="btn-approve" data-id="${cls.id}">Khoi phuc</button><button class="btn-reject" data-id="${cls.id}">Xoa vinh vien</button></span>`;
     li.querySelector('.btn-approve')?.addEventListener('click', async () => {
       await api(`/classes/${cls.id}/restore`, { method: 'POST' });
       loadArchived();
       loadClasses();
     });
     li.querySelector('.btn-reject')?.addEventListener('click', async () => {
-      if (!confirm(`Xoá vĩnh viễn lớp "${cls.name}"? Không thể khôi phục.`)) return;
+      if (!confirm(`Xoa vinh vien lop "${cls.name}"? Khong the khoi phuc.`)) return;
       await api(`/classes/${cls.id}`, { method: 'DELETE' });
+      loadArchived();
+    });
+    ul.appendChild(li);
+  });
+}
+
+function renderDeletedSubmissions(list) {
+  const ul = $('#deleted-submission-list');
+  if (!ul) return;
+  ul.innerHTML = '';
+  if (!list.length) {
+    ul.innerHTML = '<li class="placeholder">Chua co yeu cau duyet da xoa.</li>';
+    return;
+  }
+  list.forEach((item) => {
+    const li = document.createElement('li');
+    li.className = 'archived-item deleted-submission-item';
+    const busyText = busySlotLabels(item.busySlots || [], item.sessions || DEFAULT_SESSIONS).join(', ') || 'Khong tick buoi ban';
+    li.innerHTML = `<span><b>${escapeHtml(item.studentName)}</b> <small>${escapeHtml(item.className || item.classId)} - ${escapeHtml(dobNote(item.dob))}</small><br><small>${escapeHtml(busyText)}</small></span>
+      <span class="acts"><button class="btn-approve" data-id="${item.id}">Khoi phuc</button><button class="btn-reject" data-id="${item.id}">Xoa vinh vien</button></span>`;
+    li.querySelector('.btn-approve')?.addEventListener('click', async () => {
+      await api(`/deleted-submissions/${item.id}/restore`, { method: 'POST' });
+      loadArchived();
+      if (selectedClassId === item.classId) refreshTeacherView(item.classId);
+      else loadClasses();
+    });
+    li.querySelector('.btn-reject')?.addEventListener('click', async () => {
+      if (!confirm(`Xoa vinh vien yeu cau cua "${item.studentName}"?`)) return;
+      await api(`/deleted-submissions/${item.id}`, { method: 'DELETE' });
       loadArchived();
     });
     ul.appendChild(li);

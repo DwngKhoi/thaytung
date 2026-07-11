@@ -1071,3 +1071,16 @@ body.dark .lesson-builder { background: #20213a; border-color: #3d4361; }
   .schedule-sector-classes { grid-template-columns: 1fr; }
   .planner-save-row { align-items: stretch; flex-direction: column; }
 }
+
+.bulk-sessions-panel {
+  margin: 14px 0 18px;
+  max-width: none;
+}
+.trash-section-title {
+  margin: 18px 0 8px;
+  font-size: 16px;
+  color: var(--primary-dark);
+}
+.deleted-submission-item span:first-child {
+  line-height: 1.45;
+}

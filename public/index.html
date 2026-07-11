@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260709-11" />
+  <link rel="stylesheet" href="style.css?v=20260711-1" />
 </head>
 <body>
   <header>
@@ -27,8 +27,7 @@
 
     <nav class="tabs">
       <button class="tab active" data-tab="teacher">Lớp học</button>
-      <button class="tab owner-only hidden" data-tab="sync-sessions">Ch&#7881;nh ca &#273;&#7891;ng b&#7897;</button>
-      <button class="tab" data-tab="schedule">L&#7883;ch</button>
+      <button class="tab" data-tab="schedule">H&#7879; th&#7889;ng</button>
       <button class="tab owner-only hidden" data-tab="accounts">Tài khoản giáo viên</button>
       <button class="tab tab-trash owner-only hidden" data-tab="archived" title="Lớp cũ">&#128465;</button>
     </nav>
@@ -53,11 +52,35 @@
         <button id="btn-logout" class="link">Đăng xuất</button>
       </div>
 
+    <div id="bulk-sessions-panel" class="card bulk-sessions-card bulk-sessions-panel hidden">
+      <div class="bulk-sessions-head">
+        <div>
+          <h2>Ch&#7881;nh ca &#273;&#7891;ng b&#7897;</h2>
+          <p class="hint">Nh&#7853;p danh s&#225;ch ca v&#224; ch&#7885;n c&#225;c l&#7899;p c&#7847;n &#225;p d&#7909;ng. L&#7899;p &#273;&#432;&#7907;c s&#7855;p x&#7871;p theo sector.</p>
+        </div>
+        <div class="bulk-select-actions">
+          <button id="btn-close-bulk-sessions" type="button">&#10005; &#272;&#243;ng</button>
+          <button id="btn-bulk-select-all" type="button">Ch&#7885;n t&#7845;t c&#7843;</button>
+          <button id="btn-bulk-clear" type="button">B&#7887; ch&#7885;n</button>
+        </div>
+      </div>
+      <label>C&#225;c ca &#225;p d&#7909;ng
+        <input id="bulk-sessions-input" type="text" placeholder="S1, S2, C, 57, T" />
+      </label>
+      <p class="hint">Format: <code>Bu&#7893;i1, Bu&#7893;i2, ...</code>. V&#237; d&#7909;: <code>S1, S2, C, 57, T</code>. L&#7883;ch hi&#7879;n t&#7841;i c&#7911;a c&#225;c l&#7899;p &#273;&#432;&#7907;c ch&#7885;n s&#7869; &#273;&#432;&#7907;c &#273;&#7863;t l&#7841;i.</p>
+      <div id="bulk-class-list" class="bulk-class-list"></div>
+      <div class="bulk-save-row">
+        <button id="btn-bulk-save" class="primary" type="button">&#193;p d&#7909;ng cho c&#225;c l&#7899;p &#273;&#227; ch&#7885;n</button>
+        <span id="bulk-sessions-msg" class="msg"></span>
+      </div>
+    </div>
+
       <div class="dash-body">
         <aside class="classes-panel">
           <div class="panel-head">
             <h3>L&#7899;p h&#7885;c</h3>
             <div class="panel-tools owner-only">
+              <button id="btn-open-bulk-sessions" class="sector-add-btn owner-only hidden" title="Chinh ca dong bo">Ch&#7881;nh ca &#273;&#7891;ng b&#7897;</button>
               <button id="btn-add-sector" class="sector-add-btn hidden" title="Them nhom lop">+ Th&#234;m m&#7909;c</button>
               <button id="btn-manage" class="icon-btn" title="Quan ly nhom / lop">&#9881;</button>
             </div>
@@ -77,38 +100,17 @@
     </div>
   </section>
 
-  <section id="tab-sync-sessions" class="tab-panel">
-    <div class="card bulk-sessions-card">
-      <div class="bulk-sessions-head">
-        <div>
-          <h2>Ch&#7881;nh ca &#273;&#7891;ng b&#7897;</h2>
-          <p class="hint">Nh&#7853;p danh s&#225;ch ca v&#224; ch&#7885;n c&#225;c l&#7899;p c&#7847;n &#225;p d&#7909;ng. L&#7899;p &#273;&#432;&#7907;c s&#7855;p x&#7871;p theo sector.</p>
-        </div>
-        <div class="bulk-select-actions">
-          <button id="btn-bulk-select-all" type="button">Ch&#7885;n t&#7845;t c&#7843;</button>
-          <button id="btn-bulk-clear" type="button">B&#7887; ch&#7885;n</button>
-        </div>
-      </div>
-      <label>C&#225;c ca &#225;p d&#7909;ng
-        <input id="bulk-sessions-input" type="text" placeholder="S1, S2, C, 57, T" />
-      </label>
-      <p class="hint">Format: <code>Bu&#7893;i1, Bu&#7893;i2, ...</code>. V&#237; d&#7909;: <code>S1, S2, C, 57, T</code>. L&#7883;ch hi&#7879;n t&#7841;i c&#7911;a c&#225;c l&#7899;p &#273;&#432;&#7907;c ch&#7885;n s&#7869; &#273;&#432;&#7907;c &#273;&#7863;t l&#7841;i.</p>
-      <div id="bulk-class-list" class="bulk-class-list"></div>
-      <div class="bulk-save-row">
-        <button id="btn-bulk-save" class="primary" type="button">&#193;p d&#7909;ng cho c&#225;c l&#7899;p &#273;&#227; ch&#7885;n</button>
-        <span id="bulk-sessions-msg" class="msg"></span>
-      </div>
-    </div>
-  </section>
-
   <section id="tab-archived" class="tab-panel">
     <div class="card">
       <div class="detail-head">
-        <h2>Lớp đã xoá</h2>
-        <button id="btn-clear-archived" class="btn-del-class">Xoá tất cả</button>
+        <h2>Th&#249;ng r&#225;c</h2>
+        <button id="btn-clear-archived" class="btn-del-class">Xo&#225; t&#7845;t c&#7843;</button>
       </div>
-      <p class="hint">Lớp bị xoá sẽ nằm ở đây. Bạn có thể khôi phục lại hoặc xoá vĩnh viễn.</p>
+      <p class="hint">L&#7899;p c&#361; v&#224; phi&#7871;u ch&#7901; duy&#7879;t &#273;&#227; xo&#225; s&#7869; n&#7857;m &#7903; &#273;&#226;y. C&#243; th&#7875; kh&#244;i ph&#7909;c ho&#7863;c xo&#225; v&#297;nh vi&#7877;n.</p>
+      <h3 class="trash-section-title">L&#7899;p c&#361;</h3>
       <ul id="archived-list" class="archived-list"></ul>
+      <h3 class="trash-section-title">Y&#234;u c&#7847;u duy&#7879;t &#273;&#227; xo&#225;</h3>
+      <ul id="deleted-submission-list" class="archived-list"></ul>
     </div>
   </section>
 
@@ -116,7 +118,7 @@
     <div class="card final-schedule-card">
       <div class="detail-head">
         <div>
-          <h2>L&#7883;ch</h2>
+          <h2>H&#7879; th&#7889;ng</h2>
           <p class="hint">Ch&#7885;n sector, sau &#273;&#243; m&#7903; t&#7915;ng l&#7899;p &#273;&#7875; l&#7853;p l&#7883;ch theo tu&#7847;n.</p>
         </div>
       </div>
@@ -151,6 +153,6 @@
   </section>
 
   <script src="config.js"></script>
-  <script src="app.js?v=20260709-11"></script>
+  <script src="app.js?v=20260711-1"></script>
 </body>
 </html>
