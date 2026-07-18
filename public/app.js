@@ -3810,7 +3810,7 @@ function homeroomDefaultCells(cls, type, lessonCount = 3) {
   const students = sortSubmissions((cls.submissions || []).filter((item) => item.status === 'approved'));
   const skill = homeroomSkillName(type);
   const set = (r, c, value) => { if (value !== undefined && value !== null) cells[`${r}|${c}`] = String(value); };
-  set(0, 1, type === 'LR' ? 'Bu\u1ed5i' : (cls.name || 'L\u1edbp'));
+  set(0, 1, cls.name || 'L\u1edbp');
   Array.from({ length: lessonCount }).forEach((lesson, index) => {
     const base = 3 + index * 4;
     set(0, base, `B${index + 1}`);
@@ -3861,29 +3861,36 @@ function sameStyleColor(a = {}, b = {}) {
   return (left.backgroundColor || '') === (right.backgroundColor || '') && (left.color || '') === (right.color || '');
 }
 
-function compactHomeroomStyles(styles = {}, type = '') {
+function compactHomeroomStyles(styles = {}, type = '', lessonCount = 3) {
   if (!type) return styles;
   const metaRows = homeroomMetaRows(type);
   return Object.fromEntries(Object.entries(styles).filter(([key, style]) => {
     if (style?.width || style?.height) return true;
     const [row, col] = String(key).split('|').map(Number);
     if (!Number.isFinite(row) || !Number.isFinite(col)) return false;
-    return !sameStyleColor(style, homeroomDefaultStyle(row, col, type, metaRows))
+    return !sameStyleColor(style, homeroomDefaultStyle(row, col, type, metaRows, lessonCount))
       && !sameStyleColor(style, legacyHomeroomDefaultStyle(row, col, type, metaRows));
   }));
 }
 
 function normalizeHomeroomData(data = {}, type = '') {
+  const lessonCount = Math.max(3, Number(data.lessonCount || data.lesson_count) || inferHomeroomLessonCount(data));
   const styles = Object.fromEntries(Object.entries(data.styles || {}).map(([key, style]) => [key, { ...normalizeOverviewStyle(style), width: style?.width || '', height: style?.height || '' }]));
   return {
     cells: Object.fromEntries(Object.entries(data.cells || {}).filter(([, value]) => String(value || '').trim())),
-    styles: compactHomeroomStyles(styles, type),
-    lessonCount: Math.max(3, Number(data.lessonCount || data.lesson_count) || inferHomeroomLessonCount(data))
+    styles: compactHomeroomStyles(styles, type, lessonCount),
+    lessonCount,
+    extraRows: Math.max(0, Number(data.extraRows || data.extra_rows) || 0),
+    extraCols: Math.max(0, Number(data.extraCols || data.extra_cols) || 0)
   };
 }
 
 function emptyHomeroomData(data = {}) {
-  return !Object.keys(data.cells || {}).length && !Object.keys(data.styles || {}).length && Math.max(3, Number(data.lessonCount || data.lesson_count) || 3) <= 3;
+  return !Object.keys(data.cells || {}).length
+    && !Object.keys(data.styles || {}).length
+    && Math.max(3, Number(data.lessonCount || data.lesson_count) || 3) <= 3
+    && !Number(data.extraRows || data.extra_rows)
+    && !Number(data.extraCols || data.extra_cols);
 }
 
 function loadLocalHomeroomData(classId, type) {
@@ -3891,7 +3898,7 @@ function loadLocalHomeroomData(classId, type) {
     const raw = localStorage.getItem(homeroomStorageKey(classId, type));
     return normalizeHomeroomData(JSON.parse(raw || '{}'), type);
   } catch (err) {
-    return { cells: {}, styles: {}, lessonCount: 3 };
+    return { cells: {}, styles: {}, lessonCount: 3, extraRows: 0, extraCols: 0 };
   }
 }
 
@@ -3927,9 +3934,9 @@ async function loadHomeroomData(classId, type) {
   }
 }
 
-function styleChangedFromDefault(cell, type, metaRows) {
+function styleChangedFromDefault(cell, type, metaRows, lessonCount) {
   const [row, col] = String(cell.dataset.homeroomCell || '0|0').split('|').map(Number);
-  const defaults = normalizeOverviewStyle(homeroomDefaultStyle(row, col, type, metaRows));
+  const defaults = normalizeOverviewStyle(homeroomDefaultStyle(row, col, type, metaRows, lessonCount));
   const bg = cell.dataset.bg || '';
   const fg = cell.dataset.fg || '';
   const width = cell.dataset.width || '';
@@ -3943,6 +3950,7 @@ function collectHomeroomDataFromDom() {
   const cells = {};
   const styles = {};
   const metaRows = homeroomMetaRows(homeroomRecordType);
+  const lessonCount = Number(root.dataset.lessonCount || 3);
   root.querySelectorAll('[data-homeroom-cell]').forEach((cell) => {
     const key = cell.dataset.homeroomCell;
     const value = cell.textContent.trim();
@@ -3952,9 +3960,15 @@ function collectHomeroomDataFromDom() {
     const fg = cell.dataset.fg || '';
     const width = cell.dataset.width || '';
     const height = cell.dataset.height || '';
-    if (styleChangedFromDefault(cell, homeroomRecordType, metaRows)) styles[key] = { backgroundColor: bg, color: fg, width, height };
+    if (styleChangedFromDefault(cell, homeroomRecordType, metaRows, lessonCount)) styles[key] = { backgroundColor: bg, color: fg, width, height };
   });
-  return { cells, styles, lessonCount: Number(root.dataset.lessonCount || 3) };
+  return {
+    cells,
+    styles,
+    lessonCount,
+    extraRows: Number(root.dataset.extraRows || 0),
+    extraCols: Number(root.dataset.extraCols || 0)
+  };
 }
 
 async function saveHomeroomFromDom() {
@@ -3967,7 +3981,7 @@ function homeroomCellStyle(style = {}) {
   return overviewCellStyle(style);
 }
 
-function homeroomDefaultStyle(row, col, type, metaRows) {
+function homeroomDefaultStyle(row, col, type, metaRows, lessonCount = 3) {
   const colors = {
     white: '#ffffff',
     pale: '#fff2cc',
@@ -3982,6 +3996,11 @@ function homeroomDefaultStyle(row, col, type, metaRows) {
     studentNote: '#deeaf6',
     cream: '#fef2cb'
   };
+  const firstExtraCol = 3 + Math.max(1, Number(lessonCount) || 3) * 4;
+  if (col >= firstExtraCol) {
+    if (row === metaRows - 1) return { backgroundColor: colors.header, color: '#111827' };
+    return { backgroundColor: colors.white, color: '#111827' };
+  }
   const lessonPos = col >= 3 ? (col - 3) % 4 : -1;
   if (row === 0) {
     if (col === 0) return { backgroundColor: colors.white, color: '#111827' };
@@ -4037,11 +4056,22 @@ async function renderHomeroomTable(cls, type) {
   const saved = await loadHomeroomData(cls.id, type);
   const lessonCount = Math.max(3, saved.lessonCount || 3);
   const defaults = homeroomDefaultCells(cls, type, lessonCount);
+  const extraRows = Math.max(0, Number(saved.extraRows) || 0);
+  const extraCols = Math.max(0, Number(saved.extraCols) || 0);
+  const rowCount = defaults.rowCount + extraRows;
+  const colCount = defaults.colCount + extraCols;
   const palette = overviewPalette();
-  let html = `<section id="homeroom-record" class="homeroom-record ${homeroomEditMode ? 'homeroom-editing' : ''}" data-lesson-count="${lessonCount}">
+  let html = `<section id="homeroom-record" class="homeroom-record ${homeroomEditMode ? 'homeroom-editing' : ''}" data-lesson-count="${lessonCount}" data-extra-rows="${extraRows}" data-extra-cols="${extraCols}" data-base-rows="${defaults.rowCount}" data-base-cols="${defaults.colCount}">
     <div class="homeroom-record-head">
-      <div><h3>${escapeHtml(cls.name)} - ${escapeHtml(type)}-rec</h3><p class="hint">Gi\u1eef Ctrl \u0111\u1ec3 ch\u1ecdn nhi\u1ec1u \u00f4; Ctrl+D \u0111\u1ec3 fill xu\u1ed1ng; c\u00f3 th\u1ec3 paste v\u00f9ng t\u1eeb Excel.</p></div>
-      <div class="homeroom-record-actions"><button id="homeroom-add-lesson" type="button">+ Bu\u1ed5i m\u1edbi</button><button id="homeroom-edit" type="button">${homeroomEditMode ? 'L\u01b0u record' : 'Ch\u1ec9nh s\u1eeda'}</button></div>
+      <div><h3>${escapeHtml(cls.name)} - ${escapeHtml(type)}-rec</h3><p class="hint">S\u1eeda tr\u1ef1c ti\u1ebfp nh\u01b0 Excel; gi\u1eef Ctrl \u0111\u1ec3 ch\u1ecdn nhi\u1ec1u \u00f4; Ctrl+D \u0111\u1ec3 fill xu\u1ed1ng; Tab/Enter \u0111\u1ec3 di chuy\u1ec3n; c\u00f3 th\u1ec3 paste c\u1ea3 v\u00f9ng t\u1eeb Excel.</p></div>
+      <div class="homeroom-record-actions">
+        <button id="homeroom-copy-excel" class="btn-export" type="button">Copy Excel</button>
+        <button id="homeroom-download-excel" class="btn-export btn-download-excel" type="button">T\u1ea3i Excel</button>
+        <button id="homeroom-export-image" class="btn-export btn-export-image" type="button">Xu\u1ea5t \u1ea3nh</button>
+        <button id="homeroom-add-lesson" type="button">+ Bu\u1ed5i m\u1edbi</button>
+        ${homeroomEditMode ? `<button id="homeroom-remove-lesson" class="homeroom-danger-action" type="button">\u2212 Bu\u1ed5i cu\u1ed1i</button><button id="homeroom-add-row" type="button">+ H\u00e0ng</button><button id="homeroom-remove-row" class="homeroom-danger-action" type="button">\u2212 H\u00e0ng</button><button id="homeroom-add-col" type="button">+ C\u1ed9t</button><button id="homeroom-remove-col" class="homeroom-danger-action" type="button">\u2212 C\u1ed9t</button>` : ''}
+        <button id="homeroom-edit" type="button">${homeroomEditMode ? 'L\u01b0u record' : 'Ch\u1ec9nh s\u1eeda'}</button>
+      </div>
     </div>
     ${homeroomEditMode ? `<div id="homeroom-edit-panel" class="overview-edit-panel homeroom-edit-panel hidden">
       <div class="overview-edit-panel-head"><b>Ch\u1ec9nh \u00f4 record</b><small id="homeroom-edit-count">0 \u00f4</small></div>
@@ -4057,16 +4087,16 @@ async function renderHomeroomTable(cls, type) {
       <small>Panel lu\u00f4n n\u1eb1m ph\u00eda tr\u00ean cho d\u1ec5 thao t\u00e1c; gi\u1eef Ctrl \u0111\u1ec3 ch\u1ecdn nhi\u1ec1u \u00f4 v\u00e0 \u00e1p d\u1ee5ng h\u00e0ng lo\u1ea1t.</small>
     </div>` : ''}
     <div class="schedule-scroll"><table class="schedule homeroom-grid"><tbody>`;
-  for (let row = 0; row < defaults.rowCount; row++) {
+  for (let row = 0; row < rowCount; row++) {
     html += '<tr>';
-    for (let col = 0; col < defaults.colCount; col++) {
+    for (let col = 0; col < colCount; col++) {
       const key = `${row}|${col}`;
       const autoValue = defaults.cells[key] || '';
       const value = saved.cells[key] ?? autoValue;
       const savedStyle = saved.styles[key];
       const style = savedStyle && !isLegacyHomeroomDefaultStyle(savedStyle, row, col, type, defaults.metaRows)
         ? savedStyle
-        : homeroomDefaultStyle(row, col, type, defaults.metaRows);
+        : homeroomDefaultStyle(row, col, type, defaults.metaRows, lessonCount);
       const normalized = normalizeOverviewStyle(style);
       const tag = row < defaults.metaRows ? 'th' : 'td';
       const hasValue = String(value || '').trim() ? ' has-value' : '';
@@ -4212,20 +4242,362 @@ function fillSelectedFromFirst(targets) {
   return true;
 }
 
+function remapHomeroomAxis(data, axis, start, delta, removeCount = 0) {
+  const remap = (source = {}) => Object.fromEntries(Object.entries(source).flatMap(([key, value]) => {
+    const parts = String(key).split('|').map(Number);
+    const position = axis === 'row' ? parts[0] : parts[1];
+    if (!Number.isFinite(position)) return [];
+    if (removeCount && position >= start && position < start + removeCount) return [];
+    if (position >= start + removeCount) {
+      if (axis === 'row') parts[0] += delta;
+      else parts[1] += delta;
+    }
+    return [[`${parts[0]}|${parts[1]}`, value]];
+  }));
+  data.cells = remap(data.cells);
+  data.styles = remap(data.styles);
+  return data;
+}
+
+function selectedHomeroomCoordinate(root = $('#homeroom-record')) {
+  const cell = root?.querySelector('.homeroom-selected-cell');
+  if (!cell) return null;
+  const [row, col] = String(cell.dataset.homeroomCell || '').split('|').map(Number);
+  return Number.isFinite(row) && Number.isFinite(col) ? { row, col } : null;
+}
+
 async function addHomeroomLesson() {
   if (!homeroomClassId || !homeroomRecordType || homeroomRecordType === 'ALL') return;
   await saveHomeroomFromDom();
   const data = await loadHomeroomData(homeroomClassId, homeroomRecordType);
-  data.lessonCount = Math.max(3, Number(data.lessonCount) || 3) + 1;
+  const oldLessonCount = Math.max(3, Number(data.lessonCount) || 3);
+  remapHomeroomAxis(data, 'col', 3 + oldLessonCount * 4, 4);
+  data.lessonCount = oldLessonCount + 1;
   await saveHomeroomPayload(homeroomClassId, homeroomRecordType, data);
   homeroomEditMode = true;
   renderHomeroomHome();
+}
+
+async function removeHomeroomLesson() {
+  if (!homeroomClassId || homeroomRecordType === 'ALL') return;
+  await saveHomeroomFromDom();
+  const data = await loadHomeroomData(homeroomClassId, homeroomRecordType);
+  const count = Math.max(3, Number(data.lessonCount) || 3);
+  if (count <= 3) return alert('C\u1ea7n gi\u1eef \u00edt nh\u1ea5t 3 bu\u1ed5i m\u1eb7c \u0111\u1ecbnh.');
+  if (!confirm(`Xo\u00e1 Bu\u1ed5i ${count} v\u00e0 to\u00e0n b\u1ed9 n\u1ed9i dung trong bu\u1ed5i n\u00e0y?`)) return;
+  const start = 3 + (count - 1) * 4;
+  remapHomeroomAxis(data, 'col', start, -4, 4);
+  data.lessonCount = count - 1;
+  await saveHomeroomPayload(homeroomClassId, homeroomRecordType, data);
+  renderHomeroomHome();
+}
+
+async function changeHomeroomExtraRows(delta) {
+  const root = $('#homeroom-record');
+  if (!root) return;
+  const selected = selectedHomeroomCoordinate(root);
+  const baseRows = Number(root.dataset.baseRows || 0);
+  await saveHomeroomFromDom();
+  const data = await loadHomeroomData(homeroomClassId, homeroomRecordType);
+  const extraRows = Math.max(0, Number(data.extraRows) || 0);
+  if (delta > 0) data.extraRows = extraRows + 1;
+  else {
+    if (!extraRows) return alert('Ch\u01b0a c\u00f3 h\u00e0ng t\u1ef1 th\u00eam \u0111\u1ec3 xo\u00e1.');
+    const row = selected?.row >= baseRows ? selected.row : baseRows + extraRows - 1;
+    remapHomeroomAxis(data, 'row', row, -1, 1);
+    data.extraRows = extraRows - 1;
+  }
+  await saveHomeroomPayload(homeroomClassId, homeroomRecordType, data);
+  renderHomeroomHome();
+}
+
+async function changeHomeroomExtraCols(delta) {
+  const root = $('#homeroom-record');
+  if (!root) return;
+  const selected = selectedHomeroomCoordinate(root);
+  const baseCols = Number(root.dataset.baseCols || 0);
+  await saveHomeroomFromDom();
+  const data = await loadHomeroomData(homeroomClassId, homeroomRecordType);
+  const extraCols = Math.max(0, Number(data.extraCols) || 0);
+  if (delta > 0) {
+    const col = baseCols + extraCols;
+    data.extraCols = extraCols + 1;
+    data.cells[`${homeroomMetaRows(homeroomRecordType) - 1}|${col}`] = `C\u1ed9t ${extraCols + 1}`;
+  } else {
+    if (!extraCols) return alert('Ch\u01b0a c\u00f3 c\u1ed9t t\u1ef1 th\u00eam \u0111\u1ec3 xo\u00e1.');
+    const col = selected?.col >= baseCols ? selected.col : baseCols + extraCols - 1;
+    remapHomeroomAxis(data, 'col', col, -1, 1);
+    data.extraCols = extraCols - 1;
+  }
+  await saveHomeroomPayload(homeroomClassId, homeroomRecordType, data);
+  renderHomeroomHome();
+}
+
+function homeroomExportTitle() {
+  const heading = $('#homeroom-record .homeroom-record-head h3')?.textContent.trim() || 'So-chu-nhiem';
+  return heading.replace(/[\\/:*?"<>|]/g, '-').trim() || 'So-chu-nhiem';
+}
+
+function selectedHomeroomExportColumns(root, lessonIndexes) {
+  const lessonCount = Number(root.dataset.lessonCount || 3);
+  const baseCols = Number(root.dataset.baseCols || defaultHomeroomColCount(homeroomRecordType, lessonCount));
+  const extraCols = Number(root.dataset.extraCols || 0);
+  const included = new Set([0, 1, 2]);
+  lessonIndexes.forEach((lessonIndex) => {
+    const base = 3 + lessonIndex * 4;
+    for (let offset = 0; offset < 4; offset++) included.add(base + offset);
+  });
+  for (let col = baseCols; col < baseCols + extraCols; col++) included.add(col);
+  return included;
+}
+
+function buildHomeroomExportTable(source, lessonIndexes) {
+  const root = $('#homeroom-record');
+  const included = selectedHomeroomExportColumns(root, lessonIndexes);
+  const table = buildOverviewExportTable(source);
+  table.classList.remove('schedule', 'homeroom-grid');
+  table.classList.add('homeroom-export-table');
+  [...table.rows].forEach((row) => {
+    [...row.cells].forEach((cell, index) => {
+      if (!included.has(index)) cell.remove();
+      else {
+        cell.style.whiteSpace = 'normal';
+        cell.style.overflowWrap = 'anywhere';
+      }
+    });
+  });
+  [...(table.querySelector('colgroup')?.children || [])].forEach((col, index) => {
+    if (!included.has(index)) col.remove();
+  });
+  const width = [...(table.querySelector('colgroup')?.children || [])]
+    .reduce((sum, col) => sum + (Number.parseFloat(col.style.width) || Number(col.getAttribute('width')) || 48), 0);
+  table.style.width = `${Math.ceil(width)}px`;
+  table.setAttribute('width', String(Math.ceil(width)));
+  return table;
+}
+
+async function copyHomeroomToExcel(button, lessons) {
+  if (homeroomEditMode) await saveHomeroomFromDom();
+  const source = $('#homeroom-record table.homeroom-grid');
+  if (!source) return;
+  const table = buildHomeroomExportTable(source, lessons);
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>table{border-collapse:collapse;table-layout:fixed}td,th{mso-width-source:userset;white-space:normal}</style></head><body>${table.outerHTML}</body></html>`;
+  try {
+    if (navigator.clipboard?.write && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([exportTableText(table)], { type: 'text/plain' })
+      })]);
+    } else fallbackCopyHtml(table);
+    setExportButtonStatus(button, '\u2713 \u0110\u00e3 copy');
+  } catch (err) {
+    try { fallbackCopyHtml(table); setExportButtonStatus(button, '\u2713 \u0110\u00e3 copy'); }
+    catch (fallbackError) { setExportButtonStatus(button, 'Copy l\u1ed7i', true); alert(fallbackError.message || err.message); }
+  }
+}
+
+async function downloadHomeroomExcel(button, lessons) {
+  if (homeroomEditMode) await saveHomeroomFromDom();
+  const source = $('#homeroom-record table.homeroom-grid');
+  if (!source) return;
+  button.dataset.originalText = button.dataset.originalText || button.textContent;
+  button.disabled = true;
+  button.textContent = '\u0110ang t\u1ea1o file...';
+  try {
+    const ExcelJS = await loadExcelJs();
+    const table = buildHomeroomExportTable(source, lessons);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Olympus English';
+    const worksheet = workbook.addWorksheet(homeroomExportTitle().replace(/[\\/*?:[\]]/g, '-').slice(0, 31), {
+      views: [{ state: 'frozen', xSplit: 2, ySplit: homeroomMetaRows(homeroomRecordType) }],
+      pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+    });
+    [...(table.querySelector('colgroup')?.children || [])].forEach((col, index) => {
+      const pixels = Number.parseFloat(col.style.width) || Number(col.getAttribute('width')) || 48;
+      worksheet.getColumn(index + 1).width = Math.max(3.5, pixels / 7);
+    });
+    [...table.rows].forEach((row, rowIndex) => {
+      const excelRow = worksheet.getRow(rowIndex + 1);
+      excelRow.height = Math.max(18, Number.parseFloat(row.cells[0]?.style.height) || 22);
+      [...row.cells].forEach((htmlCell, colIndex) => {
+        const excelCell = worksheet.getCell(rowIndex + 1, colIndex + 1);
+        excelCell.value = htmlCell.textContent.trim().replace(/\s+/g, ' ');
+        excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: excelArgb(htmlCell.style.backgroundColor, 'FFFFFFFF') } };
+        excelCell.font = { name: 'Arial', size: Number.parseFloat(htmlCell.style.fontSize) || 12, bold: Number.parseInt(htmlCell.style.fontWeight, 10) >= 600, color: { argb: excelArgb(htmlCell.style.color, 'FF111827') } };
+        excelCell.alignment = { horizontal: htmlCell.style.textAlign === 'left' ? 'left' : 'center', vertical: 'middle', wrapText: true };
+        excelCell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+      });
+    });
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${homeroomExportTitle()}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    setExportButtonStatus(button, '\u2713 \u0110\u00e3 t\u1ea3i Excel');
+  } catch (err) {
+    setExportButtonStatus(button, 'T\u1ea1o Excel l\u1ed7i', true);
+    alert(err.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function canvasWrappedLines(context, value, maxWidth) {
+  const lines = [];
+  String(value || '').split(/\n/).forEach((paragraph) => {
+    const words = paragraph.split(/\s+/).filter(Boolean);
+    if (!words.length) { lines.push(''); return; }
+    let line = '';
+    words.forEach((word) => {
+      const candidate = line ? `${line} ${word}` : word;
+      if (line && context.measureText(candidate).width > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else line = candidate;
+    });
+    if (line) lines.push(line);
+  });
+  return lines;
+}
+
+async function renderHomeroomImage(source, lessons) {
+  const table = buildHomeroomExportTable(source, lessons);
+  const stage = document.createElement('div');
+  stage.style.cssText = 'position:fixed;left:-10000px;top:0;width:max-content;background:#fff;z-index:-1;';
+  stage.appendChild(table);
+  document.body.appendChild(stage);
+  await document.fonts?.ready;
+  const rect = table.getBoundingClientRect();
+  const width = Math.ceil(rect.width);
+  const height = Math.ceil(rect.height);
+  const scale = Math.min(3, Math.sqrt(45000000 / Math.max(1, width * height)));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(width * scale));
+  canvas.height = Math.max(1, Math.ceil(height * scale));
+  const context = canvas.getContext('2d');
+  context.scale(scale, scale);
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, width, height);
+  const stageRect = stage.getBoundingClientRect();
+  table.querySelectorAll('th,td').forEach((cell) => {
+    const cellRect = cell.getBoundingClientRect();
+    const style = getComputedStyle(cell);
+    const x = cellRect.left - stageRect.left;
+    const y = cellRect.top - stageRect.top;
+    context.fillStyle = style.backgroundColor || '#fff';
+    context.fillRect(x, y, cellRect.width, cellRect.height);
+    context.strokeStyle = '#111827';
+    context.lineWidth = 1;
+    context.strokeRect(x + .5, y + .5, Math.max(0, cellRect.width - 1), Math.max(0, cellRect.height - 1));
+    const value = cell.textContent.trim();
+    if (!value) return;
+    context.save();
+    context.beginPath();
+    context.rect(x + 3, y + 2, Math.max(0, cellRect.width - 6), Math.max(0, cellRect.height - 4));
+    context.clip();
+    context.fillStyle = style.color || '#111827';
+    context.font = `${style.fontWeight || '600'} ${style.fontSize || '12px'} Arial, sans-serif`;
+    context.textAlign = style.textAlign === 'left' ? 'left' : 'center';
+    context.textBaseline = 'middle';
+    const lines = canvasWrappedLines(context, value, Math.max(8, cellRect.width - 10));
+    const lineHeight = Math.max(13, (Number.parseFloat(style.fontSize) || 12) * 1.2);
+    const startY = y + cellRect.height / 2 - ((lines.length - 1) * lineHeight) / 2;
+    lines.forEach((line, index) => context.fillText(
+      line,
+      style.textAlign === 'left' ? x + 5 : x + cellRect.width / 2,
+      startY + index * lineHeight,
+      Math.max(0, cellRect.width - 10)
+    ));
+    context.restore();
+  });
+  stage.remove();
+  return canvas;
+}
+
+async function exportHomeroomImage(button, lessons) {
+  if (homeroomEditMode) await saveHomeroomFromDom();
+  const source = $('#homeroom-record table.homeroom-grid');
+  if (!source) return;
+  button.dataset.originalText = button.dataset.originalText || button.textContent;
+  button.disabled = true;
+  button.textContent = '\u0110ang t\u1ea1o \u1ea3nh...';
+  try {
+    const canvas = await renderHomeroomImage(source, lessons);
+    const png = await canvasBlob(canvas, 'image/png');
+    let copied = false;
+    if (navigator.clipboard?.write && window.ClipboardItem) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+        copied = true;
+      } catch (err) { /* File download still works. */ }
+    }
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(png);
+    link.download = `${homeroomExportTitle()}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    setExportButtonStatus(button, copied ? '\u2713 \u0110\u00e3 t\u1ea3i + copy \u1ea3nh' : '\u2713 \u0110\u00e3 t\u1ea3i \u1ea3nh');
+  } catch (err) {
+    setExportButtonStatus(button, 'Xu\u1ea5t \u1ea3nh l\u1ed7i', true);
+    alert(err.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function openHomeroomExportDialog(mode, button) {
+  document.querySelector('.homeroom-export-overlay')?.remove();
+  const root = $('#homeroom-record');
+  if (!root) return;
+  const lessonCount = Number(root.dataset.lessonCount || 3);
+  const firstRow = root.querySelector('table.homeroom-grid tr');
+  const labels = Array.from({ length: lessonCount }, (_, index) => firstRow?.cells[3 + index * 4]?.textContent.trim() || `Bu\u1ed5i ${index + 1}`);
+  const overlay = document.createElement('div');
+  overlay.className = 'image-export-overlay homeroom-export-overlay';
+  overlay.innerHTML = `<div class="image-export-dialog homeroom-export-dialog">
+    <h3>Ch\u1ecdn bu\u1ed5i c\u1ea7n xu\u1ea5t</h3>
+    <p class="hint">C\u00e1c c\u1ed9t #, H\u1ecdc vi\u00ean, L\u01b0u \u00fd v\u00e0 c\u1ed9t t\u1ef1 th\u00eam lu\u00f4n \u0111\u01b0\u1ee3c gi\u1eef l\u1ea1i.</p>
+    <div class="homeroom-export-select-actions"><button type="button" data-check="all">Ch\u1ecdn t\u1ea5t c\u1ea3</button><button type="button" data-check="none">B\u1ecf ch\u1ecdn</button></div>
+    <div class="homeroom-export-lessons">${labels.map((label, index) => `<label><input class="homeroom-export-lesson" type="checkbox" value="${index}" checked /><span>${escapeHtml(label)}</span><small>4 c\u1ed9t</small></label>`).join('')}</div>
+    <div class="image-export-actions"><button class="image-export-cancel" type="button">Hu\u1ef7</button><button class="homeroom-export-confirm primary" type="button">${mode === 'copy' ? 'Copy Excel' : mode === 'xlsx' ? 'T\u1ea3i Excel' : 'Xu\u1ea5t PNG'}</button></div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  overlay.querySelector('.image-export-cancel')?.addEventListener('click', close);
+  overlay.querySelectorAll('[data-check]').forEach((item) => item.addEventListener('click', () => {
+    overlay.querySelectorAll('.homeroom-export-lesson').forEach((checkbox) => {
+      checkbox.checked = item.dataset.check === 'all';
+    });
+  }));
+  overlay.querySelector('.homeroom-export-confirm')?.addEventListener('click', async () => {
+    const lessons = [...overlay.querySelectorAll('.homeroom-export-lesson:checked')].map((item) => Number(item.value));
+    if (!lessons.length) return alert('H\u00e3y ch\u1ecdn \u00edt nh\u1ea5t 1 bu\u1ed5i.');
+    close();
+    if (mode === 'copy') await copyHomeroomToExcel(button, lessons);
+    else if (mode === 'xlsx') await downloadHomeroomExcel(button, lessons);
+    else await exportHomeroomImage(button, lessons);
+  });
 }
 
 function wireHomeroomRecord() {
   const root = $('#homeroom-record');
   if (!root || homeroomRecordType === 'ALL') return;
   $('#homeroom-add-lesson')?.addEventListener('click', addHomeroomLesson);
+  $('#homeroom-remove-lesson')?.addEventListener('click', removeHomeroomLesson);
+  $('#homeroom-add-row')?.addEventListener('click', () => changeHomeroomExtraRows(1));
+  $('#homeroom-remove-row')?.addEventListener('click', () => changeHomeroomExtraRows(-1));
+  $('#homeroom-add-col')?.addEventListener('click', () => changeHomeroomExtraCols(1));
+  $('#homeroom-remove-col')?.addEventListener('click', () => changeHomeroomExtraCols(-1));
+  $('#homeroom-copy-excel')?.addEventListener('click', (event) => openHomeroomExportDialog('copy', event.currentTarget));
+  $('#homeroom-download-excel')?.addEventListener('click', (event) => openHomeroomExportDialog('xlsx', event.currentTarget));
+  $('#homeroom-export-image')?.addEventListener('click', (event) => openHomeroomExportDialog('image', event.currentTarget));
   $('#homeroom-edit')?.addEventListener('click', async () => {
     if (homeroomEditMode) {
       await saveHomeroomFromDom();
@@ -4340,6 +4712,24 @@ function wireHomeroomRecord() {
         if (fillSelectedFromFirst(selectedTargets())) {
           event.preventDefault();
           syncPanel();
+        }
+        return;
+      }
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedTargets().length > 1) {
+        event.preventDefault();
+        applyToSelection(undefined, undefined, { text: '' });
+        syncPanel();
+        return;
+      }
+      if (event.key === 'Tab' || (event.key === 'Enter' && !event.altKey)) {
+        event.preventDefault();
+        const [row, col] = String(cell.dataset.homeroomCell).split('|').map(Number);
+        const nextRow = event.key === 'Enter' ? row + (event.shiftKey ? -1 : 1) : row;
+        const nextCol = event.key === 'Tab' ? col + (event.shiftKey ? -1 : 1) : col;
+        const next = root.querySelector(`[data-homeroom-cell="${nextRow}|${nextCol}"]`);
+        if (next) {
+          selectTarget(next, false);
+          next.focus();
         }
       }
     });

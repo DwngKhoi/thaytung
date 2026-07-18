@@ -1751,3 +1751,75 @@ body.dark #homeroom-add-lesson {
   color: #bfdbfe;
   border-color: #1d4ed8;
 }
+
+.homeroom-record-actions .btn-export {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.homeroom-record-actions .btn-download-excel {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+.homeroom-record-actions .btn-export-image {
+  background: #fff7ed;
+  color: #c2410c;
+  border-color: #fed7aa;
+}
+.homeroom-record-actions .homeroom-danger-action {
+  background: #fff1f2;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+}
+.homeroom-record-actions button:hover { filter: brightness(.96); transform: translateY(-1px); }
+.homeroom-record-actions button:disabled { opacity: .65; cursor: wait; transform: none; }
+
+.homeroom-export-dialog { width: min(560px, calc(100vw - 28px)); }
+.homeroom-export-select-actions {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+.homeroom-export-select-actions button {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 800;
+  cursor: pointer;
+}
+.homeroom-export-lessons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 8px;
+  max-height: min(44vh, 360px);
+  overflow: auto;
+  padding: 2px;
+}
+.homeroom-export-lessons label {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.homeroom-export-lessons label:has(input:checked) {
+  border-color: #60a5fa;
+  background: #eff6ff;
+  box-shadow: inset 0 0 0 1px #93c5fd;
+}
+.homeroom-export-lessons input { width: 17px; height: 17px; accent-color: #2563eb; }
+.homeroom-export-lessons span { font-weight: 900; }
+.homeroom-export-lessons small { color: var(--muted); }
+body.dark .homeroom-record-actions .btn-export { background: #052e2b; color: #6ee7b7; border-color: #047857; }
+body.dark .homeroom-record-actions .btn-download-excel { background: #172554; color: #bfdbfe; border-color: #1d4ed8; }
+body.dark .homeroom-record-actions .btn-export-image { background: #431407; color: #fdba74; border-color: #c2410c; }
+body.dark .homeroom-record-actions .homeroom-danger-action { background: #4c0519; color: #fda4af; border-color: #be123c; }
+body.dark .homeroom-export-lessons label:has(input:checked) { background: #172554; border-color: #3b82f6; }
