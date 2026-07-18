@@ -1661,8 +1661,8 @@ body.dark .overview-actions #overview-toggle { background: #172554; color: #bfdb
   vertical-align: middle;
   position: relative;
 }
-.homeroom-grid td:nth-child(2),
-.homeroom-grid th:nth-child(2) {
+.homeroom-grid tbody td:nth-child(3),
+.homeroom-grid tbody th:nth-child(3) {
   text-align: left;
   min-width: 170px;
 }
@@ -1676,28 +1676,40 @@ body.dark .homeroom-toolbar select,
 body.dark .homeroom-record-tab { background: #1a1d27; border-color: #30364a; color: #e5e7eb; }
 
 
-/* ---- Homeroom sticky A/B columns ---- */
-.homeroom-grid th:nth-child(1),
-.homeroom-grid td:nth-child(1) {
+/* ---- Homeroom spreadsheet axes + sticky A/B columns ---- */
+.homeroom-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 13;
+}
+.homeroom-grid .homeroom-corner,
+.homeroom-grid .homeroom-row-header {
   position: sticky;
   left: 0;
-  z-index: 7;
+  z-index: 12;
+  width: 42px;
+  min-width: 42px;
+  max-width: 42px;
+  background-clip: padding-box;
+}
+.homeroom-grid .homeroom-corner { top: 0; z-index: 16; }
+.homeroom-grid tbody th:nth-child(2),
+.homeroom-grid tbody td:nth-child(2) {
+  position: sticky;
+  left: 42px;
+  z-index: 9;
   min-width: 46px;
   background-clip: padding-box;
 }
-.homeroom-grid th:nth-child(2),
-.homeroom-grid td:nth-child(2) {
+.homeroom-grid tbody th:nth-child(3),
+.homeroom-grid tbody td:nth-child(3) {
   position: sticky;
-  left: 46px;
-  z-index: 7;
+  left: 88px;
+  z-index: 8;
   background-clip: padding-box;
 }
-.homeroom-grid th:nth-child(1),
-.homeroom-grid th:nth-child(2) {
-  z-index: 9;
-}
-.homeroom-grid td:nth-child(1):not([style*="background"]),
-.homeroom-grid td:nth-child(2):not([style*="background"]) {
+.homeroom-grid tbody td:nth-child(2):not([style*="background"]),
+.homeroom-grid tbody td:nth-child(3):not([style*="background"]) {
   background: #ffffff;
 }
 
@@ -1823,3 +1835,164 @@ body.dark .homeroom-record-actions .btn-download-excel { background: #172554; co
 body.dark .homeroom-record-actions .btn-export-image { background: #431407; color: #fdba74; border-color: #c2410c; }
 body.dark .homeroom-record-actions .homeroom-danger-action { background: #4c0519; color: #fda4af; border-color: #be123c; }
 body.dark .homeroom-export-lessons label:has(input:checked) { background: #172554; border-color: #3b82f6; }
+
+/* ---- Excel-like homeroom sheet ---- */
+.homeroom-formula-bar {
+  display: grid;
+  grid-template-columns: 76px 38px minmax(220px, 1fr);
+  align-items: stretch;
+  min-height: 36px;
+  border: 1px solid #b8b8b8;
+  background: #fff;
+  color: #1f2937;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.homeroom-edit-panel.homeroom-panel-docked {
+  position: static !important;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  max-width: none;
+  margin: 0 !important;
+  padding: 8px 10px;
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.08);
+  overflow: hidden;
+}
+.homeroom-edit-panel.homeroom-panel-docked > label,
+.homeroom-edit-panel.homeroom-panel-docked > small { display: none; }
+.homeroom-edit-panel.homeroom-panel-docked .overview-edit-panel-head {
+  min-width: 92px;
+  display: grid;
+  gap: 2px;
+}
+.homeroom-edit-panel.homeroom-panel-docked .overview-panel-row,
+.homeroom-edit-panel.homeroom-panel-docked .overview-palette,
+.homeroom-edit-panel.homeroom-panel-docked .overview-panel-actions { flex-wrap: nowrap; }
+.homeroom-edit-panel.homeroom-panel-docked .overview-panel-row { flex: 0 1 auto; }
+.homeroom-edit-panel.homeroom-panel-docked input#homeroom-edit-width,
+.homeroom-edit-panel.homeroom-panel-docked input#homeroom-edit-height {
+  width: 84px;
+  min-width: 84px;
+}
+.homeroom-edit-panel.homeroom-panel-docked .overview-palette {
+  flex: 1 1 360px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.homeroom-edit-panel.homeroom-panel-docked .overview-palette button { white-space: nowrap; }
+.homeroom-edit-panel.homeroom-panel-docked .overview-panel-actions { margin-left: auto; }
+.homeroom-formula-bar output,
+.homeroom-formula-bar .homeroom-fx {
+  display: grid;
+  place-items: center;
+  border-right: 1px solid #d1d5db;
+  font: 600 13px Arial, sans-serif;
+}
+.homeroom-formula-bar output { background: #f8fafc; }
+.homeroom-formula-bar .homeroom-fx { color: #16834b; font-style: italic; font-weight: 800; }
+.homeroom-formula-bar input {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 7px 10px;
+  background: #fff;
+  color: #111827;
+  font: 13px Arial, sans-serif;
+  outline: none;
+}
+.homeroom-formula-bar input:focus { box-shadow: inset 0 0 0 2px #21a366; }
+.homeroom-sheet-scroll {
+  border: 1px solid #aeb4bd;
+  background: #fff;
+  max-height: min(72vh, 760px);
+  position: relative;
+}
+.homeroom-grid { font-family: Arial, sans-serif; border-collapse: separate; border-spacing: 0; }
+.homeroom-grid .homeroom-axis-row th,
+.homeroom-grid .homeroom-row-header {
+  height: 24px;
+  padding: 2px 6px;
+  border: 0;
+  border-right: 1px solid #b8bec7;
+  border-bottom: 1px solid #b8bec7;
+  background: #e9ecef !important;
+  color: #374151 !important;
+  text-align: center !important;
+  font: 600 12px Arial, sans-serif;
+  user-select: none;
+  cursor: default;
+}
+.homeroom-grid .homeroom-col-header { min-width: 46px; }
+.homeroom-grid .homeroom-axis-row .homeroom-col-header:nth-child(2) {
+  left: 42px;
+  z-index: 15;
+}
+.homeroom-grid .homeroom-axis-row .homeroom-col-header:nth-child(3) {
+  left: 88px;
+  z-index: 14;
+}
+.homeroom-grid .homeroom-axis-active,
+.homeroom-grid .homeroom-col-header:hover,
+.homeroom-grid .homeroom-row-header:hover,
+.homeroom-grid .homeroom-corner:hover {
+  background: #d7e9df !important;
+  color: #107c41 !important;
+}
+.homeroom-grid .homeroom-cell {
+  border: 0;
+  border-right: 1px solid #c9cdd2;
+  border-bottom: 1px solid #c9cdd2;
+  outline: none;
+}
+.homeroom-editing .homeroom-cell:not(.homeroom-cell-editing) { caret-color: transparent; cursor: cell; }
+.homeroom-editing .homeroom-cell-editing {
+  cursor: text;
+  caret-color: #111827;
+  box-shadow: inset 0 0 0 2px #107c41 !important;
+}
+.homeroom-selected-cell {
+  box-shadow: inset 0 0 0 2px #107c41 !important;
+  position: relative;
+  z-index: 6;
+}
+.homeroom-context-menu {
+  position: fixed;
+  z-index: 5000;
+  width: 230px;
+  padding: 6px;
+  border: 1px solid #c7ccd1;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15,23,42,.22);
+}
+.homeroom-context-menu button {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 3px;
+  padding: 9px 10px;
+  background: transparent;
+  color: #1f2937;
+  text-align: left;
+  font: 13px Arial, sans-serif;
+  cursor: pointer;
+}
+.homeroom-context-menu button:hover { background: #e8f3ed; color: #107c41; }
+.homeroom-context-menu span { display: block; height: 1px; margin: 5px 3px; background: #e5e7eb; }
+body.dark .homeroom-formula-bar,
+body.dark .homeroom-formula-bar input,
+body.dark .homeroom-context-menu { background: #171a22; color: #e5e7eb; border-color: #3b4252; }
+body.dark .homeroom-formula-bar output { background: #111827; }
+body.dark .homeroom-formula-bar input { color: #e5e7eb; }
+body.dark .homeroom-grid .homeroom-axis-row th,
+body.dark .homeroom-grid .homeroom-row-header { background: #252a34 !important; color: #d1d5db !important; border-color: #454b58; }
+body.dark .homeroom-context-menu button { color: #e5e7eb; }
+body.dark .homeroom-context-menu button:hover { background: #123528; color: #6ee7b7; }
+@media (max-width: 680px) {
+  .homeroom-formula-bar { grid-template-columns: 58px 32px minmax(150px, 1fr); }
+  .homeroom-record-actions { gap: 6px; }
+  .homeroom-record-actions button { padding: 8px 10px; font-size: 12px; }
+}
