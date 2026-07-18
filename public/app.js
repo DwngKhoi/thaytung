@@ -3861,27 +3861,53 @@ function sameStyleColor(a = {}, b = {}) {
   return (left.backgroundColor || '') === (right.backgroundColor || '') && (left.color || '') === (right.color || '');
 }
 
-function compactHomeroomStyles(styles = {}, type = '', lessonCount = 3) {
+function compactHomeroomStyles(styles = {}, type = '', lessonCount = 3, insertedRows = [], insertedCols = []) {
   if (!type) return styles;
   const metaRows = homeroomMetaRows(type);
   return Object.fromEntries(Object.entries(styles).filter(([key, style]) => {
     if (style?.width || style?.height) return true;
     const [row, col] = String(key).split('|').map(Number);
     if (!Number.isFinite(row) || !Number.isFinite(col)) return false;
-    return !sameStyleColor(style, homeroomDefaultStyle(row, col, type, metaRows, lessonCount))
-      && !sameStyleColor(style, legacyHomeroomDefaultStyle(row, col, type, metaRows));
+    if (insertedRows.includes(row) || insertedCols.includes(col)) return true;
+    const mappedRow = mapHomeroomVisualIndex(row, insertedRows).base;
+    const mappedCol = mapHomeroomVisualIndex(col, insertedCols).base;
+    return !sameStyleColor(style, homeroomDefaultStyle(mappedRow, mappedCol, type, metaRows, lessonCount))
+      && !sameStyleColor(style, legacyHomeroomDefaultStyle(mappedRow, mappedCol, type, metaRows));
   }));
+}
+
+function normalizeInsertedIndexes(value) {
+  const source = Array.isArray(value) ? value : String(value || '').split(',');
+  return [...new Set(source.map(Number).filter((item) => Number.isInteger(item) && item >= 0))].sort((a, b) => a - b);
+}
+
+function mapHomeroomVisualIndex(index, insertedIndexes = []) {
+  const inserted = insertedIndexes.includes(index);
+  const offset = insertedIndexes.filter((item) => item < index).length;
+  return { inserted, base: index - offset };
+}
+
+function homeroomVisualIndexForBase(baseIndex, insertedIndexes = []) {
+  let visual = Math.max(0, Number(baseIndex) || 0);
+  insertedIndexes.forEach((position) => {
+    if (position <= visual) visual++;
+  });
+  return visual;
 }
 
 function normalizeHomeroomData(data = {}, type = '') {
   const lessonCount = Math.max(3, Number(data.lessonCount || data.lesson_count) || inferHomeroomLessonCount(data));
+  const insertedRows = normalizeInsertedIndexes(data.insertedRows || data.inserted_rows);
+  const insertedCols = normalizeInsertedIndexes(data.insertedCols || data.inserted_cols);
   const styles = Object.fromEntries(Object.entries(data.styles || {}).map(([key, style]) => [key, { ...normalizeOverviewStyle(style), width: style?.width || '', height: style?.height || '' }]));
   return {
     cells: Object.fromEntries(Object.entries(data.cells || {}).filter(([, value]) => String(value || '').trim())),
-    styles: compactHomeroomStyles(styles, type, lessonCount),
+    styles: compactHomeroomStyles(styles, type, lessonCount, insertedRows, insertedCols),
     lessonCount,
     extraRows: Math.max(0, Number(data.extraRows || data.extra_rows) || 0),
-    extraCols: Math.max(0, Number(data.extraCols || data.extra_cols) || 0)
+    extraCols: Math.max(0, Number(data.extraCols || data.extra_cols) || 0),
+    insertedRows,
+    insertedCols
   };
 }
 
@@ -3890,7 +3916,9 @@ function emptyHomeroomData(data = {}) {
     && !Object.keys(data.styles || {}).length
     && Math.max(3, Number(data.lessonCount || data.lesson_count) || 3) <= 3
     && !Number(data.extraRows || data.extra_rows)
-    && !Number(data.extraCols || data.extra_cols);
+    && !Number(data.extraCols || data.extra_cols)
+    && !normalizeInsertedIndexes(data.insertedRows || data.inserted_rows).length
+    && !normalizeInsertedIndexes(data.insertedCols || data.inserted_cols).length;
 }
 
 function loadLocalHomeroomData(classId, type) {
@@ -3898,7 +3926,7 @@ function loadLocalHomeroomData(classId, type) {
     const raw = localStorage.getItem(homeroomStorageKey(classId, type));
     return normalizeHomeroomData(JSON.parse(raw || '{}'), type);
   } catch (err) {
-    return { cells: {}, styles: {}, lessonCount: 3, extraRows: 0, extraCols: 0 };
+    return { cells: {}, styles: {}, lessonCount: 3, extraRows: 0, extraCols: 0, insertedRows: [], insertedCols: [] };
   }
 }
 
@@ -3935,7 +3963,8 @@ async function loadHomeroomData(classId, type) {
 }
 
 function styleChangedFromDefault(cell, type, metaRows, lessonCount) {
-  const [row, col] = String(cell.dataset.homeroomCell || '0|0').split('|').map(Number);
+  const row = cell.dataset.baseRow === '' ? metaRows : Number(cell.dataset.baseRow || 0);
+  const col = cell.dataset.baseCol === '' ? defaultHomeroomColCount(type, lessonCount) : Number(cell.dataset.baseCol || 0);
   const defaults = normalizeOverviewStyle(homeroomDefaultStyle(row, col, type, metaRows, lessonCount));
   const bg = cell.dataset.bg || '';
   const fg = cell.dataset.fg || '';
@@ -3967,7 +3996,9 @@ function collectHomeroomDataFromDom() {
     styles,
     lessonCount,
     extraRows: Number(root.dataset.extraRows || 0),
-    extraCols: Number(root.dataset.extraCols || 0)
+    extraCols: Number(root.dataset.extraCols || 0),
+    insertedRows: normalizeInsertedIndexes(root.dataset.insertedRows),
+    insertedCols: normalizeInsertedIndexes(root.dataset.insertedCols)
   };
 }
 
@@ -4058,18 +4089,20 @@ async function renderHomeroomTable(cls, type) {
   const defaults = homeroomDefaultCells(cls, type, lessonCount);
   const extraRows = Math.max(0, Number(saved.extraRows) || 0);
   const extraCols = Math.max(0, Number(saved.extraCols) || 0);
-  const rowCount = defaults.rowCount + extraRows;
-  const colCount = defaults.colCount + extraCols;
+  const insertedRows = normalizeInsertedIndexes(saved.insertedRows);
+  const insertedCols = normalizeInsertedIndexes(saved.insertedCols);
+  const rowCount = defaults.rowCount + extraRows + insertedRows.length;
+  const colCount = defaults.colCount + extraCols + insertedCols.length;
   const palette = overviewPalette();
-  let html = `<section id="homeroom-record" class="homeroom-record ${homeroomEditMode ? 'homeroom-editing' : ''}" data-lesson-count="${lessonCount}" data-extra-rows="${extraRows}" data-extra-cols="${extraCols}" data-base-rows="${defaults.rowCount}" data-base-cols="${defaults.colCount}">
+  let html = `<section id="homeroom-record" class="homeroom-record ${homeroomEditMode ? 'homeroom-editing' : ''}" data-lesson-count="${lessonCount}" data-extra-rows="${extraRows}" data-extra-cols="${extraCols}" data-inserted-rows="${insertedRows.join(',')}" data-inserted-cols="${insertedCols.join(',')}" data-base-rows="${defaults.rowCount}" data-base-cols="${defaults.colCount}">
     <div class="homeroom-record-head">
-      <div><h3>${escapeHtml(cls.name)} - ${escapeHtml(type)}-rec</h3><p class="hint">S\u1eeda tr\u1ef1c ti\u1ebfp nh\u01b0 Excel; gi\u1eef Ctrl \u0111\u1ec3 ch\u1ecdn nhi\u1ec1u \u00f4; Ctrl+D \u0111\u1ec3 fill xu\u1ed1ng; Tab/Enter \u0111\u1ec3 di chuy\u1ec3n; c\u00f3 th\u1ec3 paste c\u1ea3 v\u00f9ng t\u1eeb Excel.</p></div>
+      <div><h3>${escapeHtml(cls.name)} - ${escapeHtml(type)}-rec</h3><p class="hint">S\u1eeda tr\u1ef1c ti\u1ebfp nh\u01b0 Excel; ch\u1ecdn \u00f4 r\u1ed3i b\u1ea5m Ch\u00e8n h\u00e0ng/c\u1ed9t \u0111\u1ec3 th\u00eam ngay b\u00ean d\u01b0\u1edbi/b\u00ean ph\u1ea3i; gi\u1eef Ctrl \u0111\u1ec3 ch\u1ecdn nhi\u1ec1u \u00f4; Ctrl+D \u0111\u1ec3 fill xu\u1ed1ng; Tab/Enter \u0111\u1ec3 di chuy\u1ec3n.</p></div>
       <div class="homeroom-record-actions">
         <button id="homeroom-copy-excel" class="btn-export" type="button">Copy Excel</button>
         <button id="homeroom-download-excel" class="btn-export btn-download-excel" type="button">T\u1ea3i Excel</button>
         <button id="homeroom-export-image" class="btn-export btn-export-image" type="button">Xu\u1ea5t \u1ea3nh</button>
         <button id="homeroom-add-lesson" type="button">+ Bu\u1ed5i m\u1edbi</button>
-        ${homeroomEditMode ? `<button id="homeroom-remove-lesson" class="homeroom-danger-action" type="button">\u2212 Bu\u1ed5i cu\u1ed1i</button><button id="homeroom-add-row" type="button">+ H\u00e0ng</button><button id="homeroom-remove-row" class="homeroom-danger-action" type="button">\u2212 H\u00e0ng</button><button id="homeroom-add-col" type="button">+ C\u1ed9t</button><button id="homeroom-remove-col" class="homeroom-danger-action" type="button">\u2212 C\u1ed9t</button>` : ''}
+        ${homeroomEditMode ? `<button id="homeroom-remove-lesson" class="homeroom-danger-action" type="button">\u2212 Bu\u1ed5i cu\u1ed1i</button><button id="homeroom-add-row" type="button">+ Ch\u00e8n h\u00e0ng</button><button id="homeroom-remove-row" class="homeroom-danger-action" type="button">\u2212 H\u00e0ng</button><button id="homeroom-add-col" type="button">+ Ch\u00e8n c\u1ed9t</button><button id="homeroom-remove-col" class="homeroom-danger-action" type="button">\u2212 C\u1ed9t</button>` : ''}
         <button id="homeroom-edit" type="button">${homeroomEditMode ? 'L\u01b0u record' : 'Ch\u1ec9nh s\u1eeda'}</button>
       </div>
     </div>
@@ -4088,19 +4121,24 @@ async function renderHomeroomTable(cls, type) {
     </div>` : ''}
     <div class="schedule-scroll"><table class="schedule homeroom-grid"><tbody>`;
   for (let row = 0; row < rowCount; row++) {
+    const rowMap = mapHomeroomVisualIndex(row, insertedRows);
     html += '<tr>';
     for (let col = 0; col < colCount; col++) {
+      const colMap = mapHomeroomVisualIndex(col, insertedCols);
       const key = `${row}|${col}`;
-      const autoValue = defaults.cells[key] || '';
+      const baseKey = `${rowMap.base}|${colMap.base}`;
+      const autoValue = rowMap.inserted || colMap.inserted ? '' : (defaults.cells[baseKey] || '');
       const value = saved.cells[key] ?? autoValue;
       const savedStyle = saved.styles[key];
-      const style = savedStyle && !isLegacyHomeroomDefaultStyle(savedStyle, row, col, type, defaults.metaRows)
+      const styleRow = rowMap.inserted ? defaults.metaRows : rowMap.base;
+      const styleCol = colMap.inserted ? defaults.colCount : colMap.base;
+      const style = savedStyle && !isLegacyHomeroomDefaultStyle(savedStyle, styleRow, styleCol, type, defaults.metaRows)
         ? savedStyle
-        : homeroomDefaultStyle(row, col, type, defaults.metaRows, lessonCount);
+        : homeroomDefaultStyle(styleRow, styleCol, type, defaults.metaRows, lessonCount);
       const normalized = normalizeOverviewStyle(style);
-      const tag = row < defaults.metaRows ? 'th' : 'td';
+      const tag = !rowMap.inserted && rowMap.base < defaults.metaRows ? 'th' : 'td';
       const hasValue = String(value || '').trim() ? ' has-value' : '';
-      html += `<${tag} class="homeroom-cell${hasValue}" data-homeroom-cell="${key}" data-auto="${escapeHtml(autoValue)}" data-bg="${escapeHtml(normalized.backgroundColor || '')}" data-fg="${escapeHtml(normalized.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}" data-col="hr-${col}" data-row-id="hr-${row}"${homeroomCellStyle(style)}>${escapeHtml(value)}</${tag}>`;
+      html += `<${tag} class="homeroom-cell${hasValue}" data-homeroom-cell="${key}" data-base-row="${rowMap.inserted ? '' : rowMap.base}" data-base-col="${colMap.inserted ? '' : colMap.base}" data-auto="${escapeHtml(autoValue)}" data-bg="${escapeHtml(normalized.backgroundColor || '')}" data-fg="${escapeHtml(normalized.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}" data-col="hr-${col}" data-row-id="hr-${row}"${homeroomCellStyle(style)}>${escapeHtml(value)}</${tag}>`;
     }
     html += '</tr>';
   }
@@ -4271,7 +4309,10 @@ async function addHomeroomLesson() {
   await saveHomeroomFromDom();
   const data = await loadHomeroomData(homeroomClassId, homeroomRecordType);
   const oldLessonCount = Math.max(3, Number(data.lessonCount) || 3);
-  remapHomeroomAxis(data, 'col', 3 + oldLessonCount * 4, 4);
+  const insertedCols = normalizeInsertedIndexes(data.insertedCols);
+  const col = homeroomVisualIndexForBase(3 + oldLessonCount * 4, insertedCols);
+  remapHomeroomAxis(data, 'col', col, 4);
+  data.insertedCols = insertedCols.map((item) => item >= col ? item + 4 : item);
   data.lessonCount = oldLessonCount + 1;
   await saveHomeroomPayload(homeroomClassId, homeroomRecordType, data);
   homeroomEditMode = true;
@@ -4285,8 +4326,14 @@ async function removeHomeroomLesson() {
   const count = Math.max(3, Number(data.lessonCount) || 3);
   if (count <= 3) return alert('C\u1ea7n gi\u1eef \u00edt nh\u1ea5t 3 bu\u1ed5i m\u1eb7c \u0111\u1ecbnh.');
   if (!confirm(`Xo\u00e1 Bu\u1ed5i ${count} v\u00e0 to\u00e0n b\u1ed9 n\u1ed9i dung trong bu\u1ed5i n\u00e0y?`)) return;
+  let insertedCols = normalizeInsertedIndexes(data.insertedCols);
   const start = 3 + (count - 1) * 4;
-  remapHomeroomAxis(data, 'col', start, -4, 4);
+  const lessonCols = Array.from({ length: 4 }, (_, offset) => homeroomVisualIndexForBase(start + offset, insertedCols)).sort((a, b) => b - a);
+  lessonCols.forEach((col) => {
+    remapHomeroomAxis(data, 'col', col, -1, 1);
+    insertedCols = insertedCols.map((item) => item > col ? item - 1 : item);
+  });
+  data.insertedCols = insertedCols;
   data.lessonCount = count - 1;
   await saveHomeroomPayload(homeroomClassId, homeroomRecordType, data);
   renderHomeroomHome();
@@ -4300,12 +4347,32 @@ async function changeHomeroomExtraRows(delta) {
   await saveHomeroomFromDom();
   const data = await loadHomeroomData(homeroomClassId, homeroomRecordType);
   const extraRows = Math.max(0, Number(data.extraRows) || 0);
-  if (delta > 0) data.extraRows = extraRows + 1;
-  else {
-    if (!extraRows) return alert('Ch\u01b0a c\u00f3 h\u00e0ng t\u1ef1 th\u00eam \u0111\u1ec3 xo\u00e1.');
-    const row = selected?.row >= baseRows ? selected.row : baseRows + extraRows - 1;
+  const insertedRows = normalizeInsertedIndexes(data.insertedRows);
+  if (delta > 0) {
+    if (selected) {
+      const row = selected.row + 1;
+      remapHomeroomAxis(data, 'row', row, 1);
+      data.insertedRows = [...insertedRows.map((item) => item >= row ? item + 1 : item), row].sort((a, b) => a - b);
+    } else data.extraRows = extraRows + 1;
+  } else {
+    let row = selected?.row;
+    const selectedMap = Number.isFinite(row) ? mapHomeroomVisualIndex(row, insertedRows) : null;
+    const isInserted = Number.isFinite(row) && insertedRows.includes(row);
+    const isTail = selectedMap && !selectedMap.inserted && selectedMap.base >= baseRows;
+    if (!isInserted && !isTail) {
+      if (extraRows) {
+        const rowCount = baseRows + extraRows + insertedRows.length;
+        for (let index = rowCount - 1; index >= 0; index--) {
+          const mapped = mapHomeroomVisualIndex(index, insertedRows);
+          if (!mapped.inserted && mapped.base >= baseRows) { row = index; break; }
+        }
+      } else if (insertedRows.length) row = insertedRows[insertedRows.length - 1];
+      else return alert('Ch\u01b0a c\u00f3 h\u00e0ng t\u1ef1 th\u00eam \u0111\u1ec3 xo\u00e1.');
+    }
+    const removingInserted = insertedRows.includes(row);
     remapHomeroomAxis(data, 'row', row, -1, 1);
-    data.extraRows = extraRows - 1;
+    data.insertedRows = insertedRows.filter((item) => item !== row).map((item) => item > row ? item - 1 : item);
+    if (!removingInserted) data.extraRows = Math.max(0, extraRows - 1);
   }
   await saveHomeroomPayload(homeroomClassId, homeroomRecordType, data);
   renderHomeroomHome();
@@ -4319,15 +4386,39 @@ async function changeHomeroomExtraCols(delta) {
   await saveHomeroomFromDom();
   const data = await loadHomeroomData(homeroomClassId, homeroomRecordType);
   const extraCols = Math.max(0, Number(data.extraCols) || 0);
+  const insertedCols = normalizeInsertedIndexes(data.insertedCols);
+  const insertedRows = normalizeInsertedIndexes(data.insertedRows);
+  const headerRow = homeroomVisualIndexForBase(homeroomMetaRows(homeroomRecordType) - 1, insertedRows);
   if (delta > 0) {
-    const col = baseCols + extraCols;
-    data.extraCols = extraCols + 1;
-    data.cells[`${homeroomMetaRows(homeroomRecordType) - 1}|${col}`] = `C\u1ed9t ${extraCols + 1}`;
+    if (selected) {
+      const col = selected.col + 1;
+      remapHomeroomAxis(data, 'col', col, 1);
+      data.insertedCols = [...insertedCols.map((item) => item >= col ? item + 1 : item), col].sort((a, b) => a - b);
+      data.cells[`${headerRow}|${col}`] = `C\u1ed9t ${extraCols + insertedCols.length + 1}`;
+    } else {
+      const col = homeroomVisualIndexForBase(baseCols + extraCols, insertedCols);
+      data.extraCols = extraCols + 1;
+      data.cells[`${headerRow}|${col}`] = `C\u1ed9t ${extraCols + insertedCols.length + 1}`;
+    }
   } else {
-    if (!extraCols) return alert('Ch\u01b0a c\u00f3 c\u1ed9t t\u1ef1 th\u00eam \u0111\u1ec3 xo\u00e1.');
-    const col = selected?.col >= baseCols ? selected.col : baseCols + extraCols - 1;
+    let col = selected?.col;
+    const selectedMap = Number.isFinite(col) ? mapHomeroomVisualIndex(col, insertedCols) : null;
+    const isInserted = Number.isFinite(col) && insertedCols.includes(col);
+    const isTail = selectedMap && !selectedMap.inserted && selectedMap.base >= baseCols;
+    if (!isInserted && !isTail) {
+      if (extraCols) {
+        const colCount = baseCols + extraCols + insertedCols.length;
+        for (let index = colCount - 1; index >= 0; index--) {
+          const mapped = mapHomeroomVisualIndex(index, insertedCols);
+          if (!mapped.inserted && mapped.base >= baseCols) { col = index; break; }
+        }
+      } else if (insertedCols.length) col = insertedCols[insertedCols.length - 1];
+      else return alert('Ch\u01b0a c\u00f3 c\u1ed9t t\u1ef1 th\u00eam \u0111\u1ec3 xo\u00e1.');
+    }
+    const removingInserted = insertedCols.includes(col);
     remapHomeroomAxis(data, 'col', col, -1, 1);
-    data.extraCols = extraCols - 1;
+    data.insertedCols = insertedCols.filter((item) => item !== col).map((item) => item > col ? item - 1 : item);
+    if (!removingInserted) data.extraCols = Math.max(0, extraCols - 1);
   }
   await saveHomeroomPayload(homeroomClassId, homeroomRecordType, data);
   renderHomeroomHome();
@@ -4342,12 +4433,14 @@ function selectedHomeroomExportColumns(root, lessonIndexes) {
   const lessonCount = Number(root.dataset.lessonCount || 3);
   const baseCols = Number(root.dataset.baseCols || defaultHomeroomColCount(homeroomRecordType, lessonCount));
   const extraCols = Number(root.dataset.extraCols || 0);
-  const included = new Set([0, 1, 2]);
-  lessonIndexes.forEach((lessonIndex) => {
-    const base = 3 + lessonIndex * 4;
-    for (let offset = 0; offset < 4; offset++) included.add(base + offset);
-  });
-  for (let col = baseCols; col < baseCols + extraCols; col++) included.add(col);
+  const insertedCols = normalizeInsertedIndexes(root.dataset.insertedCols);
+  const included = new Set();
+  const colCount = baseCols + extraCols + insertedCols.length;
+  for (let col = 0; col < colCount; col++) {
+    const mapped = mapHomeroomVisualIndex(col, insertedCols);
+    if (mapped.inserted || mapped.base < 3 || mapped.base >= baseCols) included.add(col);
+    else if (lessonIndexes.includes(Math.floor((mapped.base - 3) / 4))) included.add(col);
+  }
   return included;
 }
 
@@ -4556,8 +4649,12 @@ function openHomeroomExportDialog(mode, button) {
   const root = $('#homeroom-record');
   if (!root) return;
   const lessonCount = Number(root.dataset.lessonCount || 3);
+  const insertedCols = normalizeInsertedIndexes(root.dataset.insertedCols);
   const firstRow = root.querySelector('table.homeroom-grid tr');
-  const labels = Array.from({ length: lessonCount }, (_, index) => firstRow?.cells[3 + index * 4]?.textContent.trim() || `Bu\u1ed5i ${index + 1}`);
+  const labels = Array.from({ length: lessonCount }, (_, index) => {
+    const col = homeroomVisualIndexForBase(3 + index * 4, insertedCols);
+    return firstRow?.cells[col]?.textContent.trim() || `Bu\u1ed5i ${index + 1}`;
+  });
   const overlay = document.createElement('div');
   overlay.className = 'image-export-overlay homeroom-export-overlay';
   overlay.innerHTML = `<div class="image-export-dialog homeroom-export-dialog">
