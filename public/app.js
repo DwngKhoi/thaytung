@@ -151,6 +151,17 @@ function formatDateTime(value) {
   }).format(date);
 }
 
+function formatDateOnly(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }).format(date);
+}
+
 function countNames(submissions) {
   const counts = {};
   submissions.forEach((item) => {
@@ -1065,7 +1076,7 @@ function renderTeacherClass(cls, sessions, approved, pending) {
     html += '<p class="placeholder">Chưa có học sinh nào được duyệt.</p>';
     html += renderPendingBox(pending, nameCounts, sessions);
   } else {
-    html += renderScheduleTable({ slots, sessions, submissions: approved, editable: editMode, showDelete: canManage, nameCounts, currentSlots, currentEditable: currentScheduleMode, finalSubjects });
+    html += renderScheduleTable({ slots, sessions, submissions: approved, editable: editMode, showDelete: canManage && editMode, nameCounts, currentSlots, currentEditable: currentScheduleMode, finalSubjects });
     if (canManage) html += renderPendingBox(pending, nameCounts, sessions);
     if (approved.length) html += renderRecommendation(slots, approved, currentSlots);
   }
@@ -1187,7 +1198,9 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
     const studentActions = showDelete
       ? `<span class="student-row-actions"><button class="btn-del-stu" data-key="${key}" title="Xoá học sinh">&times;</button><button class="btn-manage-stu" data-key="${key}" data-classes="${escapeHtml((student.classIds || []).join(','))}" title="Quản lý học sinh">&#9881;</button></span>`
       : '';
-    html += `<tr><td>${idx + 1}</td><td class="name student-name-cell"><span class="student-name-wrap"><span>${escapeHtml(displayName(student, nameCounts))}</span>${studentActions}</span></td>`;
+    const submittedDate = formatDateOnly(student.updatedAt || student.updated_at);
+    const dateHtml = submittedDate ? `<small class="student-submit-date">(${escapeHtml(submittedDate)})</small>` : '';
+    html += `<tr><td>${idx + 1}</td><td class="name student-name-cell"><span class="student-name-wrap"><span class="student-name-main-row"><span class="student-name-text">${escapeHtml(displayName(student, nameCounts))}</span>${studentActions}</span>${dateHtml}</span></td>`;
     slots.forEach((slot) => {
       const manualBusy = (student.busySlots || []).includes(slot.id);
       const otherClassLabel = otherClassSlotLabel(student, slot.id);
@@ -4646,9 +4659,9 @@ function renderLookupResults() {
     const nameCounts = countNames(submissions);
     html += `<div class="lookup-block" data-lookup-class="${escapeHtml(state.id)}">`;
     html += `<div class="lookup-head"><div><h3>${escapeHtml(state.name)}</h3><p class="hint">Tick/detick c\u00e1c bu\u1ed5i b\u1eadn c\u1ee7a b\u1ea1n r\u1ed3i g\u1eedi l\u1ea1i \u0111\u1ec3 gi\u00e1o vi\u00ean duy\u1ec7t.</p></div>`;
-    html += `<button class="btn-edit active btn-send-change" data-id="${escapeHtml(state.id)}">G\u1eedi l\u1ecbch m\u1edbi</button>`;
     html += '</div>';
     html += renderScheduleTable({ slots, sessions, submissions, editable: true, showDelete: false, nameCounts, studentLookup: true, currentSlots: state.currentSlots || [], finalSubjects: state.finalSubjects || {} });
+    html += `<div class="lookup-actions"><button class="btn-edit active btn-send-change" data-id="${escapeHtml(state.id)}">G\u1eedi l\u1ecbch m\u1edbi</button></div>`;
     html += '</div>';
   });
   result.innerHTML = html;

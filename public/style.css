@@ -499,9 +499,22 @@ button.secondary:hover { background: var(--primary-soft); }
 }
 .student-name-wrap {
   display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  white-space: nowrap;
+}
+.student-name-main-row {
+  display: inline-flex;
   align-items: center;
   gap: 7px;
-  white-space: nowrap;
+}
+.student-name-text { font-weight: 700; }
+.student-submit-date {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.15;
 }
 .student-name-cell { min-width: 180px; }
 .btn-del-stu {
@@ -642,6 +655,12 @@ td.worst { color: #b91c1c; }
 .lookup-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
 .lookup-head h3 { margin: 0; }
 .lookup-result { margin-top: 12px; }
+.lookup-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.lookup-actions .btn-send-change { min-width: 150px; }
 
 .pending-box { margin-top: 22px; }
 .pending-box h4 { margin: 0 0 10px; font-size: 14px; }
