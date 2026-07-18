@@ -2181,6 +2181,7 @@ as $$
     'busySlots', s.busy_slots,
     'otherClassSlots', submission_other_class_slots(s),
     'status', s.status,
+    'updatedAt', s.updated_at,
     'studentId', s.student_id,
     'classIds', coalesce((
       select jsonb_agg(x.class_id order by lower(c.name), c.name, x.class_id)
@@ -2239,6 +2240,7 @@ begin
         'busySlots', s.busy_slots,
         'otherClassSlots', submission_other_class_slots(s),
         'status', s.status,
+        'updatedAt', s.updated_at,
         'canEdit', true
       ) order by lower(coalesce(st.student_name, s.student_name)), coalesce(st.student_name, s.student_name), coalesce(st.dob, s.dob))
       from submissions s

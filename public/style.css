@@ -652,6 +652,9 @@ td.worst { color: #b91c1c; }
 }
 .pending-item em { color: var(--warn); font-style: normal; font-weight: 600; }
 .pending-item .acts button { margin-left: 6px; border-radius: 8px; border: none; padding: 6px 12px; font-weight: 600; color: #fff; }
+.pending-student-title { display: flex; flex-direction: column; gap: 2px; }
+.pending-student-title > small:first-of-type { color: var(--muted); font-weight: 600; }
+.pending-time { color: #92400e; font-size: 11px; font-weight: 700; }
 .btn-approve { background: var(--success); }
 .btn-reject { background: var(--danger); }
 
@@ -740,6 +743,7 @@ body.dark .rec-title, body.dark .rec-line b { color: #6ee7b7; }
 body.dark .rec-line { color: #34d399; }
 body.dark .pending-item { background: #2a2515; border-color: #5a4a16; }
 body.dark .pending-item em { color: #fbbf24; }
+body.dark .pending-time { color: #fbbf24; }
 body.dark .class-sessions-editor { background: #12141c; }
 body.dark .btn-del-class:hover,
 body.dark .icon-btn:hover { background: #3a1f22; }
@@ -774,6 +778,28 @@ body.dark .bulk-class-item:hover { background: var(--primary-soft); border-color
   font-size: 12px;
   line-height: 1.45;
 }
+.pending-busy-summary { margin-bottom: 8px; font-weight: 700; }
+.pending-schedule-scroll { overflow-x: auto; }
+.pending-schedule-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  min-width: 420px;
+  font-size: 12px;
+}
+.pending-schedule-table th,
+.pending-schedule-table td {
+  border-right: 1px solid #fed7aa;
+  border-bottom: 1px solid #fed7aa;
+  padding: 6px 8px;
+  text-align: center;
+}
+.pending-schedule-table th:first-child,
+.pending-schedule-table td:first-child { border-left: 1px solid #fed7aa; }
+.pending-schedule-table thead th { border-top: 1px solid #fed7aa; background: #ffedd5; color: #7c2d12; }
+.pending-schedule-table tbody th { background: #fff7ed; color: #9a3412; font-weight: 800; }
+.pending-schedule-table .pending-busy-cell { background: #fee2e2; color: #b91c1c; font-weight: 900; }
+.pending-schedule-table .pending-free-cell { background: #ffffff; color: #cbd5e1; }
 .btn-manage-stu {
   border: none;
   background: var(--primary-soft);
@@ -854,6 +880,12 @@ body.dark .bulk-class-item:hover { background: var(--primary-soft); border-color
 .final-schedule-table .final-subject-cell { min-width: 92px; text-transform: none; }
 .tab-trash { margin-left: auto; padding-left: 14px; padding-right: 14px; }
 body.dark .pending-detail { background: #2a2515; border-color: #5a4a16; color: #fbbf24; }
+body.dark .pending-schedule-table th,
+body.dark .pending-schedule-table td { border-color: #5a4a16; }
+body.dark .pending-schedule-table thead th,
+body.dark .pending-schedule-table tbody th { background: #3a2f13; color: #fbbf24; }
+body.dark .pending-schedule-table .pending-busy-cell { background: #43232a; color: #fca5a5; }
+body.dark .pending-schedule-table .pending-free-cell { background: #1a1d27; color: #4b5563; }
 body.dark .mini-dialog, body.dark .mini-class-check { background: var(--surface); }
 body.dark .mini-class-sector, body.dark .mini-dialog-close { background: #12141c; }
 

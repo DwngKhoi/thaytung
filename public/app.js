@@ -138,6 +138,19 @@ function formatDobInputValue(dob) {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : String(dob || '');
 }
 
+function formatDateTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
+}
+
 function countNames(submissions) {
   const counts = {};
   submissions.forEach((item) => {
@@ -1078,18 +1091,41 @@ function renderTeacherClass(cls, sessions, approved, pending) {
 }
 
 function renderPendingBox(pending, nameCounts, sessions = DEFAULT_SESSIONS) {
-  let html = `<div class="pending-box pending-box-above-recommend"><h4>Chờ duyệt (${pending.length})</h4>`;
-  if (pending.length === 0) html += '<p class="placeholder">Không có đăng ký mới.</p>';
+  let html = `<div class="pending-box pending-box-above-recommend"><h4>Ch\u1edd duy\u1ec7t (${pending.length})</h4>`;
+  if (pending.length === 0) html += '<p class="placeholder">Kh\u00f4ng c\u00f3 \u0111\u0103ng k\u00fd m\u1edbi.</p>';
   pending.forEach((item) => {
     const key = encodeKey(item);
-    const busyText = busySlotLabels(item.busySlots || [], sessions).join(', ') || 'Không tick buổi bận';
+    const busyText = busySlotLabels(item.busySlots || [], sessions).join(', ') || 'Kh\u00f4ng tick bu\u1ed5i b\u1eadn';
+    const timeText = formatDateTime(item.updatedAt || item.updated_at);
+    const timeHtml = timeText ? `<small class="pending-time">G\u1eedi/c\u1eadp nh\u1eadt: ${escapeHtml(timeText)}</small>` : '';
     html += `<div class="pending-item-wrap">
-      <div class="pending-item"><span>${escapeHtml(displayName(item, nameCounts))} <small>(${(item.busySlots || []).length} buổi bận)</small></span>
-        <span class="acts"><button class="btn-approve" data-key="${key}">Duyệt</button><button class="btn-transfer" data-key="${key}">Chuyển</button><button class="btn-reject" data-key="${key}">Xoá</button><button class="btn-pending-toggle" data-key="${key}" title="Xem lịch đã tick">▸</button></span></div>
-      <div class="pending-detail hidden" data-detail="${key}">${escapeHtml(busyText)}</div>
+      <div class="pending-item"><span class="pending-student-title"><b>${escapeHtml(displayName(item, nameCounts))}</b> <small>(${(item.busySlots || []).length} bu\u1ed5i b\u1eadn)</small>${timeHtml}</span>
+        <span class="acts"><button class="btn-approve" data-key="${key}">Duy\u1ec7t</button><button class="btn-transfer" data-key="${key}">Chuy\u1ec3n</button><button class="btn-reject" data-key="${key}">Xo\u00e1</button><button class="btn-pending-toggle" data-key="${key}" title="Xem l\u1ecbch \u0111\u00e3 tick">\u25b8</button></span></div>
+      <div class="pending-detail hidden" data-detail="${key}">
+        <div class="pending-busy-summary">${escapeHtml(busyText)}</div>
+        ${renderPendingScheduleTable(item, sessions)}
+      </div>
     </div>`;
   });
   html += '</div>';
+  return html;
+}
+
+function renderPendingScheduleTable(item, sessions = DEFAULT_SESSIONS) {
+  const busy = new Set(item.busySlots || []);
+  let html = '<div class="pending-schedule-scroll"><table class="pending-schedule-table"><thead><tr><th>Th\u1ee9</th>';
+  sessions.forEach((session) => { html += `<th>${escapeHtml(session)}</th>`; });
+  html += '</tr></thead><tbody>';
+  DAYS.forEach((day, dayIdx) => {
+    html += `<tr><th>${escapeHtml(DAYS_SHORT[dayIdx] || day)}</th>`;
+    sessions.forEach((session, sessionIdx) => {
+      const slotId = `${dayIdx}-${sessionIdx}`;
+      const checked = busy.has(slotId);
+      html += `<td class="${checked ? 'pending-busy-cell' : 'pending-free-cell'}">${checked ? '&times;' : '&middot;'}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
   return html;
 }
 
@@ -4579,10 +4615,10 @@ async function lookupClassSchedule() {
   const msg = $('#lookup-msg');
   const result = $('#lookup-result');
   if (result) result.innerHTML = '';
-  if (classes.length === 0) return showMsg(msg, 'Hãy chọn ít nhất một lớp', 'err');
-  if (!studentName || !dob) return showMsg(msg, 'Nhập họ tên và ngày sinh để tra cứu', 'err');
+  if (classes.length === 0) return showMsg(msg, 'H\u00e3y ch\u1ecdn \u00edt nh\u1ea5t m\u1ed9t l\u1edbp', 'err');
+  if (!studentName || !dob) return showMsg(msg, 'Nh\u1eadp h\u1ecd t\u00ean v\u00e0 ng\u00e0y sinh \u0111\u1ec3 g\u1eedi l\u1ea1i l\u1ecbch', 'err');
   try {
-    showMsg(msg, 'Đang tra cứu...', '');
+    showMsg(msg, '\u0110ang t\u1ea3i l\u1ecbch hi\u1ec7n t\u1ea1i c\u1ee7a b\u1ea1n...', '');
     const results = await Promise.all(classes.map((cls) =>
       api(`/classes/${cls.id}/student-class`, { method: 'POST', body: JSON.stringify({ studentName, dob }) })
     ));
@@ -4590,7 +4626,7 @@ async function lookupClassSchedule() {
     const editableCount = lookupStates.length;
     showMsg(
       msg,
-      editableCount ? `Đã tìm thấy lịch của bạn trong ${editableCount} lớp.` : 'Không tìm thấy học sinh khớp họ tên và ngày sinh trong các lớp đã chọn.',
+      editableCount ? `\u0110\u00e3 t\u00ecm th\u1ea5y ${editableCount} l\u1edbp. Tick/detick l\u1ea1i l\u1ecbch b\u1eadn r\u1ed3i b\u1ea5m "G\u1eedi l\u1ecbch m\u1edbi" \u1edf t\u1eebng l\u1edbp.` : 'Kh\u00f4ng t\u00ecm th\u1ea5y h\u1ecdc sinh kh\u1edbp h\u1ecd t\u00ean v\u00e0 ng\u00e0y sinh trong c\u00e1c l\u1edbp \u0111\u00e3 ch\u1ecdn.',
       editableCount ? 'ok' : 'err'
     );
     renderLookupResults();
@@ -4599,29 +4635,27 @@ async function lookupClassSchedule() {
   }
 }
 
-function renderLookupResults(changeClassId = null) {
+function renderLookupResults() {
   const result = $('#lookup-result');
   if (!result || !lookupStates.length) return;
   let html = '';
   lookupStates.forEach((state) => {
-    const changeMode = changeClassId === state.id;
     const sessions = getSessions(state);
     const slots = buildSlots(sessions);
     const submissions = sortSubmissions(state.submissions);
     const nameCounts = countNames(submissions);
     html += `<div class="lookup-block" data-lookup-class="${escapeHtml(state.id)}">`;
-    html += `<div class="lookup-head"><h3>${escapeHtml(state.name)}</h3>`;
-    if (state.canRequestChange) {
-      html += `<button class="btn-edit btn-request-change${changeMode ? ' active' : ''}" data-id="${escapeHtml(state.id)}">${changeMode ? 'Đang sửa' : 'Yêu cầu đổi'}</button>`;
-      if (changeMode) html += `<button class="btn-edit active btn-send-change" data-id="${escapeHtml(state.id)}">Gửi yêu cầu</button>`;
-    }
+    html += `<div class="lookup-head"><div><h3>${escapeHtml(state.name)}</h3><p class="hint">Tick/detick c\u00e1c bu\u1ed5i b\u1eadn c\u1ee7a b\u1ea1n r\u1ed3i g\u1eedi l\u1ea1i \u0111\u1ec3 gi\u00e1o vi\u00ean duy\u1ec7t.</p></div>`;
+    html += `<button class="btn-edit active btn-send-change" data-id="${escapeHtml(state.id)}">G\u1eedi l\u1ecbch m\u1edbi</button>`;
     html += '</div>';
-    html += renderScheduleTable({ slots, sessions, submissions, editable: changeMode, showDelete: false, nameCounts, studentLookup: true, currentSlots: state.currentSlots || [], finalSubjects: state.finalSubjects || {} });
+    html += renderScheduleTable({ slots, sessions, submissions, editable: true, showDelete: false, nameCounts, studentLookup: true, currentSlots: state.currentSlots || [], finalSubjects: state.finalSubjects || {} });
     html += '</div>';
   });
   result.innerHTML = html;
-  result.querySelectorAll('.btn-request-change').forEach((button) => {
-    button.addEventListener('click', () => renderLookupResults(button.dataset.id));
+  result.querySelectorAll('.busy-chk').forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      checkbox.closest('td')?.classList.toggle('busy', checkbox.checked);
+    });
   });
   result.querySelectorAll('.btn-send-change').forEach((button) => {
     button.addEventListener('click', () => sendChangeRequest(button.dataset.id));
@@ -4644,7 +4678,7 @@ async function sendChangeRequest(classId) {
       method: 'POST',
       body: JSON.stringify({ studentName: normalizeStudentNameInput($('#s-name')), dob: normalizeDob($('#s-dob')?.value), busySlots }),
     });
-    showMsg(msg, `Đã gửi yêu cầu đổi cho lớp ${state.name}. Chờ giáo viên duyệt.`, 'ok');
+    showMsg(msg, `\u0110\u00e3 g\u1eedi l\u1ea1i l\u1ecbch cho l\u1edbp ${state.name}. Gi\u00e1o vi\u00ean s\u1ebd th\u1ea5y trong m\u1ee5c Ch\u1edd duy\u1ec7t.`, 'ok');
     lookupClassSchedule();
   } catch (err) {
     showMsg(msg, err.message, 'err');
