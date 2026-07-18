@@ -1198,7 +1198,7 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
     const studentActions = showDelete
       ? `<span class="student-row-actions"><button class="btn-del-stu" data-key="${key}" title="Xoá học sinh">&times;</button><button class="btn-manage-stu" data-key="${key}" data-classes="${escapeHtml((student.classIds || []).join(','))}" title="Quản lý học sinh">&#9881;</button></span>`
       : '';
-    const submittedDate = formatDateOnly(student.updatedAt || student.updated_at);
+    const submittedDate = formatDateTime(student.updatedAt || student.updated_at);
     const dateHtml = submittedDate ? `<small class="student-submit-date">(${escapeHtml(submittedDate)})</small>` : '';
     html += `<tr><td>${idx + 1}</td><td class="name student-name-cell"><span class="student-name-wrap"><span class="student-name-main-row"><span class="student-name-text">${escapeHtml(displayName(student, nameCounts))}</span>${studentActions}</span>${dateHtml}</span></td>`;
     slots.forEach((slot) => {
