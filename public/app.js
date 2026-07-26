@@ -26,6 +26,12 @@ let homeroomClassId = '';
 let homeroomRecordType = 'LR';
 let homeroomEditMode = false;
 let homeroomWireAbort = null;
+let attendanceRows = [];
+let attendanceSaveTimers = new Map();
+let vocabDeck = [];
+let vocabIndex = 0;
+let vocabRevealed = false;
+let vocabKnown = new Set();
 const HOMEROOM_DATA_PREFIX = 'lichlop-homeroom-record:';
 const HOMEROOM_SELECTED_CLASS_KEY = 'lichlop-homeroom-class';
 const HOMEROOM_RECORD_TYPE_KEY = 'lichlop-homeroom-record-type';
@@ -417,16 +423,30 @@ async function supabaseApi(path, opts = {}) {
   if (path === '/teacher-accounts' && method === 'POST') return supabaseRpc('api_add_teacher_account', { teacher_key: teacherToken(), display_name: body.name, username: body.username, password: body.password });
   if (path === '/profile-fields' && method === 'GET') return supabaseRpc('api_profile_fields', { teacher_key: teacherToken() });
   if (path === '/profile-fields' && method === 'POST') return supabaseRpc('api_save_profile_field', { teacher_key: teacherToken(), field: body.field || {} });
+  if (path === '/attendance' && method === 'GET') return supabaseRpc('api_attendance_rows', { teacher_key: teacherToken() });
+  if (path === '/attendance' && method === 'POST') return supabaseRpc('api_save_attendance_entry', {
+    teacher_key: teacherToken(),
+    class_id: body.classId,
+    record_type: body.recordType,
+    lesson_index: body.lessonIndex,
+    entry: body.entry || {}
+  });
   {
     const fieldMatch = path.match(/^\/profile-fields\/([^/]+)$/);
     if (fieldMatch && method === 'DELETE') return supabaseRpc('api_delete_profile_field', { teacher_key: teacherToken(), field_id: fieldMatch[1] });
   }
   if (path === '/students/search' && method === 'POST') return supabaseRpc('api_search_students', { teacher_key: teacherToken(), query: body.query || '' });
   {
-    const studentMatch = path.match(/^\/students\/([^/]+)\/(profile|regenerate-code)$/);
+    const studentMatch = path.match(/^\/students\/([^/]+)\/(profile|regenerate-code|identity)$/);
     if (studentMatch && studentMatch[2] === 'profile' && method === 'GET') return supabaseRpc('api_student_profile', { teacher_key: teacherToken(), student_id: studentMatch[1] });
     if (studentMatch && studentMatch[2] === 'profile' && method === 'POST') return supabaseRpc('api_save_student_profile', { teacher_key: teacherToken(), student_id: studentMatch[1], data: body.data || {} });
     if (studentMatch && studentMatch[2] === 'regenerate-code' && method === 'POST') return supabaseRpc('api_regenerate_student_code', { teacher_key: teacherToken(), student_id: studentMatch[1] });
+    if (studentMatch && studentMatch[2] === 'identity' && method === 'POST') return supabaseRpc('api_update_student_identity', {
+      teacher_key: teacherToken(),
+      student_id: studentMatch[1],
+      new_name: body.name,
+      new_dob: body.dob
+    });
   }
   if (path === '/parent-lookup' && method === 'POST') return supabaseRpc('api_parent_lookup', { student_key: STUDENT_KEY, code: body.code || '' });
 
@@ -624,6 +644,8 @@ function initTabs() {
       if (btn.dataset.tab === 'schedule') loadScheduleHome();
       if (btn.dataset.tab === 'homeroom') renderHomeroomHome();
       if (btn.dataset.tab === 'profiles') renderProfilesHome();
+      if (btn.dataset.tab === 'games') renderVocabGame();
+      if (btn.dataset.tab === 'attendance') loadAttendance();
     });
   });
 }
@@ -731,6 +753,7 @@ function showTeacherDashboard(session) {
   setSectorToolsVisible();
   $('#teacher-login')?.classList.add('hidden');
   $('#teacher-dashboard')?.classList.remove('hidden');
+  if ($('#tab-attendance')?.classList.contains('active')) loadAttendance();
 }
 
 async function refreshTeacherView(id = selectedClassId) {
@@ -5694,6 +5717,16 @@ function renderProfileDetail(data) {
         ${isOwner() ? '<button id="btn-regenerate-code" class="btn-export" type="button">Cấp lại mã</button>' : ''}
       </div>
     </div>
+    <div class="profile-identity-editor">
+      <label>Họ và tên
+        <input id="profile-student-name" type="text" value="${escapeHtml(student.name || '')}" autocomplete="off" />
+      </label>
+      <label>Ngày sinh
+        <input id="profile-student-dob" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeHtml(formatDobInputValue(student.dob) || '')}" />
+      </label>
+      <button id="btn-save-student-identity" class="btn-export" type="button">Lưu thông tin</button>
+      <span id="profile-identity-msg" class="msg"></span>
+    </div>
     <div class="profile-classes-line">${activeClasses.length
       ? `Đang học: ${activeClasses.map((cls) => `<span class="profile-class-chip">${escapeHtml(cls.name)}</span>`).join(' ')}`
       : 'Chưa ở lớp nào đang hoạt động.'}</div>
@@ -5731,6 +5764,25 @@ function renderProfileDetail(data) {
       searchProfiles();
     } catch (err) {
       alert(err.message);
+    }
+  });
+  setupDobInput($('#profile-student-dob'));
+  $('#btn-save-student-identity')?.addEventListener('click', async () => {
+    const msg = $('#profile-identity-msg');
+    const name = $('#profile-student-name')?.value?.trim() || '';
+    const dob = normalizeDob($('#profile-student-dob')?.value || '');
+    if (!name || !dob) {
+      showMsg(msg, 'Nhập đủ họ tên và ngày sinh hợp lệ.', 'err');
+      return;
+    }
+    try {
+      showMsg(msg, 'Đang lưu...', '');
+      await api(`/students/${student.id}/identity`, { method: 'POST', body: JSON.stringify({ name, dob }) });
+      showMsg(msg, 'Đã cập nhật.', 'ok');
+      await openStudentProfile(student.id);
+      searchProfiles();
+    } catch (err) {
+      showMsg(msg, err.message, 'err');
     }
   });
   $('#btn-save-profile')?.addEventListener('click', async () => {
@@ -5813,6 +5865,302 @@ function openProfileFieldsDialog() {
     list.appendChild(row);
     wireRow(row);
     row.querySelector('.fm-label')?.focus();
+  });
+}
+
+/* ---- Trò chơi từ vựng (dữ liệu tĩnh, không gọi Supabase) ---- */
+function vocabBooks() {
+  return Array.isArray(window.OLYMPUS_VOCAB?.books) ? window.OLYMPUS_VOCAB.books : [];
+}
+
+function shuffled(items) {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function selectedVocabBook() {
+  const books = vocabBooks();
+  return books.find((book) => book.id === $('#vocab-book')?.value) || books[0] || null;
+}
+
+function selectedVocabUnit() {
+  const book = selectedVocabBook();
+  const number = Number($('#vocab-unit')?.value);
+  return book?.units?.find((unit) => Number(unit.unit) === number) || book?.units?.[0] || null;
+}
+
+function rebuildVocabDeck(reset = true) {
+  const unit = selectedVocabUnit();
+  vocabDeck = shuffled(unit?.words || []);
+  if (reset) {
+    vocabIndex = 0;
+    vocabKnown = new Set();
+  } else {
+    vocabIndex = Math.min(vocabIndex, Math.max(0, vocabDeck.length - 1));
+  }
+  vocabRevealed = false;
+  renderVocabCard();
+}
+
+function renderVocabGame() {
+  const bookSelect = $('#vocab-book');
+  const unitSelect = $('#vocab-unit');
+  if (!bookSelect || !unitSelect) return;
+  const books = vocabBooks();
+  const savedBook = localStorage.getItem('olympus-vocab-book') || '';
+  const previousBook = bookSelect.value || savedBook;
+  bookSelect.innerHTML = books.map((book) =>
+    `<option value="${escapeHtml(book.id)}" ${book.id === previousBook ? 'selected' : ''}>${escapeHtml(book.name)} · ${book.units?.length || 0} Unit</option>`
+  ).join('');
+  const book = selectedVocabBook();
+  const savedUnit = localStorage.getItem(`olympus-vocab-unit:${book?.id || ''}`) || '';
+  const previousUnit = unitSelect.value || savedUnit;
+  unitSelect.innerHTML = (book?.units || []).map((unit) =>
+    `<option value="${Number(unit.unit)}" ${String(unit.unit) === String(previousUnit) ? 'selected' : ''}>Unit ${Number(unit.unit)} — ${escapeHtml(unit.title)}</option>`
+  ).join('');
+  if (!unitSelect.value && unitSelect.options.length) unitSelect.selectedIndex = 0;
+  const mode = localStorage.getItem('olympus-vocab-mode');
+  if (mode && $('#vocab-mode')) $('#vocab-mode').value = mode;
+  if (!vocabDeck.length) rebuildVocabDeck();
+  else renderVocabCard();
+}
+
+function vocabFaceMode() {
+  const mode = $('#vocab-mode')?.value || 'word';
+  return mode === 'mixed' ? (vocabIndex % 2 ? 'meaning' : 'word') : mode;
+}
+
+function renderVocabCard() {
+  const stage = $('#vocab-stage');
+  const empty = $('#vocab-empty');
+  const card = $('#vocab-flashcard');
+  const word = vocabDeck[vocabIndex];
+  if (!stage || !card) return;
+  const hasData = Boolean(word);
+  stage.classList.toggle('hidden', !hasData);
+  empty?.classList.toggle('hidden', hasData);
+  if (!word) {
+    if ($('#vocab-progress')) $('#vocab-progress').textContent = '0/0';
+    return;
+  }
+  const face = vocabFaceMode();
+  const prompt = face === 'meaning' ? word.vn : word.w;
+  const answer = face === 'meaning' ? word.w : word.vn;
+  $('#vocab-card-label').textContent = face === 'meaning' ? 'Nghĩa tiếng Việt' : `${word.t || 'Từ vựng'} · Unit ${selectedVocabUnit()?.unit || ''}`;
+  $('#vocab-prompt').textContent = prompt || '';
+  $('#vocab-ipa').textContent = face === 'word' ? (word.ipa || '') : '';
+  $('#vocab-answer').textContent = answer || '';
+  $('#vocab-example').textContent = word.ex || '';
+  $('#vocab-progress').textContent = `${vocabIndex + 1}/${vocabDeck.length}`;
+  card.classList.toggle('revealed', vocabRevealed);
+  const known = $('#btn-vocab-known');
+  known?.classList.toggle('active', vocabKnown.has(vocabIndex));
+  if (known) known.textContent = vocabKnown.has(vocabIndex) ? '✓ Đã nhớ' : '✓ Đánh dấu đã nhớ';
+}
+
+function moveVocab(step) {
+  if (!vocabDeck.length) return;
+  vocabIndex = (vocabIndex + step + vocabDeck.length) % vocabDeck.length;
+  vocabRevealed = false;
+  renderVocabCard();
+}
+
+function initVocabGame() {
+  if (!$('#tab-games')) return;
+  $('#vocab-book')?.addEventListener('change', () => {
+    localStorage.setItem('olympus-vocab-book', $('#vocab-book').value);
+    vocabDeck = [];
+    renderVocabGame();
+    rebuildVocabDeck();
+  });
+  $('#vocab-unit')?.addEventListener('change', () => {
+    const book = selectedVocabBook();
+    localStorage.setItem(`olympus-vocab-unit:${book?.id || ''}`, $('#vocab-unit').value);
+    rebuildVocabDeck();
+  });
+  $('#vocab-mode')?.addEventListener('change', () => {
+    localStorage.setItem('olympus-vocab-mode', $('#vocab-mode').value);
+    vocabRevealed = false;
+    renderVocabCard();
+  });
+  $('#vocab-flashcard')?.addEventListener('click', () => {
+    vocabRevealed = !vocabRevealed;
+    renderVocabCard();
+  });
+  $('#btn-vocab-prev')?.addEventListener('click', () => moveVocab(-1));
+  $('#btn-vocab-next')?.addEventListener('click', () => moveVocab(1));
+  $('#btn-vocab-reset')?.addEventListener('click', () => rebuildVocabDeck());
+  $('#btn-vocab-known')?.addEventListener('click', () => {
+    if (vocabKnown.has(vocabIndex)) vocabKnown.delete(vocabIndex);
+    else vocabKnown.add(vocabIndex);
+    renderVocabCard();
+  });
+  $('#btn-vocab-speak')?.addEventListener('click', () => {
+    const word = vocabDeck[vocabIndex]?.w;
+    if (!word || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(word);
+    utterance.lang = 'en-GB';
+    utterance.rate = .86;
+    window.speechSynthesis.speak(utterance);
+  });
+  renderVocabGame();
+}
+
+/* ---- Bảng công: phần nhập tay nhỏ, số liệu điểm danh đọc trực tiếp từ Sổ chủ nhiệm ---- */
+function attendanceRowKey(row) {
+  return `${row.classId}|${row.recordType}|${row.lessonIndex}`;
+}
+
+function attendanceFilteredRows() {
+  const classId = $('#attendance-class-filter')?.value || '';
+  const skill = $('#attendance-skill-filter')?.value || '';
+  const status = $('#attendance-status-filter')?.value || '';
+  return attendanceRows.filter((row) =>
+    (!classId || row.classId === classId)
+    && (!skill || row.recordType === skill)
+    && (!status || (row.entry?.status || 'Chưa chốt') === status)
+  );
+}
+
+function attendanceField(row, field, fallback = '') {
+  return row.entry?.[field] ?? fallback;
+}
+
+function renderAttendance() {
+  const root = $('#attendance-root');
+  if (!root) return;
+  const rows = attendanceFilteredRows();
+  if (!rows.length) {
+    root.innerHTML = '<div class="attendance-empty">Chưa có buổi nào. Hãy tạo/lưu các buổi trong Sổ chủ nhiệm rồi bấm Đồng bộ.</div>';
+    return;
+  }
+  root.innerHTML = `<table class="attendance-table">
+    <thead><tr>
+      <th class="attendance-class">Lớp</th><th>Kỹ năng</th><th>Buổi</th><th>Ngày</th><th>Giáo viên</th>
+      <th>Giờ vào</th><th>Giờ ra</th><th>Số tiết</th><th>Sĩ số</th><th>Có mặt</th><th>Vắng</th>
+      <th>Trạng thái</th><th>Nội dung / ghi chú</th>
+    </tr></thead>
+    <tbody>${rows.map((row) => {
+      const status = attendanceField(row, 'status', 'Chưa chốt');
+      return `<tr data-attendance-key="${escapeHtml(attendanceRowKey(row))}">
+        <td class="attendance-class">${escapeHtml(row.className)}</td>
+        <td><b>${escapeHtml(row.recordType)}</b></td>
+        <td>${escapeHtml(row.lessonLabel || `${row.recordType}${Number(row.lessonIndex) + 1}`)}</td>
+        <td><input data-field="lessonDate" type="date" value="${escapeHtml(attendanceField(row, 'lessonDate', row.recordDate || ''))}" /></td>
+        <td><input data-field="teacherName" type="text" value="${escapeHtml(attendanceField(row, 'teacherName', row.recordTeacher || teacherSession?.name || ''))}" /></td>
+        <td><input data-field="startTime" type="time" value="${escapeHtml(attendanceField(row, 'startTime'))}" /></td>
+        <td><input data-field="endTime" type="time" value="${escapeHtml(attendanceField(row, 'endTime'))}" /></td>
+        <td><input data-field="periods" type="number" min="0" max="20" step=".5" value="${escapeHtml(attendanceField(row, 'periods', ''))}" /></td>
+        <td class="attendance-sync">${Number(row.studentCount) || 0}</td>
+        <td class="attendance-sync">${Number(row.presentCount) || 0}</td>
+        <td class="attendance-sync attendance-absent ${Number(row.absentCount) ? 'has-absence' : ''}">${Number(row.absentCount) || 0}</td>
+        <td><select data-field="status">${['Chưa chốt', 'Đã dạy', 'Dạy bù', 'Nghỉ'].map((item) => `<option ${item === status ? 'selected' : ''}>${item}</option>`).join('')}</select></td>
+        <td><input data-field="note" type="text" value="${escapeHtml(attendanceField(row, 'note'))}" placeholder="Nội dung, lý do hoặc ghi chú..." /></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+  root.querySelectorAll('input, select').forEach((input) => {
+    input.addEventListener('change', () => scheduleAttendanceSave(input.closest('tr')));
+    if (input.tagName === 'INPUT' && !['date', 'time', 'number'].includes(input.type)) {
+      input.addEventListener('input', () => scheduleAttendanceSave(input.closest('tr')));
+    }
+  });
+}
+
+function collectAttendanceEntry(tr) {
+  const entry = {};
+  tr?.querySelectorAll('[data-field]').forEach((input) => {
+    entry[input.dataset.field] = input.value || '';
+  });
+  return entry;
+}
+
+function scheduleAttendanceSave(tr) {
+  if (!tr) return;
+  const key = tr.dataset.attendanceKey;
+  clearTimeout(attendanceSaveTimers.get(key));
+  attendanceSaveTimers.set(key, setTimeout(() => saveAttendanceRow(tr), 650));
+  showMsg($('#attendance-save-state'), 'Đang chờ lưu...', '');
+}
+
+async function saveAttendanceRow(tr) {
+  const key = tr?.dataset.attendanceKey;
+  const row = attendanceRows.find((item) => attendanceRowKey(item) === key);
+  if (!row) return;
+  try {
+    showMsg($('#attendance-save-state'), 'Đang lưu...', '');
+    const entry = collectAttendanceEntry(tr);
+    await api('/attendance', {
+      method: 'POST',
+      body: JSON.stringify({ classId: row.classId, recordType: row.recordType, lessonIndex: row.lessonIndex, entry })
+    });
+    row.entry = entry;
+    showMsg($('#attendance-save-state'), 'Đã lưu.', 'ok');
+  } catch (err) {
+    showMsg($('#attendance-save-state'), err.message, 'err');
+  }
+}
+
+async function loadAttendance() {
+  const root = $('#attendance-root');
+  if (!root) return;
+  if (!teacherSession) {
+    root.innerHTML = '<div class="attendance-empty">Đăng nhập ở tab Lớp học để dùng Bảng công.</div>';
+    return;
+  }
+  root.innerHTML = '<div class="attendance-empty">Đang đồng bộ Sổ chủ nhiệm...</div>';
+  try {
+    attendanceRows = await api('/attendance');
+    const select = $('#attendance-class-filter');
+    const current = select?.value || '';
+    const classes = [...new Map(attendanceRows.map((row) => [row.classId, row.className])).entries()]
+      .sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'vi', { numeric: true }));
+    if (select) {
+      select.innerHTML = `<option value="">Tất cả lớp</option>${classes.map(([id, name]) => `<option value="${escapeHtml(id)}" ${id === current ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}`;
+    }
+    renderAttendance();
+    showMsg($('#attendance-save-state'), `Đã đồng bộ ${attendanceRows.length} buổi.`, 'ok');
+  } catch (err) {
+    root.innerHTML = `<div class="attendance-empty error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function copyAttendanceToExcel(button) {
+  const rows = attendanceFilteredRows();
+  const headers = ['Lớp', 'Kỹ năng', 'Buổi', 'Ngày', 'Giáo viên', 'Giờ vào', 'Giờ ra', 'Số tiết', 'Sĩ số', 'Có mặt', 'Vắng', 'Trạng thái', 'Nội dung / ghi chú'];
+  const values = rows.map((row) => {
+    const e = row.entry || {};
+    return [row.className, row.recordType, row.lessonLabel, e.lessonDate || row.recordDate || '', e.teacherName || row.recordTeacher || '', e.startTime || '', e.endTime || '', e.periods || '', row.studentCount || 0, row.presentCount || 0, row.absentCount || 0, e.status || 'Chưa chốt', e.note || ''];
+  });
+  const clean = (value) => String(value ?? '').replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
+  const tsv = [headers, ...values].map((row) => row.map(clean).join('\t')).join('\n');
+  const html = `<table><thead><tr>${headers.map((item) => `<th style="background:#dbeafe;border:1px solid #94a3b8">${escapeHtml(item)}</th>`).join('')}</tr></thead><tbody>${values.map((row) => `<tr>${row.map((item, index) => `<td style="border:1px solid #cbd5e1;${index >= 8 && index <= 10 ? 'text-align:center;background:#dcfce7;' : ''}">${escapeHtml(item)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  try {
+    if (navigator.clipboard?.write && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([tsv], { type: 'text/plain' })
+      })]);
+    } else {
+      await navigator.clipboard.writeText(tsv);
+    }
+    setExportButtonStatus(button, 'Đã copy!');
+  } catch (err) {
+    setExportButtonStatus(button, 'Copy lỗi', true);
+  }
+}
+
+function initAttendance() {
+  if (!$('#tab-attendance')) return;
+  $('#btn-attendance-refresh')?.addEventListener('click', loadAttendance);
+  $('#btn-attendance-copy')?.addEventListener('click', (event) => copyAttendanceToExcel(event.currentTarget));
+  ['#attendance-class-filter', '#attendance-skill-filter', '#attendance-status-filter'].forEach((selector) => {
+    $(selector)?.addEventListener('change', renderAttendance);
   });
 }
 
@@ -6009,6 +6357,8 @@ function renderParentResult(data) {
   initArchived();
   initTeacherAccounts();
   initProfiles();
+  initVocabGame();
+  initAttendance();
   const cfg = await api('/config');
   DAYS = cfg.days;
   DAYS_SHORT = cfg.daysShort || cfg.days;

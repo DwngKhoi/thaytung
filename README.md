@@ -112,14 +112,39 @@ Tính năng thêm ngày 26/07/2026. Để kích hoạt trên database Supabase �
 - **Tab Hồ sơ HS (console giáo viên):** tìm học sinh theo tên/mã, xem và nhập các trường thông tin (điểm đầu vào...), xem lộ trình khóa học, copy mã hoặc link tra cứu cho phụ huynh. Owner bấm **Trường thông tin** để tự định nghĩa trường (kiểu chữ/số/ngày/lựa chọn) và tick **PH xem** cho những trường phụ huynh được thấy.
 - **Cổng phụ huynh `parent.html`:** phụ huynh nhập mã học sinh là thấy thông tin con, lịch học tuần này của các lớp đang học và timeline lộ trình (F12 hoàn thành → F13 đang học...). Có chống dò mã: quá 30 lần nhập sai trong 15 phút mỗi IP sẽ bị chặn tạm. Mở `parent.html?demo=1` để xem giao diện với dữ liệu mẫu.
 - **Lịch sử khóa học:** hệ thống tự ghi sự kiện đăng ký / bắt đầu / chuyển lớp / hoàn thành (lớp đưa vào lưu trữ = hoàn thành khóa) vào bảng `student_class_history`, nên chuyển lớp không còn làm mất dấu vết học sinh đã học lớp nào.
+- Giáo viên có quyền với học sinh có thể sửa trực tiếp họ tên/ngày sinh và thông tin hồ sơ; thay đổi danh tính được đồng bộ tới mọi lớp của học sinh đó.
 
 Lưu ý: mã học sinh suy ra được từ tên + ngày sinh, nên chỉ bật **PH xem** cho các trường không nhạy cảm.
+
+### Bảng công và trò chơi từ vựng
+
+Với database đã chạy schema cũ, vào **SQL Editor** và chạy file `supabase/attendance_profile.sql` một lần.
+
+- **Bảng công:** mỗi dòng lấy từ một buổi LR/S/W trong Sổ chủ nhiệm. Sĩ số, có mặt và vắng được tính trực tiếp từ record nên không lưu lặp dữ liệu. Owner và giáo viên được phân công lớp có thể nhập ngày, giáo viên, giờ vào/ra, số tiết, trạng thái và ghi chú.
+- **Trò chơi:** dữ liệu 520 từ của ba mức Complete IELTS nằm trong `public/vocab-data.js`; chọn sách → Unit → lật thẻ/random/phát âm. Đây là file tĩnh trên GitHub Pages nên không dùng dung lượng database và không tạo request Supabase.
+- `attendance_entries` chỉ lưu phần giáo viên nhập tay dưới dạng một JSON nhỏ cho mỗi buổi. Sổ chủ nhiệm tiếp tục lưu một JSON đã rút gọn cho mỗi `lớp × kỹ năng`; màu/nội dung mặc định không ghi xuống database.
+
+### Dung lượng Supabase
+
+Với vài trăm học sinh và vài nghìn buổi, dữ liệu dự kiến chỉ ở mức vài đến vài chục MB. Thiết kế hiện tại tránh lưu ảnh/file trong Postgres, không nhân bản danh sách điểm danh vào Bảng công và chỉ giữ các ô Sổ chủ nhiệm khác mặc định, nên còn cách rất xa quota database 500 MB của Free Plan.
+
+Có thể kiểm tra dung lượng trong SQL Editor:
+
+```sql
+select pg_size_pretty(pg_database_size(current_database())) as database_size;
+
+select
+  relname as table_name,
+  pg_size_pretty(pg_total_relation_size(relid)) as total_size
+from pg_catalog.pg_statio_user_tables
+order by pg_total_relation_size(relid) desc;
+```
 
 ### Quyền giáo viên trên Supabase
 
 - Tài khoản owner lấy từ `TEACHER_USERNAME`, `TEACHER_PASSWORD`, `TEACHER_NAME` trong bảng `app_settings`.
 - Owner tạo tài khoản giáo viên bộ môn và phân công lớp trong tab **Tài khoản giáo viên**.
-- Giáo viên bộ môn chỉ xem các lớp được phân công, không thể sửa, xoá hoặc duyệt yêu cầu.
+- Giáo viên bộ môn có đầy đủ quyền quản lý trên đúng các lớp owner đã phân công, đồng thời có thể tự điền Bảng công của các lớp đó.
 - Phiên đăng nhập có hạn 30 ngày. Mật khẩu giáo viên bộ môn được băm bằng `pgcrypto`, token phiên chỉ được lưu dạng hash trong database.
 - **Lịch hiện tại** được lưu riêng theo từng lớp. Ô này có màu hồng và bị khoá trên phiếu học sinh.
 
@@ -143,12 +168,14 @@ public/
   student.html        Trang học sinh
   parent.html         Cổng phụ huynh (Olympus Portal, tra cứu bằng mã học sinh)
   schedule.html       Trang lịch học chỉ xem
+  vocab-data.js       Dữ liệu tĩnh trò chơi từ vựng Complete IELTS
   style.css           CSS dùng chung
   app.js              Logic frontend dùng chung
 render.yaml           Cấu hình deploy Render
 apps-script/Code.gs   Backend Google Sheets + Apps Script
 supabase/schema.sql   Schema + RPC API Supabase (chạy toàn bộ file khi nâng cấp)
 supabase/student_profiles.sql   Khối SQL mã học sinh + hồ sơ + cổng phụ huynh
+supabase/attendance_profile.sql Migration sửa danh tính HS + Bảng công đồng bộ
 ```
 
 ## Lưu ý deploy

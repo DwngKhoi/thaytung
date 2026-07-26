@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260726-04" />
+  <link rel="stylesheet" href="style.css?v=20260726-05" />
 </head>
 <body>
   <header>
@@ -32,11 +32,15 @@
         <button class="tab active" data-tab="teacher">L&#7899;p h&#7885;c</button>
         <button class="tab" data-tab="schedule">L&#7883;ch chia</button>
         <button class="tab" data-tab="profiles">H&#7891; s&#417; HS</button>
+        <button class="tab" data-tab="games">Tr&#242; ch&#417;i</button>
       </div>
       <div class="system-nav-group owner-only hidden">
         <span>Qu&#7843;n l&#253;</span>
         <button class="tab" data-tab="homeroom">S&#7893; ch&#7911; nhi&#7879;m</button>
         <button class="tab" data-tab="accounts">T&#224;i kho&#7843;n GV</button>
+      </div>
+      <div class="system-nav-group">
+        <span>C&#244;ng vi&#7879;c</span>
         <button class="tab" data-tab="attendance">B&#7843;ng c&#244;ng</button>
       </div>
       <button class="tab tab-trash owner-only hidden" data-tab="archived" title="Th&#249;ng r&#225;c">&#128465;</button>
@@ -166,6 +170,55 @@
     </div>
   </section>
 
+  <section id="tab-games" class="tab-panel">
+    <div class="card vocab-game-card">
+      <div class="detail-head">
+        <div>
+          <span class="vocab-eyebrow">OLYMPUS LEARNING LAB</span>
+          <h2>Random t&#7915; v&#7921;ng</h2>
+          <p class="hint">Ch&#7885;n gi&#225;o tr&#236;nh v&#224; Unit, sau &#273;&#243; luy&#7879;n theo th&#7867; t&#7915; ng&#7851;u nhi&#234;n. D&#7919; li&#7879;u ch&#7841;y ngay tr&#234;n tr&#236;nh duy&#7879;t, kh&#244;ng t&#7889;n request Supabase.</p>
+        </div>
+        <div class="vocab-stats">
+          <strong id="vocab-progress">0/0</strong>
+          <span>&#273;&#227; xem</span>
+        </div>
+      </div>
+      <div class="vocab-controls">
+        <label>Gi&#225;o tr&#236;nh
+          <select id="vocab-book"></select>
+        </label>
+        <label>Unit
+          <select id="vocab-unit"></select>
+        </label>
+        <label>Ch&#7871; &#273;&#7897;
+          <select id="vocab-mode">
+            <option value="word">Nh&#236;n t&#7915; &#273;o&#225;n ngh&#297;a</option>
+            <option value="meaning">Nh&#236;n ngh&#297;a &#273;o&#225;n t&#7915;</option>
+            <option value="mixed">Tr&#7897;n ng&#7851;u nhi&#234;n</option>
+          </select>
+        </label>
+        <button id="btn-vocab-reset" class="btn-export" type="button">L&#224;m l&#7841;i Unit</button>
+      </div>
+      <div id="vocab-empty" class="placeholder hidden">Ch&#432;a c&#243; d&#7919; li&#7879;u t&#7915; v&#7921;ng.</div>
+      <div id="vocab-stage" class="vocab-stage">
+        <button id="vocab-flashcard" class="vocab-flashcard" type="button" aria-label="L&#7853;t th&#7867; t&#7915; v&#7921;ng">
+          <span class="vocab-card-label" id="vocab-card-label">T&#7915; v&#7921;ng</span>
+          <strong id="vocab-prompt">Ready?</strong>
+          <span id="vocab-ipa" class="vocab-ipa"></span>
+          <span id="vocab-answer" class="vocab-answer"></span>
+          <small id="vocab-example" class="vocab-example"></small>
+          <span class="vocab-flip-hint">Ch&#7841;m th&#7867; &#273;&#7875; xem &#273;&#225;p &#225;n</span>
+        </button>
+        <div class="vocab-actions">
+          <button id="btn-vocab-prev" type="button">&#8592; T&#7915; tr&#432;&#7899;c</button>
+          <button id="btn-vocab-speak" class="btn-export" type="button">&#128266; Ph&#225;t &#226;m</button>
+          <button id="btn-vocab-known" class="vocab-known" type="button">&#10003; &#272;&#227; nh&#7899;</button>
+          <button id="btn-vocab-next" class="primary" type="button">T&#7915; ti&#7871;p theo &#8594;</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="tab-homeroom" class="tab-panel">
     <div class="card">
       <div class="detail-head">
@@ -181,14 +234,26 @@
   </section>
 
   <section id="tab-attendance" class="tab-panel">
-    <div class="card">
+    <div class="card attendance-card">
       <div class="detail-head">
         <div>
           <h2>B&#7843;ng c&#244;ng</h2>
-          <p class="hint">D&#249;ng &#273;&#7875; ch&#7845;m c&#244;ng gi&#225;o vi&#234;n b&#7897; m&#244;n theo bu&#7893;i/l&#7899;p. S&#7869; n&#7889;i v&#7899;i l&#7883;ch chia sau.</p>
+          <p class="hint">M&#7895;i d&#242;ng t&#432;&#417;ng &#7913;ng m&#7897;t bu&#7893;i trong S&#7893; ch&#7911; nhi&#7879;m. S&#297; s&#7889;, c&#243; m&#7863;t v&#224; v&#7855;ng &#273;&#432;&#7907;c t&#7921; &#273;&#7897;ng &#273;&#7891;ng b&#7897;.</p>
+        </div>
+        <div class="attendance-head-actions">
+          <button id="btn-attendance-refresh" class="btn-export" type="button">&#8635; &#272;&#7891;ng b&#7897;</button>
+          <button id="btn-attendance-copy" class="btn-export" type="button">Copy Excel</button>
         </div>
       </div>
-      <p class="placeholder">Ch&#432;a c&#243; d&#7919; li&#7879;u b&#7843;ng c&#244;ng.</p>
+      <div class="attendance-filters">
+        <label>L&#7899;p<select id="attendance-class-filter"><option value="">T&#7845;t c&#7843; l&#7899;p</option></select></label>
+        <label>K&#7929; n&#259;ng<select id="attendance-skill-filter"><option value="">T&#7845;t c&#7843;</option><option>LR</option><option>S</option><option>W</option></select></label>
+        <label>Tr&#7841;ng th&#225;i<select id="attendance-status-filter"><option value="">T&#7845;t c&#7843;</option><option value="&#272;&#227; d&#7841;y">&#272;&#227; d&#7841;y</option><option value="D&#7841;y b&#249;">D&#7841;y b&#249;</option><option value="Ngh&#7881;">Ngh&#7881;</option><option value="Ch&#432;a ch&#7889;t">Ch&#432;a ch&#7889;t</option></select></label>
+        <span id="attendance-save-state" class="msg"></span>
+      </div>
+      <div id="attendance-root" class="attendance-root">
+        <p class="placeholder">&#272;&#259;ng nh&#7853;p &#273;&#7875; t&#7843;i b&#7843;ng c&#244;ng.</p>
+      </div>
     </div>
   </section>
 
@@ -217,6 +282,7 @@
   </section>
 
   <script src="config.js"></script>
-  <script src="app.js?v=20260726-04"></script>
+  <script src="vocab-data.js?v=20260726-01"></script>
+  <script src="app.js?v=20260726-05"></script>
 </body>
 </html>
