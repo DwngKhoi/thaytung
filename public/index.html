@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260726-02" />
+  <link rel="stylesheet" href="style.css?v=20260726-03" />
 </head>
 <body>
   <header>
@@ -31,6 +31,7 @@
         <span>L&#7883;ch h&#7885;c</span>
         <button class="tab active" data-tab="teacher">L&#7899;p h&#7885;c</button>
         <button class="tab" data-tab="schedule">L&#7883;ch chia</button>
+        <button class="tab" data-tab="profiles">H&#7891; s&#417; HS</button>
       </div>
       <div class="system-nav-group owner-only hidden">
         <span>Qu&#7843;n l&#253;</span>
@@ -139,6 +140,32 @@
     </div>
   </section>
 
+  <section id="tab-profiles" class="tab-panel">
+    <div class="card profiles-card">
+      <div class="detail-head">
+        <div>
+          <h2>H&#7891; s&#417; h&#7885;c sinh</h2>
+          <p class="hint">Tra c&#7913;u theo t&#234;n ho&#7863;c m&#227; h&#7885;c sinh. M&#227; n&#224;y d&#249;ng cho ph&#7909; huynh tra c&#7913;u &#7903; c&#7893;ng Olympus Portal.</p>
+        </div>
+        <div class="profiles-head-actions">
+          <a class="student-link" href="parent.html" target="_blank" rel="noopener">M&#7903; c&#7893;ng ph&#7909; huynh</a>
+          <button id="btn-manage-profile-fields" class="btn-export owner-only hidden" type="button">Tr&#432;&#7901;ng th&#244;ng tin</button>
+        </div>
+      </div>
+      <div class="profiles-search-row">
+        <input id="profiles-search" type="text" placeholder="Nh&#7853;p t&#234;n ho&#7863;c m&#227; h&#7885;c sinh (vd: LDK0903)..." autocomplete="off" />
+        <button id="btn-profiles-search" class="primary" type="button">T&#236;m</button>
+      </div>
+      <p id="profiles-msg" class="msg"></p>
+      <div class="profiles-layout">
+        <ul id="profiles-results" class="profiles-results"></ul>
+        <div id="profile-detail" class="profile-detail">
+          <p class="placeholder">T&#236;m v&#224; ch&#7885;n m&#7897;t h&#7885;c sinh &#273;&#7875; xem h&#7891; s&#417;.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="tab-homeroom" class="tab-panel">
     <div class="card">
       <div class="detail-head">
@@ -190,6 +217,6 @@
   </section>
 
   <script src="config.js"></script>
-  <script src="app.js?v=20260726-02"></script>
+  <script src="app.js?v=20260726-03"></script>
 </body>
 </html>

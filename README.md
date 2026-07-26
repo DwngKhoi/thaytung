@@ -104,6 +104,17 @@ Khi `SUPABASE_URL` và `SUPABASE_ANON_KEY` có giá trị, frontend sẽ ưu ti�
 
 Khi nâng cấp một database Supabase đã có, chạy lại toàn bộ `supabase/schema.sql`. Các lệnh migration dùng `if not exists`/`create or replace`, nên giữ nguyên lớp và học sinh hiện tại.
 
+### Mã học sinh, hồ sơ và cổng phụ huynh (Olympus Portal)
+
+Tính năng thêm ngày 26/07/2026. Để kích hoạt trên database Supabase đang chạy, vào **SQL Editor** và chạy lại toàn bộ `supabase/schema.sql` (hoặc chỉ file `supabase/student_profiles.sql` nếu schema cũ đã cập nhật đến trước đó). Chạy lại nhiều lần đều an toàn.
+
+- **Mã học sinh:** mỗi học sinh được cấp mã duy nhất trộn từ tên + ngày sinh, ví dụ `Lê Đăng Khôi` sinh 09/03 → `LDK0903` (chữ cái đầu các từ trong tên đã bỏ dấu + ngày-tháng sinh; nếu trùng sẽ tự thêm 1 ký tự hậu tố). Mã cấp một lần và giữ nguyên kể cả khi đổi tên; owner có thể "Cấp lại mã" trong tab Hồ sơ. Học sinh cũ được tự cấp mã ngay khi chạy SQL.
+- **Tab Hồ sơ HS (console giáo viên):** tìm học sinh theo tên/mã, xem và nhập các trường thông tin (điểm đầu vào...), xem lộ trình khóa học, copy mã hoặc link tra cứu cho phụ huynh. Owner bấm **Trường thông tin** để tự định nghĩa trường (kiểu chữ/số/ngày/lựa chọn) và tick **PH xem** cho những trường phụ huynh được thấy.
+- **Cổng phụ huynh `parent.html`:** phụ huynh nhập mã học sinh là thấy thông tin con, lịch học tuần này của các lớp đang học và timeline lộ trình (F12 hoàn thành → F13 đang học...). Có chống dò mã: quá 30 lần nhập sai trong 15 phút mỗi IP sẽ bị chặn tạm. Mở `parent.html?demo=1` để xem giao diện với dữ liệu mẫu.
+- **Lịch sử khóa học:** hệ thống tự ghi sự kiện đăng ký / bắt đầu / chuyển lớp / hoàn thành (lớp đưa vào lưu trữ = hoàn thành khóa) vào bảng `student_class_history`, nên chuyển lớp không còn làm mất dấu vết học sinh đã học lớp nào.
+
+Lưu ý: mã học sinh suy ra được từ tên + ngày sinh, nên chỉ bật **PH xem** cho các trường không nhạy cảm.
+
 ### Quyền giáo viên trên Supabase
 
 - Tài khoản owner lấy từ `TEACHER_USERNAME`, `TEACHER_PASSWORD`, `TEACHER_NAME` trong bảng `app_settings`.
@@ -128,13 +139,16 @@ server.js             Backend Express + API, lưu vào MongoDB
 .env                  Cấu hình bí mật (KHÔNG commit) - xem .env.example
 .env.example          Mẫu cấu hình
 public/
-  index.html          Trang giáo viên
+  index.html          Trang giáo viên (có tab Hồ sơ HS)
   student.html        Trang học sinh
+  parent.html         Cổng phụ huynh (Olympus Portal, tra cứu bằng mã học sinh)
+  schedule.html       Trang lịch học chỉ xem
   style.css           CSS dùng chung
   app.js              Logic frontend dùng chung
 render.yaml           Cấu hình deploy Render
 apps-script/Code.gs   Backend Google Sheets + Apps Script
-supabase/schema.sql   Schema + RPC API Supabase
+supabase/schema.sql   Schema + RPC API Supabase (chạy toàn bộ file khi nâng cấp)
+supabase/student_profiles.sql   Khối SQL mã học sinh + hồ sơ + cổng phụ huynh
 ```
 
 ## Lưu ý deploy

@@ -415,6 +415,20 @@ async function supabaseApi(path, opts = {}) {
   }
   if (path === '/teacher-accounts' && method === 'GET') return supabaseRpc('api_teacher_accounts', { teacher_key: teacherToken() });
   if (path === '/teacher-accounts' && method === 'POST') return supabaseRpc('api_add_teacher_account', { teacher_key: teacherToken(), display_name: body.name, username: body.username, password: body.password });
+  if (path === '/profile-fields' && method === 'GET') return supabaseRpc('api_profile_fields', { teacher_key: teacherToken() });
+  if (path === '/profile-fields' && method === 'POST') return supabaseRpc('api_save_profile_field', { teacher_key: teacherToken(), field: body.field || {} });
+  {
+    const fieldMatch = path.match(/^\/profile-fields\/([^/]+)$/);
+    if (fieldMatch && method === 'DELETE') return supabaseRpc('api_delete_profile_field', { teacher_key: teacherToken(), field_id: fieldMatch[1] });
+  }
+  if (path === '/students/search' && method === 'POST') return supabaseRpc('api_search_students', { teacher_key: teacherToken(), query: body.query || '' });
+  {
+    const studentMatch = path.match(/^\/students\/([^/]+)\/(profile|regenerate-code)$/);
+    if (studentMatch && studentMatch[2] === 'profile' && method === 'GET') return supabaseRpc('api_student_profile', { teacher_key: teacherToken(), student_id: studentMatch[1] });
+    if (studentMatch && studentMatch[2] === 'profile' && method === 'POST') return supabaseRpc('api_save_student_profile', { teacher_key: teacherToken(), student_id: studentMatch[1], data: body.data || {} });
+    if (studentMatch && studentMatch[2] === 'regenerate-code' && method === 'POST') return supabaseRpc('api_regenerate_student_code', { teacher_key: teacherToken(), student_id: studentMatch[1] });
+  }
+  if (path === '/parent-lookup' && method === 'POST') return supabaseRpc('api_parent_lookup', { student_key: STUDENT_KEY, code: body.code || '' });
 
   let accountMatch = path.match(/^\/teacher-accounts\/([^/]+)$/);
   if (accountMatch && method === 'DELETE') return supabaseRpc('api_delete_teacher_account', { teacher_key: teacherToken(), teacher_id: accountMatch[1] });
@@ -609,6 +623,7 @@ function initTabs() {
       if (btn.dataset.tab === 'accounts') loadTeacherAccounts();
       if (btn.dataset.tab === 'schedule') loadScheduleHome();
       if (btn.dataset.tab === 'homeroom') renderHomeroomHome();
+      if (btn.dataset.tab === 'profiles') renderProfilesHome();
     });
   });
 }
@@ -1201,7 +1216,8 @@ function renderScheduleTable({ slots, sessions, submissions, editable, showDelet
       : '';
     const submittedDate = formatDateTime(student.updatedAt || student.updated_at);
     const dateHtml = submittedDate ? `<small class="student-submit-date">(${escapeHtml(submittedDate)})</small>` : '';
-    html += `<tr><td>${idx + 1}</td><td class="name student-name-cell"><span class="student-name-wrap"><span class="student-name-main-row"><span class="student-name-text">${escapeHtml(displayName(student, nameCounts))}</span>${studentActions}</span>${dateHtml}</span></td>`;
+    const codeHtml = student.code ? `<span class="student-code-chip" title="M&atilde; h&#7885;c sinh">${escapeHtml(student.code)}</span>` : '';
+    html += `<tr><td>${idx + 1}</td><td class="name student-name-cell"><span class="student-name-wrap"><span class="student-name-main-row"><span class="student-name-text">${escapeHtml(displayName(student, nameCounts))}</span>${codeHtml}${studentActions}</span>${dateHtml}</span></td>`;
     slots.forEach((slot) => {
       const manualBusy = (student.busySlots || []).includes(slot.id);
       const otherClassLabel = otherClassSlotLabel(student, slot.id);
@@ -1457,6 +1473,7 @@ function buildLightExportTable(sourceTable, imageTitleOptions = null, exportOpti
   const table = sourceTable.cloneNode(true);
   table.querySelectorAll('.schedule-actions').forEach((cell) => cell.remove());
   table.querySelectorAll('.student-row-actions').forEach((actions) => actions.remove());
+  table.querySelectorAll('.student-code-chip').forEach((chip) => chip.remove());
   table.querySelectorAll('.slot-edit-btn').forEach((button) => button.remove());
   if (!exportOptions.printTimestamp) table.querySelectorAll('.student-submit-date').forEach((el) => el.remove());
   if (exportOptions.printTimestamp) {
@@ -5477,6 +5494,10 @@ function renderLookupResults() {
   const result = $('#lookup-result');
   if (!result || !lookupStates.length) return;
   let html = '';
+  const codeState = lookupStates.find((state) => state.studentCode);
+  if (codeState) {
+    html += `<div class="student-code-banner">Mã học sinh của bạn: <b class="student-code-chip">${escapeHtml(codeState.studentCode)}</b> — phụ huynh dùng mã này để tra cứu tại <a href="${escapeHtml(parentPortalUrl(codeState.studentCode))}" target="_blank" rel="noopener">Olympus Portal</a>.</div>`;
+  }
   lookupStates.forEach((state) => {
     const sessions = getSessions(state);
     const slots = buildSlots(sessions);
@@ -5523,16 +5544,476 @@ async function sendChangeRequest(classId) {
   }
 }
 
+/* ---- Hồ sơ học sinh (teacher console) ---- */
+let profileFields = [];
+let profileSearchResults = [];
+let profileSelectedStudentId = null;
+let profileSearchTimer = null;
+
+function parentPortalUrl(code) {
+  const base = `${location.origin}${appBasePath()}parent.html`;
+  return code ? `${base}?code=${encodeURIComponent(code)}` : base;
+}
+
+function profileEventLabel(event) {
+  return ({
+    enrolled: 'Đăng ký',
+    started: 'Bắt đầu học',
+    completed: 'Hoàn thành',
+    transferred: 'Chuyển lớp',
+    removed: 'Rời lớp',
+  })[event] || event;
+}
+
+function initProfiles() {
+  if (!$('#tab-profiles')) return;
+  $('#btn-profiles-search')?.addEventListener('click', searchProfiles);
+  $('#profiles-search')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') searchProfiles();
+  });
+  $('#profiles-search')?.addEventListener('input', () => {
+    clearTimeout(profileSearchTimer);
+    profileSearchTimer = setTimeout(searchProfiles, 400);
+  });
+  $('#btn-manage-profile-fields')?.addEventListener('click', openProfileFieldsDialog);
+}
+
+function renderProfilesHome() {
+  const results = $('#profiles-results');
+  const detail = $('#profile-detail');
+  if (!results) return;
+  if (!teacherSession) {
+    results.innerHTML = '';
+    showMsg($('#profiles-msg'), '', '');
+    if (detail) detail.innerHTML = '<p class="placeholder">Đăng nhập giáo viên ở tab Lớp học để dùng Hồ sơ học sinh.</p>';
+    return;
+  }
+  loadProfileFields();
+  searchProfiles();
+}
+
+async function loadProfileFields() {
+  try {
+    profileFields = await api('/profile-fields');
+  } catch (err) {
+    profileFields = [];
+  }
+}
+
+async function searchProfiles() {
+  const results = $('#profiles-results');
+  const msg = $('#profiles-msg');
+  if (!results || !teacherSession) return;
+  const query = $('#profiles-search')?.value?.trim() || '';
+  try {
+    showMsg(msg, 'Đang tìm...', '');
+    profileSearchResults = await api('/students/search', { method: 'POST', body: JSON.stringify({ query }) });
+    showMsg(msg, profileSearchResults.length ? '' : 'Không tìm thấy học sinh nào.', profileSearchResults.length ? '' : 'err');
+    renderProfileSearchResults();
+  } catch (err) {
+    showMsg(msg, err.message, 'err');
+  }
+}
+
+function renderProfileSearchResults() {
+  const results = $('#profiles-results');
+  if (!results) return;
+  results.innerHTML = profileSearchResults.map((student) => {
+    const activeClasses = (student.classes || [])
+      .filter((cls) => !cls.archived && cls.status === 'approved')
+      .map((cls) => cls.name);
+    return `<li class="profile-result${student.id === profileSelectedStudentId ? ' active' : ''}" data-student="${escapeHtml(student.id)}">
+      <span class="profile-result-name">${escapeHtml(student.name)}</span>
+      <span class="profile-result-meta"><span class="student-code-chip">${escapeHtml(student.code || '—')}</span><span>${escapeHtml(formatDobInputValue(student.dob) || '')}</span></span>
+      ${activeClasses.length ? `<span class="profile-result-classes">${escapeHtml(activeClasses.join(', '))}</span>` : ''}
+    </li>`;
+  }).join('');
+  results.querySelectorAll('.profile-result').forEach((item) => {
+    item.addEventListener('click', () => openStudentProfile(item.dataset.student));
+  });
+}
+
+async function openStudentProfile(studentId) {
+  const detail = $('#profile-detail');
+  if (!detail) return;
+  profileSelectedStudentId = studentId;
+  renderProfileSearchResults();
+  detail.innerHTML = '<p class="placeholder">Đang tải hồ sơ...</p>';
+  try {
+    const data = await api(`/students/${studentId}/profile`);
+    profileFields = data.fields || [];
+    renderProfileDetail(data);
+  } catch (err) {
+    detail.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function profileFieldInputHtml(field, value) {
+  if (field.fieldType === 'select') {
+    const options = (field.options || [])
+      .map((opt) => `<option value="${escapeHtml(opt)}" ${opt === value ? 'selected' : ''}>${escapeHtml(opt)}</option>`)
+      .join('');
+    return `<select class="profile-field-input" data-field="${escapeHtml(field.id)}"><option value="">—</option>${options}</select>`;
+  }
+  const type = field.fieldType === 'number' ? 'number' : field.fieldType === 'date' ? 'date' : 'text';
+  return `<input class="profile-field-input" data-field="${escapeHtml(field.id)}" type="${type}" value="${escapeHtml(value ?? '')}" ${type === 'number' ? 'step="any"' : ''} />`;
+}
+
+function renderProfileDetail(data) {
+  const detail = $('#profile-detail');
+  if (!detail) return;
+  const student = data.student || {};
+  const values = data.data || {};
+  const classes = data.classes || [];
+  const history = data.history || [];
+  const activeClasses = classes.filter((cls) => !cls.archived && cls.status === 'approved');
+  const fieldRows = (data.fields || []).map((field) => `
+    <label class="profile-field-row">
+      <span class="profile-field-label">${escapeHtml(field.label)}${field.visibleToParent ? ' <small class="profile-parent-flag" title="Phụ huynh xem được ở Olympus Portal">PH xem</small>' : ''}</span>
+      ${profileFieldInputHtml(field, values[field.id] ?? '')}
+    </label>`).join('');
+  const historyHtml = history.length
+    ? `<ol class="profile-timeline">${history.map((item) => `
+        <li class="profile-timeline-item event-${escapeHtml(item.event)}">
+          <span class="profile-timeline-date">${escapeHtml(formatDateOnly(item.happenedAt) || '')}</span>
+          <span class="profile-timeline-label">${escapeHtml(profileEventLabel(item.event))} — <b>${escapeHtml(item.className)}</b>${item.note ? ` <small>${escapeHtml(item.note)}</small>` : ''}</span>
+        </li>`).join('')}</ol>`
+    : '<p class="placeholder">Chưa có lịch sử khóa học.</p>';
+
+  detail.innerHTML = `
+    <div class="profile-student-head">
+      <div>
+        <h3>${escapeHtml(student.name || '')}</h3>
+        <p class="hint">Ngày sinh: ${escapeHtml(formatDobInputValue(student.dob) || '')}</p>
+      </div>
+      <div class="profile-code-box">
+        <span class="profile-code-label">Mã học sinh</span>
+        <span class="student-code-chip profile-code-value">${escapeHtml(student.code || '—')}</span>
+        <button id="btn-copy-student-code" class="btn-export" type="button">Copy mã</button>
+        <button id="btn-copy-parent-link" class="btn-export" type="button">Copy link phụ huynh</button>
+        ${isOwner() ? '<button id="btn-regenerate-code" class="btn-export" type="button">Cấp lại mã</button>' : ''}
+      </div>
+    </div>
+    <div class="profile-classes-line">${activeClasses.length
+      ? `Đang học: ${activeClasses.map((cls) => `<span class="profile-class-chip">${escapeHtml(cls.name)}</span>`).join(' ')}`
+      : 'Chưa ở lớp nào đang hoạt động.'}</div>
+    <div class="profile-section">
+      <h4>Thông tin hồ sơ</h4>
+      ${fieldRows || '<p class="placeholder">Chưa có trường thông tin. Owner bấm "Trường thông tin" để tạo (vd: Điểm đầu vào).</p>'}
+      ${(data.fields || []).length ? '<div class="profile-save-row"><button id="btn-save-profile" class="primary" type="button">Lưu hồ sơ</button><span id="profile-save-msg" class="msg"></span></div>' : ''}
+    </div>
+    <div class="profile-section">
+      <h4>Lộ trình khóa học</h4>
+      ${historyHtml}
+    </div>`;
+
+  $('#btn-copy-student-code')?.addEventListener('click', async (event) => {
+    try {
+      await navigator.clipboard.writeText(student.code || '');
+      setExportButtonStatus(event.currentTarget, 'Đã copy!');
+    } catch (err) {
+      setExportButtonStatus(event.currentTarget, 'Copy lỗi', true);
+    }
+  });
+  $('#btn-copy-parent-link')?.addEventListener('click', async (event) => {
+    try {
+      await navigator.clipboard.writeText(parentPortalUrl(student.code || ''));
+      setExportButtonStatus(event.currentTarget, 'Đã copy!');
+    } catch (err) {
+      setExportButtonStatus(event.currentTarget, 'Copy lỗi', true);
+    }
+  });
+  $('#btn-regenerate-code')?.addEventListener('click', async () => {
+    if (!confirm('Cấp lại mã mới cho học sinh này? Mã cũ sẽ không tra cứu được nữa.')) return;
+    try {
+      await api(`/students/${student.id}/regenerate-code`, { method: 'POST' });
+      await openStudentProfile(student.id);
+      searchProfiles();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+  $('#btn-save-profile')?.addEventListener('click', async () => {
+    const msg = $('#profile-save-msg');
+    const dataOut = {};
+    detail.querySelectorAll('.profile-field-input').forEach((input) => {
+      dataOut[input.dataset.field] = input.value || '';
+    });
+    try {
+      showMsg(msg, 'Đang lưu...', '');
+      await api(`/students/${student.id}/profile`, { method: 'POST', body: JSON.stringify({ data: dataOut }) });
+      showMsg(msg, 'Đã lưu hồ sơ.', 'ok');
+    } catch (err) {
+      showMsg(msg, err.message, 'err');
+    }
+  });
+}
+
+function profileFieldRowHtml(field = {}) {
+  const types = [['text', 'Chữ'], ['number', 'Số'], ['date', 'Ngày'], ['select', 'Lựa chọn']];
+  return `<div class="field-manage-row" data-id="${escapeHtml(field.id || '')}">
+    <input class="fm-label" type="text" placeholder="Tên trường (vd: Điểm đầu vào)" value="${escapeHtml(field.label || '')}" />
+    <select class="fm-type">${types.map(([value, label]) => `<option value="${value}" ${field.fieldType === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
+    <input class="fm-options" type="text" placeholder="Các lựa chọn, cách nhau dấu phẩy" value="${escapeHtml((field.options || []).join(', '))}" ${field.fieldType === 'select' ? '' : 'style="display:none"'} />
+    <label class="fm-visible"><input type="checkbox" ${field.visibleToParent ? 'checked' : ''} /> PH xem</label>
+    <button type="button" class="fm-delete" title="Xoá trường">&times;</button>
+  </div>`;
+}
+
+function openProfileFieldsDialog() {
+  if (!isOwner()) return;
+  const body = `<p class="hint">Các trường áp dụng cho mọi học sinh. Tick "PH xem" nếu muốn phụ huynh thấy trường đó ở Olympus Portal.</p>
+    <div id="field-manage-list">${profileFields.map((field) => profileFieldRowHtml(field)).join('')}</div>
+    <button type="button" id="btn-add-profile-field" class="btn-export">+ Thêm trường</button>`;
+  const overlay = openMiniDialog('Trường thông tin hồ sơ', body, async (dialog) => {
+    const rows = [...dialog.querySelectorAll('.field-manage-row')];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const label = row.querySelector('.fm-label')?.value?.trim() || '';
+      if (!label) continue;
+      const field = {
+        id: row.dataset.id || '',
+        label,
+        fieldType: row.querySelector('.fm-type')?.value || 'text',
+        options: (row.querySelector('.fm-options')?.value || '').split(',').map((item) => item.trim()).filter(Boolean),
+        visibleToParent: row.querySelector('.fm-visible input')?.checked || false,
+        sortOrder: i,
+      };
+      await api('/profile-fields', { method: 'POST', body: JSON.stringify({ field }) });
+    }
+    await loadProfileFields();
+    if (profileSelectedStudentId) openStudentProfile(profileSelectedStudentId);
+  });
+  const wireRow = (row) => {
+    row.querySelector('.fm-type')?.addEventListener('change', (event) => {
+      const options = row.querySelector('.fm-options');
+      if (options) options.style.display = event.target.value === 'select' ? '' : 'none';
+    });
+    row.querySelector('.fm-delete')?.addEventListener('click', async () => {
+      const id = row.dataset.id;
+      if (id) {
+        if (!confirm('Xoá trường này? Dữ liệu đã nhập của trường sẽ bị xoá khỏi mọi hồ sơ.')) return;
+        try {
+          await api(`/profile-fields/${id}`, { method: 'DELETE' });
+        } catch (err) {
+          alert(err.message);
+          return;
+        }
+        await loadProfileFields();
+      }
+      row.remove();
+    });
+  };
+  overlay.querySelectorAll('.field-manage-row').forEach(wireRow);
+  overlay.querySelector('#btn-add-profile-field')?.addEventListener('click', () => {
+    const list = overlay.querySelector('#field-manage-list');
+    const holder = document.createElement('div');
+    holder.innerHTML = profileFieldRowHtml();
+    const row = holder.firstElementChild;
+    list.appendChild(row);
+    wireRow(row);
+    row.querySelector('.fm-label')?.focus();
+  });
+}
+
+/* ---- Olympus Portal (parent page) ---- */
+function parentDemoData() {
+  const weekStart = localIsoDate(mondayOf());
+  return {
+    student: { name: 'Lê Minh An', code: 'LMA0903', dob: '2012-03-09' },
+    profile: [
+      { label: 'Điểm đầu vào', fieldType: 'number', value: '8.5' },
+      { label: 'Mục tiêu', fieldType: 'text', value: 'Flyers 15 khiên' },
+    ],
+    classes: [{
+      id: 'demo-f13',
+      name: 'F13',
+      sessions: ['S1', 'S2', 'C', '57', 'T'],
+      currentSlots: ['1-0', '4-2'],
+      finalSubjects: {},
+      weekStart,
+      weekTitle: 'Tuần học',
+      activeSlots: ['1-0', '4-2'],
+      weekSlots: { '1-0': 'S12', '4-2': 'W8' },
+      weekDetails: { '1-0': { location: 'CS1 - A2', note: '' }, '4-2': { location: 'CS1 - A1', note: 'Mang vở Writing' } },
+    }],
+    history: [
+      { classId: 'demo-f12', className: 'F12', event: 'started', note: '', happenedAt: '2026-01-05T10:00:00Z' },
+      { classId: 'demo-f12', className: 'F12', event: 'completed', note: '', happenedAt: '2026-05-20T10:00:00Z' },
+      { classId: 'demo-f13', className: 'F13', event: 'started', note: '', happenedAt: '2026-05-25T10:00:00Z' },
+    ],
+  };
+}
+
+function initParentPortal() {
+  const root = $('#parent-lookup');
+  if (!root) return;
+  const input = $('#parent-code');
+  input?.addEventListener('input', () => {
+    input.value = input.value.toUpperCase().replace(/\s/g, '');
+  });
+  input?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') lookupParent();
+  });
+  $('#btn-parent-lookup')?.addEventListener('click', lookupParent);
+  const params = new URLSearchParams(location.search);
+  if (params.get('demo') === '1') {
+    renderParentResult(parentDemoData());
+    return;
+  }
+  const preset = (params.get('code') || '').trim();
+  if (preset && input) {
+    input.value = preset.toUpperCase().replace(/\s/g, '');
+    lookupParent();
+  }
+}
+
+async function lookupParent() {
+  const msg = $('#parent-msg');
+  const result = $('#parent-result');
+  const button = $('#btn-parent-lookup');
+  const code = ($('#parent-code')?.value || '').trim().toUpperCase();
+  if (!code) {
+    if (msg) { msg.textContent = 'Nhập mã học sinh để tra cứu.'; msg.className = 'parent-msg err'; }
+    return;
+  }
+  if (code === 'DEMO') {
+    renderParentResult(parentDemoData());
+    return;
+  }
+  try {
+    if (button) { button.disabled = true; button.textContent = 'Đang tra cứu...'; }
+    if (msg) { msg.textContent = ''; msg.className = 'parent-msg'; }
+    result?.classList.add('hidden');
+    const data = await api('/parent-lookup', { method: 'POST', body: JSON.stringify({ code }) });
+    // Mã sai / bị chặn trả về {ok:false} chứ không raise, để RPC còn ghi được lần thử.
+    if (data && data.ok === false) throw new Error(data.error || 'Không tra cứu được mã học sinh.');
+    renderParentResult(data);
+  } catch (err) {
+    if (msg) { msg.textContent = err.message; msg.className = 'parent-msg err'; }
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'Tra cứu'; }
+  }
+}
+
+function parentTimelineEntries(data) {
+  const history = data.history || [];
+  const activeIds = new Set((data.classes || []).map((cls) => cls.id));
+  const byClass = new Map();
+  history.forEach((item) => {
+    const key = item.classId || item.className;
+    if (!byClass.has(key)) byClass.set(key, { className: item.className, events: [] });
+    byClass.get(key).events.push(item);
+  });
+  const entries = [];
+  byClass.forEach((info, key) => {
+    const find = (type) => info.events.find((event) => event.event === type);
+    const started = find('started') || find('enrolled');
+    const completed = find('completed');
+    const transferred = find('transferred');
+    const removed = find('removed');
+    let status = 'pending';
+    let label = 'Đã đăng ký';
+    if (activeIds.has(key)) { status = 'now'; label = 'Đang học'; }
+    if (transferred && !activeIds.has(key)) { status = 'moved'; label = transferred.note ? `Chuyển lớp ${transferred.note}` : 'Chuyển lớp'; }
+    if (completed) { status = 'done'; label = 'Hoàn thành'; }
+    if (!completed && !transferred && removed && !activeIds.has(key)) { status = 'left'; label = 'Đã rời lớp'; }
+    entries.push({
+      className: info.className,
+      status,
+      label,
+      from: started?.happenedAt || info.events[0]?.happenedAt || '',
+      to: completed?.happenedAt || transferred?.happenedAt || '',
+    });
+  });
+  entries.sort((a, b) => String(a.from).localeCompare(String(b.from)));
+  return entries;
+}
+
+function parentSlotList(cls) {
+  const sessions = cls.sessions || [];
+  const lessons = cls.weekSlots || {};
+  const details = cls.weekDetails || {};
+  const entries = [...(cls.activeSlots || [])]
+    .map((slotId) => {
+      const [dayIdx, sessionIdx] = String(slotId).split('-').map(Number);
+      return { slotId, dayIdx, sessionIdx };
+    })
+    .filter((item) => Number.isFinite(item.dayIdx) && Number.isFinite(item.sessionIdx))
+    .sort((a, b) => a.dayIdx - b.dayIdx || a.sessionIdx - b.sessionIdx);
+  if (!entries.length) return '<p class="parent-empty">Tuần này lớp chưa có lịch.</p>';
+  return `<ul class="parent-slot-list">${entries.map((item) => {
+    const rawLesson = lessons[item.slotId] || '';
+    const lesson = rawLesson === 'REVIEW' ? 'Ôn tập' : rawLesson;
+    const detail = details[item.slotId] || {};
+    const dayLabel = cls.weekStart
+      ? `${DAYS_SHORT[item.dayIdx] || '?'} ${dayDateLabel(cls.weekStart, item.dayIdx)}`
+      : (DAYS_SHORT[item.dayIdx] || '?');
+    return `<li>
+      <span class="parent-slot-day">${escapeHtml(dayLabel)}</span>
+      <span class="parent-slot-session">${escapeHtml(sessions[item.sessionIdx] || '?')}</span>
+      ${lesson ? `<span class="parent-slot-lesson">${escapeHtml(displayLessonLabel(lesson))}</span>` : ''}
+      ${detail.location ? `<span class="parent-slot-location">${escapeHtml(detail.location)}</span>` : ''}
+      ${detail.note ? `<span class="parent-slot-note">${escapeHtml(detail.note)}</span>` : ''}
+    </li>`;
+  }).join('')}</ul>`;
+}
+
+function renderParentResult(data) {
+  const result = $('#parent-result');
+  if (!result) return;
+  const student = data.student || {};
+  const profile = data.profile || [];
+  const classes = data.classes || [];
+  const timeline = parentTimelineEntries(data);
+  result.innerHTML = `
+    <section class="parent-card parent-student-card">
+      <div class="parent-student-main">
+        <h2>${escapeHtml(student.name || '')}</h2>
+        <p class="parent-student-dob">Ngày sinh: ${escapeHtml(formatDobInputValue(student.dob) || '')}</p>
+      </div>
+      <div class="parent-student-code"><span>Mã học sinh</span><b>${escapeHtml(student.code || '')}</b></div>
+    </section>
+    ${profile.length ? `<section class="parent-card">
+      <h3 class="parent-section-title">Thông tin học tập</h3>
+      <dl class="parent-profile-grid">${profile.map((item) => `
+        <div class="parent-profile-item"><dt>${escapeHtml(item.label)}</dt><dd>${escapeHtml(item.value ?? '')}</dd></div>`).join('')}</dl>
+    </section>` : ''}
+    <section class="parent-card">
+      <h3 class="parent-section-title">Lịch học tuần này</h3>
+      ${classes.length ? classes.map((cls) => `
+        <div class="parent-class-block">
+          <div class="parent-class-head"><h4>${escapeHtml(cls.name)}</h4><span>${escapeHtml(cls.weekTitle || '')}${cls.weekStart ? ` · ${escapeHtml(weekRangeText(cls.weekStart))}` : ''}</span></div>
+          ${parentSlotList(cls)}
+        </div>`).join('') : '<p class="parent-empty">Hiện chưa có lớp đang học.</p>'}
+    </section>
+    <section class="parent-card">
+      <h3 class="parent-section-title">Lộ trình Olympus</h3>
+      ${timeline.length ? `<ol class="parent-timeline">${timeline.map((entry) => `
+        <li class="parent-timeline-item status-${escapeHtml(entry.status)}">
+          <span class="parent-timeline-dot"></span>
+          <div class="parent-timeline-body">
+            <div class="parent-timeline-head"><b>${escapeHtml(entry.className)}</b><span class="parent-status-badge">${escapeHtml(entry.label)}</span></div>
+            <div class="parent-timeline-dates">${escapeHtml(formatDateOnly(entry.from) || '')}${entry.to ? ` → ${escapeHtml(formatDateOnly(entry.to) || '')}` : ''}</div>
+          </div>
+        </li>`).join('')}</ol>` : '<p class="parent-empty">Lộ trình sẽ hiện khi con bắt đầu khóa học đầu tiên.</p>'}
+    </section>`;
+  result.classList.remove('hidden');
+  result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 (async function init() {
   initTheme();
   initTabs();
   initTeacher();
   initArchived();
   initTeacherAccounts();
+  initProfiles();
   const cfg = await api('/config');
   DAYS = cfg.days;
   DAYS_SHORT = cfg.daysShort || cfg.days;
   DEFAULT_SESSIONS = cfg.sessions || ['S1', 'S2', 'C', '57', 'T'];
   initStudent();
   initPublicScheduleViewer();
+  initParentPortal();
 })();
