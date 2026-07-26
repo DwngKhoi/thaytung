@@ -2499,7 +2499,9 @@ begin
     safe_lesson_count,
     now()
   )
-  on conflict (class_id, record_type) do update
+  -- Bám tên constraint: class_id/record_type trùng tên tham số của hàm nên
+  -- on conflict (class_id, record_type) sẽ báo "column reference is ambiguous".
+  on conflict on constraint homeroom_records_pkey do update
     set cells = excluded.cells,
         styles = excluded.styles,
         lesson_count = excluded.lesson_count,
@@ -2631,7 +2633,7 @@ begin
   while (select st.code from students st where st.id = result_id) is null and tries < 5 loop
     begin
       update students st
-      set code = generate_student_code(clean, dob)
+      set code = generate_student_code(clean, ensure_student.dob)
       where st.id = result_id and st.code is null;
       exit;
     exception when unique_violation then
@@ -3009,9 +3011,11 @@ begin
   join student_profile_fields f on f.id::text = d.key
   where trim(coalesce(d.value, '')) <> '';
 
+  -- Bám theo tên constraint chứ không dùng on conflict (student_id): cột này
+  -- trùng tên tham số của hàm nên Postgres báo "column reference is ambiguous".
   insert into student_profiles (student_id, data, updated_at)
   values (st.id, clean_data, now())
-  on conflict (student_id) do update
+  on conflict on constraint student_profiles_pkey do update
   set data = excluded.data, updated_at = now();
 
   return jsonb_build_object('ok', true);
