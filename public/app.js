@@ -1441,11 +1441,20 @@ function compactPlannerForImage(table) {
   table.classList.add('image-compacted');
 }
 
+function exportPrintTimestampLabel() {
+  return `In lúc ${formatDateTime(Date.now())}`;
+}
+
 function buildLightExportTable(sourceTable, imageTitleOptions = null, exportOptions = {}) {
   const table = sourceTable.cloneNode(true);
   table.querySelectorAll('.schedule-actions').forEach((cell) => cell.remove());
   table.querySelectorAll('.student-row-actions').forEach((actions) => actions.remove());
   table.querySelectorAll('.slot-edit-btn').forEach((button) => button.remove());
+  table.querySelectorAll('.student-submit-date').forEach((el) => el.remove());
+  if (exportOptions.printTimestamp) {
+    const currentLabel = table.querySelector('tr.current-row td.name');
+    if (currentLabel) currentLabel.textContent = exportPrintTimestampLabel();
+  }
   if (exportOptions.compactPlanner) compactPlannerForImage(table);
   const isPlanner = table.classList.contains('week-planner');
   const studentHeader = table.tHead?.rows[0]?.cells[1];
@@ -1705,7 +1714,7 @@ function canvasBlob(canvas, type, quality) {
 }
 
 async function renderScheduleImage(source, titleOptions) {
-  const table = buildLightExportTable(source, titleOptions, { compactPlanner: true });
+  const table = buildLightExportTable(source, titleOptions, { compactPlanner: true, printTimestamp: true });
   const stage = document.createElement('div');
   stage.style.cssText = 'position:fixed;left:-10000px;top:0;width:max-content;background:#fff;z-index:-1;';
   stage.appendChild(table);
