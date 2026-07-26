@@ -3,54 +3,69 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>L&#7883;ch l&#7899;p - H&#7885;c sinh</title>
+  <title>Olympus Portal - &#272;&#259;ng k&#253; l&#7883;ch b&#7853;n</title>
+  <meta name="description" content="&#272;&#259;ng k&#253; l&#7883;ch b&#7853;n Olympus English: ch&#7885;n l&#7899;p, t&#237;ch nh&#7919;ng bu&#7893;i b&#7853;n &#273;&#7875; gi&#225;o vi&#234;n x&#7871;p l&#7883;ch h&#7885;c ph&#249; h&#7907;p." />
+  <meta name="theme-color" content="#070912" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260726-03" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css?v=20260726-04" />
 </head>
-<body class="student-page">
-  <header>
-    <div class="topbar">
-      <div class="brand">
-        <div class="logo" aria-label="Olympus English"></div>
-        <div>
-          <h1>L&#7883;ch L&#7899;p <span class="badge-soft">H&#7885;c sinh</span></h1>
-          <p class="sub">T&#237;ch nh&#7919;ng bu&#7893;i b&#7841;n b&#7853;n &#273;&#7875; gi&#225;o vi&#234;n ch&#7885;n l&#7883;ch h&#7885;c ph&#249; h&#7907;p.</p>
-        </div>
-      </div>
-      <div class="header-actions">
-        <a class="student-link" href="index.html">Trang gi&#225;o vi&#234;n</a>
-        <button id="btn-theme" class="theme-toggle" title="Chuy&#7875;n Light/Dark">&#127769;</button>
-      </div>
-    </div>
-  </header>
+<body class="dark portal-page student-portal">
+  <div class="portal-bg" aria-hidden="true"></div>
+  <div class="portal-shell">
+    <header class="portal-hero">
+      <div class="portal-logo" aria-label="Olympus English"></div>
+      <h1 class="portal-title">OLYMPUS <span>SCHEDULE</span></h1>
+      <p class="portal-sub">&#272;&#259;ng k&#253; l&#7883;ch b&#7853;n &#8226; Olympus English</p>
+    </header>
 
-  <section class="tab-panel active">
-    <div class="card student-card">
-      <h2>&#272;&#259;ng k&#253; l&#7883;ch b&#7853;n</h2>
-      <p class="hint">Nh&#7853;p &#273;&#7847;y &#273;&#7911; h&#7885; t&#234;n v&#224; ng&#224;y th&#225;ng n&#259;m sinh &#273;&#7875; tr&#225;nh nh&#7847;m h&#7885;c sinh tr&#249;ng t&#234;n.</p>
+    <section class="portal-card">
+      <h2 class="portal-section-title">Th&#244;ng tin h&#7885;c sinh</h2>
+      <div class="portal-field-grid">
+        <label class="portal-field">
+          <span class="portal-label">H&#7885; t&#234;n &#273;&#7847;y &#273;&#7911;</span>
+          <input id="s-name" class="portal-input" type="text" placeholder="vd: L&#234; &#272;&#259;ng Kh&#244;i" autocomplete="name" />
+        </label>
+        <label class="portal-field">
+          <span class="portal-label">Ng&#224;y th&#225;ng n&#259;m sinh</span>
+          <input id="s-dob" class="portal-input" type="text" placeholder="dd/mm/yyyy" inputmode="numeric" autocomplete="bday" maxlength="10" />
+        </label>
+      </div>
+      <p class="portal-hint">Nh&#7853;p &#273;&#7847;y &#273;&#7911; h&#7885; t&#234;n v&#224; ng&#224;y th&#225;ng n&#259;m sinh &#273;&#7875; tr&#225;nh nh&#7847;m h&#7885;c sinh tr&#249;ng t&#234;n.</p>
+    </section>
 
-      <label>Ch&#7885;n l&#7899;p</label>
+    <section class="portal-card">
+      <h2 class="portal-section-title">Ch&#7885;n l&#7899;p</h2>
       <div id="s-classes" class="class-checklist"></div>
-      <label>H&#7885; t&#234;n &#273;&#7847;y &#273;&#7911;
-        <input id="s-name" type="text" placeholder="vd: L&#234; &#272;&#259;ng Kh&#244;i" autocomplete="name" />
-      </label>
-      <label>Ng&#224;y th&#225;ng n&#259;m sinh
-        <input id="s-dob" type="text" placeholder="dd/mm/yyyy" inputmode="numeric" autocomplete="bday" maxlength="10" />
-      </label>
+    </section>
 
+    <section class="portal-card">
+      <h2 class="portal-section-title">T&#237;ch bu&#7893;i b&#7841;n b&#7853;n</h2>
       <div id="s-grid" class="grid-wrap"></div>
-
-      <button id="btn-submit" class="primary">G&#7917;i &#273;&#259;ng k&#253;</button>
-      <button id="btn-lookup" class="secondary">G&#7917;i l&#7841;i l&#7883;ch</button>
+      <div class="portal-actions">
+        <button id="btn-submit" class="portal-btn">G&#7917;i &#273;&#259;ng k&#253;</button>
+        <button id="btn-lookup" class="portal-btn ghost">G&#7917;i l&#7841;i l&#7883;ch</button>
+      </div>
       <p id="submit-msg" class="msg"></p>
       <p id="lookup-msg" class="msg"></p>
+    </section>
+
+    <section class="portal-card portal-result-card">
+      <h2 class="portal-section-title">L&#7883;ch &#273;&#227; g&#7917;i</h2>
       <div id="lookup-result" class="lookup-result"></div>
-    </div>
-  </section>
+    </section>
+
+    <footer class="portal-footer">
+      <span>Olympus English</span>
+      <span class="portal-footer-dot">&#9679;</span>
+      <a href="parent.html">C&#7893;ng ph&#7909; huynh</a>
+      <span class="portal-footer-dot">&#9679;</span>
+      <a href="index.html">Trang gi&#225;o vi&#234;n</a>
+    </footer>
+  </div>
 
   <script src="config.js"></script>
-  <script src="app.js?v=20260726-03"></script>
+  <script src="app.js?v=20260726-04"></script>
 </body>
 </html>

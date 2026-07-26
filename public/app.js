@@ -5869,12 +5869,12 @@ function initParentPortal() {
 }
 
 async function lookupParent() {
-  const msg = $('#parent-msg');
+  const msg = $('#portal-msg');
   const result = $('#parent-result');
   const button = $('#btn-parent-lookup');
   const code = ($('#parent-code')?.value || '').trim().toUpperCase();
   if (!code) {
-    if (msg) { msg.textContent = 'Nhập mã học sinh để tra cứu.'; msg.className = 'parent-msg err'; }
+    if (msg) { msg.textContent = 'Nhập mã học sinh để tra cứu.'; msg.className = 'portal-msg err'; }
     return;
   }
   if (code === 'DEMO') {
@@ -5883,14 +5883,14 @@ async function lookupParent() {
   }
   try {
     if (button) { button.disabled = true; button.textContent = 'Đang tra cứu...'; }
-    if (msg) { msg.textContent = ''; msg.className = 'parent-msg'; }
+    if (msg) { msg.textContent = ''; msg.className = 'portal-msg'; }
     result?.classList.add('hidden');
     const data = await api('/parent-lookup', { method: 'POST', body: JSON.stringify({ code }) });
     // Mã sai / bị chặn trả về {ok:false} chứ không raise, để RPC còn ghi được lần thử.
     if (data && data.ok === false) throw new Error(data.error || 'Không tra cứu được mã học sinh.');
     renderParentResult(data);
   } catch (err) {
-    if (msg) { msg.textContent = err.message; msg.className = 'parent-msg err'; }
+    if (msg) { msg.textContent = err.message; msg.className = 'portal-msg err'; }
   } finally {
     if (button) { button.disabled = false; button.textContent = 'Tra cứu'; }
   }
@@ -5941,7 +5941,7 @@ function parentSlotList(cls) {
     })
     .filter((item) => Number.isFinite(item.dayIdx) && Number.isFinite(item.sessionIdx))
     .sort((a, b) => a.dayIdx - b.dayIdx || a.sessionIdx - b.sessionIdx);
-  if (!entries.length) return '<p class="parent-empty">Tuần này lớp chưa có lịch.</p>';
+  if (!entries.length) return '<p class="portal-empty">Tuần này lớp chưa có lịch.</p>';
   return `<ul class="parent-slot-list">${entries.map((item) => {
     const rawLesson = lessons[item.slotId] || '';
     const lesson = rawLesson === 'REVIEW' ? 'Ôn tập' : rawLesson;
@@ -5967,28 +5967,28 @@ function renderParentResult(data) {
   const classes = data.classes || [];
   const timeline = parentTimelineEntries(data);
   result.innerHTML = `
-    <section class="parent-card parent-student-card">
+    <section class="portal-card parent-student-card">
       <div class="parent-student-main">
         <h2>${escapeHtml(student.name || '')}</h2>
         <p class="parent-student-dob">Ngày sinh: ${escapeHtml(formatDobInputValue(student.dob) || '')}</p>
       </div>
       <div class="parent-student-code"><span>Mã học sinh</span><b>${escapeHtml(student.code || '')}</b></div>
     </section>
-    ${profile.length ? `<section class="parent-card">
-      <h3 class="parent-section-title">Thông tin học tập</h3>
+    ${profile.length ? `<section class="portal-card">
+      <h3 class="portal-section-title">Thông tin học tập</h3>
       <dl class="parent-profile-grid">${profile.map((item) => `
         <div class="parent-profile-item"><dt>${escapeHtml(item.label)}</dt><dd>${escapeHtml(item.value ?? '')}</dd></div>`).join('')}</dl>
     </section>` : ''}
-    <section class="parent-card">
-      <h3 class="parent-section-title">Lịch học tuần này</h3>
+    <section class="portal-card">
+      <h3 class="portal-section-title">Lịch học tuần này</h3>
       ${classes.length ? classes.map((cls) => `
         <div class="parent-class-block">
           <div class="parent-class-head"><h4>${escapeHtml(cls.name)}</h4><span>${escapeHtml(cls.weekTitle || '')}${cls.weekStart ? ` · ${escapeHtml(weekRangeText(cls.weekStart))}` : ''}</span></div>
           ${parentSlotList(cls)}
-        </div>`).join('') : '<p class="parent-empty">Hiện chưa có lớp đang học.</p>'}
+        </div>`).join('') : '<p class="portal-empty">Hiện chưa có lớp đang học.</p>'}
     </section>
-    <section class="parent-card">
-      <h3 class="parent-section-title">Lộ trình Olympus</h3>
+    <section class="portal-card">
+      <h3 class="portal-section-title">Lộ trình Olympus</h3>
       ${timeline.length ? `<ol class="parent-timeline">${timeline.map((entry) => `
         <li class="parent-timeline-item status-${escapeHtml(entry.status)}">
           <span class="parent-timeline-dot"></span>
@@ -5996,7 +5996,7 @@ function renderParentResult(data) {
             <div class="parent-timeline-head"><b>${escapeHtml(entry.className)}</b><span class="parent-status-badge">${escapeHtml(entry.label)}</span></div>
             <div class="parent-timeline-dates">${escapeHtml(formatDateOnly(entry.from) || '')}${entry.to ? ` → ${escapeHtml(formatDateOnly(entry.to) || '')}` : ''}</div>
           </div>
-        </li>`).join('')}</ol>` : '<p class="parent-empty">Lộ trình sẽ hiện khi con bắt đầu khóa học đầu tiên.</p>'}
+        </li>`).join('')}</ol>` : '<p class="portal-empty">Lộ trình sẽ hiện khi con bắt đầu khóa học đầu tiên.</p>'}
     </section>`;
   result.classList.remove('hidden');
   result.scrollIntoView({ behavior: 'smooth', block: 'start' });

@@ -2130,13 +2130,26 @@ body.dark .profile-class-chip { background: #23264a; color: #b3b8ff; }
 body.dark .profile-timeline { border-left-color: #2c3050; }
 
 /* ---- Olympus Portal (parent page, cyber theme) ---- */
-body.parent-page {
+body.portal-page {
+  /* Đè bảng màu chung để mọi thành phần dùng lại (bảng, checkbox, msg...)
+     tự khoác tông cyber mà không phải style lại từng cái. */
+  --bg: #06070f;
+  --surface: rgba(15,18,38,.78);
+  --border: rgba(99,102,241,.3);
+  --text: #dfe3ff;
+  --muted: #8b93c7;
+  --primary: #818cf8;
+  --primary-dark: #a5b4fc;
+  --primary-soft: rgba(99,102,241,.18);
+  --success: #34d399;
+  --danger: #fb7185;
+  --warn: #fbbf24;
   background: #06070f;
   color: #dfe3ff;
   font-size: 15px;
 }
-body.parent-page::before { opacity: .05; filter: invert(1) brightness(1.4); }
-.parent-bg {
+body.portal-page::before { opacity: .05; filter: invert(1) brightness(1.4); }
+.portal-bg {
   position: fixed;
   inset: 0;
   z-index: 0;
@@ -2146,7 +2159,7 @@ body.parent-page::before { opacity: .05; filter: invert(1) brightness(1.4); }
     radial-gradient(720px 480px at 105% 15%, rgba(34,211,238,.16), transparent 62%),
     radial-gradient(620px 620px at 50% 115%, rgba(139,92,246,.18), transparent 60%);
 }
-.parent-bg::after {
+.portal-bg::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -2157,7 +2170,7 @@ body.parent-page::before { opacity: .05; filter: invert(1) brightness(1.4); }
   -webkit-mask-image: radial-gradient(70% 60% at 50% 20%, #000 0%, transparent 100%);
   mask-image: radial-gradient(70% 60% at 50% 20%, #000 0%, transparent 100%);
 }
-.parent-shell {
+.portal-shell {
   position: relative;
   z-index: 1;
   max-width: 760px;
@@ -2167,7 +2180,7 @@ body.parent-page::before { opacity: .05; filter: invert(1) brightness(1.4); }
   flex-direction: column;
   gap: 18px;
 }
-body.parent-page header.parent-hero {
+body.portal-page header.portal-hero {
   background: transparent;
   border-bottom: 0;
   padding: 0;
@@ -2175,23 +2188,23 @@ body.parent-page header.parent-hero {
   top: auto;
   z-index: auto;
 }
-.parent-hero { text-align: center; margin-bottom: 6px; }
-.parent-logo {
+.portal-hero { text-align: center; margin-bottom: 6px; }
+.portal-logo {
   width: 74px;
   height: 74px;
   margin: 0 auto 12px;
   background: url('assets/olympus-corner.png') center/contain no-repeat;
   filter: drop-shadow(0 0 18px rgba(99,102,241,.55));
 }
-.parent-title { margin: 0; font-size: clamp(26px, 6vw, 38px); font-weight: 800; letter-spacing: .18em; color: #f2f4ff; }
-.parent-title span {
+.portal-title { margin: 0; font-size: clamp(26px, 6vw, 38px); font-weight: 800; letter-spacing: .18em; color: #f2f4ff; }
+.portal-title span {
   background: linear-gradient(90deg, #818cf8, #22d3ee);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
-.parent-sub { margin: 6px 0 0; color: #8b93c7; letter-spacing: .08em; font-size: 13px; text-transform: uppercase; }
-.parent-card {
+.portal-sub { margin: 6px 0 0; color: #8b93c7; letter-spacing: .08em; font-size: 13px; text-transform: uppercase; }
+.portal-card {
   background: rgba(15,18,38,.78);
   border: 1px solid rgba(99,102,241,.32);
   border-radius: 18px;
@@ -2200,7 +2213,7 @@ body.parent-page header.parent-hero {
   backdrop-filter: blur(12px);
   box-shadow: 0 0 0 1px rgba(6,8,20,.4), 0 18px 50px rgba(3,5,16,.55), inset 0 1px 0 rgba(148,163,255,.08);
 }
-.parent-label { display: block; font-size: 12px; letter-spacing: .22em; text-transform: uppercase; color: #8b93c7; margin-bottom: 10px; }
+.portal-label { display: block; font-size: 12px; letter-spacing: .22em; text-transform: uppercase; color: #8b93c7; margin-bottom: 10px; }
 .parent-code-row { display: flex; gap: 10px; }
 #parent-code {
   flex: 1;
@@ -2233,9 +2246,9 @@ body.parent-page header.parent-hero {
 #btn-parent-lookup:hover { filter: brightness(1.12); }
 #btn-parent-lookup:active { transform: translateY(1px); }
 #btn-parent-lookup:disabled { opacity: .6; cursor: wait; }
-.parent-hint { margin: 12px 0 0; color: #6d75a8; font-size: 13px; }
-.parent-msg { margin: 10px 0 0; min-height: 18px; font-size: 13px; }
-.parent-msg.err { color: #fb7185; }
+.portal-hint { margin: 12px 0 0; color: #6d75a8; font-size: 13px; }
+.portal-msg { margin: 10px 0 0; min-height: 18px; font-size: 13px; }
+.portal-msg.err { color: #fb7185; }
 .parent-result { display: flex; flex-direction: column; gap: 18px; }
 .parent-student-card { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .parent-student-main h2 { margin: 0 0 6px; font-size: 26px; color: #f5f6ff; }
@@ -2248,7 +2261,7 @@ body.parent-page header.parent-hero {
   color: #7dd3fc;
   text-shadow: 0 0 18px rgba(34,211,238,.5);
 }
-.parent-section-title {
+.portal-section-title {
   margin: 0 0 14px;
   font-size: 13px;
   letter-spacing: .2em;
@@ -2258,7 +2271,7 @@ body.parent-page header.parent-hero {
   align-items: center;
   gap: 10px;
 }
-.parent-section-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(129,140,248,.5), transparent); }
+.portal-section-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(129,140,248,.5), transparent); }
 .parent-profile-grid { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .parent-profile-item { border: 1px solid rgba(99,102,241,.25); border-radius: 12px; padding: 10px 14px; background: rgba(10,12,28,.65); }
 .parent-profile-item dt { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: #6d75a8; margin: 0 0 4px; }
@@ -2285,7 +2298,7 @@ body.parent-page header.parent-hero {
 .parent-slot-lesson { font-weight: 700; color: #f0f2ff; }
 .parent-slot-location { color: #8b93c7; font-size: 12px; }
 .parent-slot-note { color: #fbbf24; font-size: 12px; }
-.parent-empty { color: #6d75a8; margin: 0; font-size: 14px; }
+.portal-empty { color: #6d75a8; margin: 0; font-size: 14px; }
 .parent-timeline { list-style: none; margin: 0; padding: 0; position: relative; }
 .parent-timeline::before {
   content: '';
@@ -2329,7 +2342,7 @@ body.parent-page header.parent-hero {
 .status-moved .parent-status-badge { background: rgba(251,191,36,.15); color: #fcd34d; }
 .status-left .parent-status-badge { background: rgba(100,116,139,.2); color: #94a3b8; }
 .parent-timeline-dates { margin-top: 4px; color: #6d75a8; font-size: 12px; }
-.parent-footer {
+.portal-footer {
   text-align: center;
   color: #565d8f;
   font-size: 12px;
@@ -2340,18 +2353,142 @@ body.parent-page header.parent-hero {
   align-items: center;
   margin-top: 6px;
 }
-.parent-footer a { color: #818cf8; text-decoration: none; }
-.parent-footer a:hover { text-decoration: underline; }
-.parent-footer-dot { font-size: 7px; color: #33395f; }
+.portal-footer a { color: #818cf8; text-decoration: none; }
+.portal-footer a:hover { text-decoration: underline; }
+.portal-footer-dot { font-size: 7px; color: #33395f; }
 @keyframes parentPulse {
   0%, 100% { box-shadow: 0 0 8px rgba(34,211,238,.45); }
   50% { box-shadow: 0 0 20px rgba(34,211,238,.9); }
 }
 @media (max-width: 560px) {
-  .parent-shell { padding-top: 30px; }
-  .parent-card { padding: 16px; }
+  .portal-shell { padding-top: 30px; }
+  .portal-card { padding: 16px; }
   .parent-code-row { flex-direction: column; }
   #btn-parent-lookup { padding: 13px 22px; }
   .parent-student-card { flex-direction: column; align-items: flex-start; }
   .parent-student-code { text-align: left; }
+}
+
+/* ---- Olympus Portal (student page) ----
+   Trang học sinh dùng chung khung portal-* với trang phụ huynh; khối này chỉ
+   khoác tông cyber cho các thành phần dùng lại (checklist lớp, bảng tích buổi
+   bận, bảng lịch tra cứu). Đặt sau khối dark mode để thắng về thứ tự. */
+.portal-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.portal-field { display: block; margin: 0; }
+body.portal-page .portal-label { margin-bottom: 8px; }
+body.portal-page .portal-input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(99,102,241,.42);
+  background: rgba(5,7,18,.85);
+  color: #eef0ff;
+  font-size: 15px;
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+}
+body.portal-page .portal-input::placeholder { color: #444b7e; }
+body.portal-page .portal-input:focus {
+  border-color: #22d3ee;
+  box-shadow: 0 0 0 3px rgba(34,211,238,.18), 0 0 24px rgba(34,211,238,.2);
+}
+body.portal-page .portal-hint { margin-top: 14px; }
+
+.portal-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+body.portal-page .portal-btn {
+  padding: 13px 26px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(120deg, #6366f1, #22d3ee);
+  color: #04060f;
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: .03em;
+  cursor: pointer;
+  transition: filter .2s, transform .1s;
+}
+body.portal-page .portal-btn:hover { filter: brightness(1.12); }
+body.portal-page .portal-btn:active { transform: translateY(1px); }
+body.portal-page .portal-btn:disabled { opacity: .55; cursor: wait; }
+body.portal-page .portal-btn.ghost {
+  background: rgba(99,102,241,.12);
+  border: 1px solid rgba(99,102,241,.42);
+  color: #c7d2fe;
+}
+body.portal-page .portal-btn.ghost:hover { background: rgba(99,102,241,.22); }
+
+/* Checklist lớp */
+body.portal-page .class-check {
+  background: rgba(10,12,28,.6);
+  border-color: rgba(99,102,241,.25);
+  border-radius: 12px;
+  color: #dfe3ff;
+  transition: background .2s, border-color .2s, box-shadow .2s;
+}
+body.portal-page .class-check:hover { background: rgba(99,102,241,.16); border-color: rgba(34,211,238,.45); }
+body.portal-page .class-check input[type=checkbox] { accent-color: #22d3ee; }
+body.portal-page .class-check:has(input:checked) {
+  background: rgba(99,102,241,.22);
+  border-color: rgba(34,211,238,.55);
+  box-shadow: 0 0 0 1px rgba(34,211,238,.22), 0 0 18px rgba(34,211,238,.12);
+}
+body.portal-page .student-sector-title {
+  background: rgba(99,102,241,.1);
+  border-color: rgba(99,102,241,.25);
+  color: #a5b4fc;
+}
+body.portal-page .student-sector-title:hover {
+  background: rgba(99,102,241,.2);
+  border-color: rgba(34,211,238,.45);
+  color: #c7d2fe;
+}
+body.portal-page .placeholder { color: #6d75a8; }
+
+/* Bảng tích buổi bận + bảng lịch tra cứu */
+body.portal-page .grid-wrap { margin: 0; }
+body.portal-page table.grid th,
+body.portal-page table.grid td,
+body.portal-page table.schedule th,
+body.portal-page table.schedule td { border-color: rgba(99,102,241,.22); }
+body.portal-page table.grid th,
+body.portal-page table.schedule thead th {
+  background: rgba(99,102,241,.14);
+  color: #c7d2fe;
+}
+body.portal-page table.grid tbody th { background: rgba(10,12,28,.55); color: #e8ebff; }
+body.portal-page table.grid td { background: rgba(6,8,20,.3); }
+body.portal-page table.grid input[type=checkbox] { accent-color: #22d3ee; }
+body.portal-page table.schedule td { background: rgba(6,8,20,.3); }
+body.portal-page table.schedule td.name { color: #e8ebff; }
+body.portal-page tr.summary td { background: rgba(99,102,241,.12); color: #c7d2fe; }
+body.portal-page .free { color: #33395f; }
+
+/* Kết quả tra cứu */
+.portal-result-card:has(#lookup-result:empty) { display: none; }
+body.portal-page .lookup-result { margin-top: 0; }
+body.portal-page .lookup-head h3 { color: #eef0ff; }
+body.portal-page .lookup-block { margin-top: 0; }
+body.portal-page .lookup-block + .lookup-block { margin-top: 22px; }
+body.portal-page .student-code-banner {
+  background: rgba(99,102,241,.14);
+  border-color: rgba(99,102,241,.38);
+  color: #dfe3ff;
+}
+body.portal-page .student-code-banner a { color: #67e8f9; }
+body.portal-page .student-code-chip {
+  background: rgba(34,211,238,.16);
+  color: #7dd3fc;
+  border-color: rgba(34,211,238,.4);
+}
+body.portal-page .btn-send-change {
+  background: linear-gradient(120deg, #6366f1, #22d3ee);
+  border: 0;
+  color: #04060f;
+  font-weight: 800;
+}
+
+@media (max-width: 560px) {
+  .portal-field-grid { grid-template-columns: 1fr; }
+  .portal-actions { flex-direction: column; }
+  body.portal-page .portal-btn { width: 100%; }
 }
