@@ -1317,7 +1317,15 @@ function fitExportColumnWidths(table) {
   }
   const columnCount = Math.max(2, ...bodyRows.map((row) => row.cells.length));
   const widths = Array.from({ length: columnCount }, (_, columnIndex) => {
-    const values = bodyRows.map((row) => row.cells[columnIndex]?.textContent.trim() || '');
+    const values = bodyRows.map((row) => {
+      const cell = row.cells[columnIndex];
+      if (!cell) return '';
+      const dateEl = cell.querySelector('.student-submit-date');
+      if (!dateEl) return cell.textContent.trim();
+      const nameText = cell.querySelector('.student-name-text')?.textContent.trim() || '';
+      const dateText = dateEl.textContent.trim();
+      return nameText.length >= dateText.length ? nameText : dateText;
+    });
     if (columnIndex === 0) values.push('STT');
     if (columnIndex === 1) values.push(table.tHead?.rows[0]?.cells[1]?.textContent.trim() || 'H\u1ecdc sinh');
     if (columnIndex >= 2) {
@@ -1450,10 +1458,13 @@ function buildLightExportTable(sourceTable, imageTitleOptions = null, exportOpti
   table.querySelectorAll('.schedule-actions').forEach((cell) => cell.remove());
   table.querySelectorAll('.student-row-actions').forEach((actions) => actions.remove());
   table.querySelectorAll('.slot-edit-btn').forEach((button) => button.remove());
-  table.querySelectorAll('.student-submit-date').forEach((el) => el.remove());
+  if (!exportOptions.printTimestamp) table.querySelectorAll('.student-submit-date').forEach((el) => el.remove());
   if (exportOptions.printTimestamp) {
     const currentLabel = table.querySelector('tr.current-row td.name');
-    if (currentLabel) currentLabel.textContent = exportPrintTimestampLabel();
+    if (currentLabel) {
+      currentLabel.textContent = exportPrintTimestampLabel();
+      currentLabel.classList.add('image-day-title');
+    }
   }
   if (exportOptions.compactPlanner) compactPlannerForImage(table);
   const isPlanner = table.classList.contains('week-planner');
@@ -1764,6 +1775,27 @@ async function renderScheduleImage(source, titleOptions) {
         context.font = `${index === 0 ? '700 14px' : '600 10px'} Arial, sans-serif`;
         context.fillText(line, x + rect.width / 2, startY + index * lineHeight, Math.max(0, rect.width - 10));
       });
+      context.restore();
+      return;
+    }
+    const submitDate = cell.querySelector('.student-submit-date');
+    if (submitDate) {
+      const nameText = (cell.querySelector('.student-name-text')?.textContent || cell.textContent.replace(submitDate.textContent, '')).trim().replace(/\s+/g, ' ');
+      const dateText = submitDate.textContent.trim().replace(/\s+/g, ' ');
+      context.save();
+      context.beginPath();
+      context.rect(x + 2, y + 2, Math.max(0, rect.width - 4), Math.max(0, rect.height - 4));
+      context.clip();
+      context.textBaseline = 'middle';
+      context.textAlign = 'left';
+      context.fillStyle = style.color || '#111827';
+      context.font = '700 13px Arial, sans-serif';
+      context.fillText(nameText, x + 9, y + rect.height / 2 - 8, Math.max(0, rect.width - 12));
+      if (dateText) {
+        context.fillStyle = '#6b7280';
+        context.font = '400 11px Arial, sans-serif';
+        context.fillText(dateText, x + 9, y + rect.height / 2 + 9, Math.max(0, rect.width - 12));
+      }
       context.restore();
       return;
     }
