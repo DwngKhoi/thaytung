@@ -32,6 +32,8 @@ let vocabDeck = [];
 let vocabIndex = 0;
 let vocabRevealed = false;
 let vocabKnown = new Set();
+let vocabCustomizations = [];
+let teacherDirectory = [];
 const HOMEROOM_DATA_PREFIX = 'lichlop-homeroom-record:';
 const HOMEROOM_SELECTED_CLASS_KEY = 'lichlop-homeroom-class';
 const HOMEROOM_RECORD_TYPE_KEY = 'lichlop-homeroom-record-type';
@@ -421,6 +423,15 @@ async function supabaseApi(path, opts = {}) {
   }
   if (path === '/teacher-accounts' && method === 'GET') return supabaseRpc('api_teacher_accounts', { teacher_key: teacherToken() });
   if (path === '/teacher-accounts' && method === 'POST') return supabaseRpc('api_add_teacher_account', { teacher_key: teacherToken(), display_name: body.name, username: body.username, password: body.password });
+  if (path === '/teacher-directory' && method === 'GET') return supabaseRpc('api_teacher_directory', { teacher_key: teacherToken() });
+  if (path === '/vocabulary-customizations' && method === 'GET') return supabaseRpc('api_vocabulary_customizations', { teacher_key: teacherToken() });
+  if (path === '/vocabulary-customizations' && method === 'POST') return supabaseRpc('api_add_vocabulary_word', {
+    teacher_key: teacherToken(), book_id: body.bookId, unit_no: body.unitNo, word: body.word || {}
+  });
+  if (path === '/vocabulary-customizations' && method === 'DELETE') return supabaseRpc('api_remove_vocabulary_word', {
+    teacher_key: teacherToken(), book_id: body.bookId, unit_no: body.unitNo,
+    word_key: body.wordKey, custom_id: body.customId || null
+  });
   if (path === '/profile-fields' && method === 'GET') return supabaseRpc('api_profile_fields', { teacher_key: teacherToken() });
   if (path === '/profile-fields' && method === 'POST') return supabaseRpc('api_save_profile_field', { teacher_key: teacherToken(), field: body.field || {} });
   if (path === '/attendance' && method === 'GET') return supabaseRpc('api_attendance_rows', { teacher_key: teacherToken() });
@@ -488,6 +499,13 @@ async function supabaseApi(path, opts = {}) {
       sessions: body.sessions || [],
       lesson_starts: body.lessonStarts || {}
     });
+  }
+  if (action === 'schedule-meta' && method === 'POST') return supabaseRpc('api_save_schedule_extra_details', {
+    teacher_key: teacherToken(), class_id, week_start: body.weekStart, details: body.details || {}
+  });
+  if (action.startsWith('homeroom-sync/')) {
+    const type = decodeURIComponent(action.split('/')[1] || '');
+    return supabaseRpc('api_homeroom_schedule_sync', { teacher_key: teacherToken(), class_id, record_type: type });
   }
   if (action.startsWith('homeroom-record/')) {
     const type = decodeURIComponent(action.split('/')[1] || '');
@@ -711,7 +729,7 @@ async function loginTeacher() {
     teacherSession = { name: result.name, role: result.role, token: result.token, at: Date.now() };
     showTeacherDashboard(teacherSession);
     localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(teacherSession));
-    await loadClasses();
+    await Promise.all([loadClasses(), loadTeacherDirectory(), loadVocabCustomizations()]);
   } catch (err) {
     if (error) error.textContent = err.message;
   } finally {
@@ -736,6 +754,8 @@ function restoreTeacherSession() {
       const ul = $('#class-list');
       if (ul) ul.innerHTML = `<li class="placeholder">${escapeHtml(err.message)}</li>`;
     });
+    loadTeacherDirectory();
+    loadVocabCustomizations();
     const lastClassId = localStorage.getItem(SELECTED_CLASS_KEY);
     if (lastClassId) {
       selectedClassId = lastClassId;
@@ -3447,6 +3467,7 @@ async function openScheduleClass(classId, options = {}) {
   if (options.updateUrl !== false) history.pushState({ scheduleClassId: classId }, '', scheduleClassUrl(classId));
   target.innerHTML = '<p class="placeholder">Đang tải lịch lớp...</p>';
   try {
+    if (!teacherDirectory.length) await loadTeacherDirectory();
     const weekStart = options.weekStart || scheduleSelectedWeekStart || null;
     scheduleEditorData = await api(`/classes/${classId}/schedule`, {
       method: 'GET',
@@ -3495,7 +3516,11 @@ function collectScheduleDetails() {
   document.querySelectorAll('.week-slot.current-slot').forEach((cell) => {
     const locationValue = String(cell.dataset.location || '').trim();
     const note = String(cell.dataset.note || '').trim();
-    if (locationValue || note) details[cell.dataset.slot] = { location: locationValue, note };
+    const startTime = String(cell.dataset.startTime || '').trim();
+    const teacherName = String(cell.dataset.teacherName || '').trim();
+    if (locationValue || note || startTime || teacherName) {
+      details[cell.dataset.slot] = { location: locationValue, note, startTime, teacherName };
+    }
   });
   return details;
 }
@@ -3503,8 +3528,10 @@ function collectScheduleDetails() {
 function slotDetailHtml(detail = {}) {
   const locationValue = String(detail.location || '').trim();
   const note = String(detail.note || '').trim();
-  if (!locationValue && !note) return '';
-  return `<small class="slot-meta">${locationValue ? `<span class="slot-location">📍 ${escapeHtml(locationValue)}</span>` : ''}${note ? `<span class="slot-note">📝 ${escapeHtml(note)}</span>` : ''}</small>`;
+  const startTime = String(detail.startTime || '').trim();
+  const teacherName = String(detail.teacherName || '').trim();
+  if (!locationValue && !note && !startTime && !teacherName) return '';
+  return `<small class="slot-meta">${startTime ? `<span class="slot-time">🕒 ${escapeHtml(startTime)}</span>` : ''}${teacherName ? `<span class="slot-teacher">👤 ${escapeHtml(teacherName)}</span>` : ''}${locationValue ? `<span class="slot-location">📍 ${escapeHtml(locationValue)}</span>` : ''}${note ? `<span class="slot-note">📝 ${escapeHtml(note)}</span>` : ''}</small>`;
 }
 
 function renderScheduleEditor() {
@@ -3537,7 +3564,7 @@ function renderScheduleEditor() {
     const lesson = active ? weekSlots[slotId] || '' : '';
     const lessonDisplay = displayLessonLabel(lesson);
     const detail = weekDetails[slotId] || {};
-    table += `<td class="week-slot${active ? ' current-slot' : ''}${lesson ? ' has-lesson' : ''}${historical ? ' historical-slot' : ''}" data-slot="${slotId}" data-lesson="${escapeHtml(lesson)}" data-location="${escapeHtml(detail.location || '')}" data-note="${escapeHtml(detail.note || '')}" title="${historical ? 'Tuần cũ chỉ xem' : active ? 'Thả môn học vào đây; bấm đúp để xoá nội dung' : 'Bấm để bật ô lịch'}"><span class="slot-lesson">${lesson ? escapeHtml(lessonDisplay) : '&middot;'}</span>${active ? slotDetailHtml(detail) : ''}${historical ? '' : '<button class="slot-edit-btn" type="button" title="Địa điểm và ghi chú">✎</button>'}</td>`;
+    table += `<td class="week-slot${active ? ' current-slot' : ''}${lesson ? ' has-lesson' : ''}${historical ? ' historical-slot' : ''}" data-slot="${slotId}" data-lesson="${escapeHtml(lesson)}" data-location="${escapeHtml(detail.location || '')}" data-note="${escapeHtml(detail.note || '')}" data-start-time="${escapeHtml(detail.startTime || '')}" data-teacher-name="${escapeHtml(detail.teacherName || '')}" title="${historical ? 'Tuần cũ chỉ xem' : active ? 'Thả môn học vào đây; bấm đúp để xoá nội dung' : 'Bấm để bật ô lịch'}"><span class="slot-lesson">${lesson ? escapeHtml(lessonDisplay) : '&middot;'}</span>${active ? slotDetailHtml(detail) : ''}${historical ? '' : '<button class="slot-edit-btn" type="button" title="Giờ, giáo viên, địa điểm và ghi chú">✎</button>'}</td>`;
   }));
   table += '</tr></tbody></table></div>';
 
@@ -3583,7 +3610,7 @@ function renderScheduleEditor() {
         ].map(([type, label]) => `<button class="lesson-token lesson-${type.toLowerCase()}" draggable="true" data-type="${type}" type="button">${label}</button>`).join('')}
       </div>
     </div>`}
-    <p class="planner-help">Bấm ô để bật/tắt màu vàng. Kéo S/W/LR/MT/FT/Ôn tập vào ô vàng; S/W/LR tự tăng số từ toàn bộ lịch sử. Bấm bút ✎ để thêm địa điểm và ghi chú; bấm đúp ô để xoá môn học.</p>
+    <p class="planner-help">Bấm ô để bật/tắt màu vàng. Kéo S/W/LR/MT/FT/Ôn tập vào ô vàng; S/W/LR tự tăng số từ toàn bộ lịch sử. Bấm bút ✎ để chọn giờ, giáo viên, địa điểm và ghi chú; dữ liệu sẽ tự điền sang Sổ chủ nhiệm và Bảng công.</p>
     ${table}
     <div class="planner-save-row">
       <span id="planner-save-msg" class="msg"></span>
@@ -3613,7 +3640,12 @@ function applyLessonToCell(cell, type) {
 function refreshSlotDetails(cell) {
   cell.querySelector('.slot-meta')?.remove();
   const pencil = cell.querySelector('.slot-edit-btn');
-  const html = slotDetailHtml({ location: cell.dataset.location, note: cell.dataset.note });
+  const html = slotDetailHtml({
+    location: cell.dataset.location,
+    note: cell.dataset.note,
+    startTime: cell.dataset.startTime,
+    teacherName: cell.dataset.teacherName
+  });
   if (html) pencil?.insertAdjacentHTML('beforebegin', html);
 }
 
@@ -3621,7 +3653,17 @@ function openSlotDetailsDialog(cell) {
   const currentLocation = String(cell.dataset.location || '');
   const presets = ['Tầng 1', 'Tầng 2', 'CS2'];
   const selectedPreset = !currentLocation ? 'Tầng 1' : presets.includes(currentLocation) ? currentLocation : 'custom';
-  const dialog = openMiniDialog('Địa điểm và ghi chú', `
+  const currentTeacher = String(cell.dataset.teacherName || 'Thầy Tùng');
+  const dialog = openMiniDialog('Thông tin buổi học', `
+    <div class="slot-dialog-grid">
+      <label>Giờ bắt đầu
+        <input id="slot-start-time" type="time" value="${escapeHtml(cell.dataset.startTime || '')}" />
+      </label>
+      <label>Giáo viên
+        <select id="slot-teacher">${teacherOptionsHtml(currentTeacher, isOwner())}</select>
+      </label>
+    </div>
+    <input id="slot-teacher-custom" class="hidden" type="text" placeholder="Nhập tên hiển thị tuỳ chỉnh..." />
     <label>Địa điểm
       <select id="slot-location-preset">
         ${presets.map((value) => `<option value="${escapeHtml(value)}"${selectedPreset === value ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('')}
@@ -3634,8 +3676,13 @@ function openSlotDetailsDialog(cell) {
     </label>`, async (overlay) => {
       const preset = overlay.querySelector('#slot-location-preset')?.value || 'Tầng 1';
       const custom = overlay.querySelector('#slot-location-custom')?.value.trim() || '';
+      const teacherSelect = overlay.querySelector('#slot-teacher');
+      const teacherCustom = overlay.querySelector('#slot-teacher-custom')?.value.trim() || '';
+      if (teacherSelect?.value === '__custom__' && !teacherCustom) throw new Error('Nhập tên giáo viên tuỳ chỉnh.');
       cell.dataset.location = preset === 'custom' ? custom : preset;
       cell.dataset.note = overlay.querySelector('#slot-note')?.value.trim() || '';
+      cell.dataset.startTime = overlay.querySelector('#slot-start-time')?.value || '';
+      cell.dataset.teacherName = teacherSelect?.value === '__custom__' ? teacherCustom : (teacherSelect?.value || '');
       if (!cell.classList.contains('current-slot')) cell.classList.add('current-slot');
       refreshSlotDetails(cell);
       scheduleDirty = true;
@@ -3643,6 +3690,10 @@ function openSlotDetailsDialog(cell) {
   dialog.querySelector('#slot-location-custom')?.addEventListener('input', () => {
     const select = dialog.querySelector('#slot-location-preset');
     if (select) select.value = 'custom';
+  });
+  dialog.querySelector('#slot-teacher')?.addEventListener('change', (event) => {
+    dialog.querySelector('#slot-teacher-custom')?.classList.toggle('hidden', event.target.value !== '__custom__');
+    if (event.target.value === '__custom__') dialog.querySelector('#slot-teacher-custom')?.focus();
   });
 }
 
@@ -3699,6 +3750,8 @@ function wireScheduleEditor() {
         cell.dataset.lesson = '';
         cell.dataset.location = '';
         cell.dataset.note = '';
+        cell.dataset.startTime = '';
+        cell.dataset.teacherName = '';
         const lessonTarget = cell.querySelector('.slot-lesson');
         if (lessonTarget) lessonTarget.textContent = '·';
         refreshSlotDetails(cell);
@@ -3785,7 +3838,10 @@ async function saveScheduleWeek() {
   showMsg(msg, 'Đang lưu...', '');
   try {
     await api(`/classes/${scheduleClassId}/schedule`, { method: 'POST', body: JSON.stringify(body) });
-    showMsg(msg, 'Đã lưu và đồng bộ sang tab Lớp học.', 'ok');
+    await api(`/classes/${scheduleClassId}/schedule-meta`, {
+      method: 'POST', body: JSON.stringify({ weekStart: body.weekStart, details: body.details })
+    });
+    showMsg(msg, 'Đã lưu và đồng bộ sang Lớp học, Sổ chủ nhiệm và Bảng công.', 'ok');
     scheduleDirty = false;
     scheduleSelectedWeekStart = body.weekStart;
     await loadClasses();
@@ -3886,7 +3942,7 @@ function homeroomSkillName(type) {
   return 'LR';
 }
 
-function homeroomDefaultCells(cls, type, lessonCount = 3) {
+function homeroomDefaultCells(cls, type, lessonCount = 3, scheduleLessons = []) {
   const cells = {};
   const metaRows = homeroomMetaRows(type);
   const students = sortSubmissions((cls.submissions || []).filter((item) => item.status === 'approved'));
@@ -3895,10 +3951,16 @@ function homeroomDefaultCells(cls, type, lessonCount = 3) {
   set(0, 1, cls.name || 'L\u1edbp');
   Array.from({ length: lessonCount }).forEach((lesson, index) => {
     const base = 3 + index * 4;
+    const synced = scheduleLessons[index] || {};
+    const dateText = [
+      synced.dayName || '',
+      synced.lessonDate ? formatDobInputValue(synced.lessonDate) : '',
+      synced.startTime || synced.sessionName || ''
+    ].filter(Boolean).join(' · ');
     set(0, base, `B${index + 1}`);
-    set(0, base + 1, `${skill}${index + 1}`);
-    set(0, base + 2, 'Ng\u00e0y');
-    set(0, base + 3, 'GV');
+    set(0, base + 1, synced.lessonLabel || `${skill}${index + 1}`);
+    set(0, base + 2, dateText || 'Ng\u00e0y');
+    set(0, base + 3, synced.teacherName || 'GV');
   });
   if (type !== 'LR') {
     set(1, 1, 'N\u1ed9i dung h\u1ecdc');
@@ -4184,9 +4246,12 @@ async function renderHomeroomTable(cls, type) {
   if (type === 'ALL') {
     return `<div class="placeholder">To\u00e0n b\u1ed9 s\u1ebd g\u1ed9p LR/S/W \u1edf b\u01b0\u1edbc sau. Hi\u1ec7n t\u1ea1i h\u00e3y ch\u1ecdn LR-rec, S-rec ho\u1eb7c W-rec.</div>`;
   }
-  const saved = await loadHomeroomData(cls.id, type);
-  const lessonCount = Math.max(3, saved.lessonCount || 3);
-  const defaults = homeroomDefaultCells(cls, type, lessonCount);
+  const [saved, scheduleLessons] = await Promise.all([
+    loadHomeroomData(cls.id, type),
+    api(`/classes/${cls.id}/homeroom-sync/${encodeURIComponent(type)}`).catch(() => [])
+  ]);
+  const lessonCount = Math.max(3, saved.lessonCount || 3, scheduleLessons.length || 0);
+  const defaults = homeroomDefaultCells(cls, type, lessonCount, scheduleLessons);
   const extraRows = Math.max(0, Number(saved.extraRows) || 0);
   const extraCols = Math.max(0, Number(saved.extraCols) || 0);
   const insertedRows = normalizeInsertedIndexes(saved.insertedRows);
@@ -4196,7 +4261,7 @@ async function renderHomeroomTable(cls, type) {
   const palette = overviewPalette();
   let html = `<section id="homeroom-record" class="homeroom-record ${homeroomEditMode ? 'homeroom-editing' : ''}" data-lesson-count="${lessonCount}" data-extra-rows="${extraRows}" data-extra-cols="${extraCols}" data-inserted-rows="${insertedRows.join(',')}" data-inserted-cols="${insertedCols.join(',')}" data-base-rows="${defaults.rowCount}" data-base-cols="${defaults.colCount}">
     <div class="homeroom-record-head">
-      <div><h3>${escapeHtml(cls.name)} - ${escapeHtml(type)}-rec</h3><p class="hint">Ch\u1ecdn/k\u00e9o v\u00f9ng nh\u01b0 Excel; b\u1ea5m ch\u1eef c\u1ed9t ho\u1eb7c s\u1ed1 h\u00e0ng \u0111\u1ec3 ch\u1ecdn c\u1ea3 d\u00e3y; chu\u1ed9t ph\u1ea3i \u0111\u1ec3 ch\u00e8n/xo\u00e1; nh\u1ea5p \u0111\u00fap ho\u1eb7c F2 \u0111\u1ec3 s\u1eeda \u00f4.</p></div>
+      <div><h3>${escapeHtml(cls.name)} - ${escapeHtml(type)}-rec</h3><p class="hint">Buổi, thứ/ngày, giờ và giáo viên tự đồng bộ từ tab Lịch. Chọn/kéo vùng như Excel; chuột phải để chèn/xoá; nhấp đúp hoặc F2 để sửa ô.</p></div>
       <div class="homeroom-record-actions">
         <button id="homeroom-copy-excel" class="btn-export" type="button">Copy Excel</button>
         <button id="homeroom-download-excel" class="btn-export btn-download-excel" type="button">T\u1ea3i Excel</button>
@@ -5893,9 +5958,58 @@ function selectedVocabUnit() {
   return book?.units?.find((unit) => Number(unit.unit) === number) || book?.units?.[0] || null;
 }
 
+async function loadTeacherDirectory() {
+  if (!teacherSession) {
+    teacherDirectory = [];
+    return [];
+  }
+  try {
+    const rows = await api('/teacher-directory');
+    teacherDirectory = [...new Set((rows || []).map((item) => String(item.name || item).trim()).filter(Boolean))];
+  } catch (err) {
+    teacherDirectory = ['Thầy Tùng'];
+  }
+  if (!teacherDirectory.includes('Thầy Tùng')) teacherDirectory.unshift('Thầy Tùng');
+  return teacherDirectory;
+}
+
+function teacherOptionsHtml(selected = '', allowCustom = isOwner()) {
+  const names = [...new Set(['Thầy Tùng', ...teacherDirectory, selected].map((name) => String(name || '').trim()).filter(Boolean))];
+  return `${names.map((name) => `<option value="${escapeHtml(name)}"${name === selected ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}
+    ${allowCustom ? '<option value="__custom__">Tên khác...</option>' : ''}`;
+}
+
+async function loadVocabCustomizations() {
+  if (!teacherSession) {
+    vocabCustomizations = [];
+    return [];
+  }
+  try {
+    vocabCustomizations = await api('/vocabulary-customizations');
+    if ($('#tab-games')?.classList.contains('active')) rebuildVocabDeck();
+  } catch (err) {
+    vocabCustomizations = [];
+  }
+  return vocabCustomizations;
+}
+
+function vocabWordsForUnit(book, unit) {
+  if (!book || !unit) return [];
+  const rows = vocabCustomizations.filter((item) => item.bookId === book.id && Number(item.unitNo) === Number(unit.unit));
+  const removed = new Set(rows.filter((item) => item.action === 'remove').map((item) => String(item.wordKey || '').toLocaleLowerCase()));
+  const base = (unit.words || [])
+    .filter((word) => !removed.has(String(word.w || '').trim().toLocaleLowerCase()))
+    .map((word) => ({ ...word, _source: 'base', _bookId: book.id, _unitNo: unit.unit }));
+  const custom = rows.filter((item) => item.action === 'add' && item.data?.w).map((item) => ({
+    ...item.data, _source: 'custom', _customId: item.id, _bookId: book.id, _unitNo: unit.unit
+  }));
+  return [...base, ...custom];
+}
+
 function rebuildVocabDeck(reset = true) {
+  const book = selectedVocabBook();
   const unit = selectedVocabUnit();
-  vocabDeck = shuffled(unit?.words || []);
+  vocabDeck = shuffled(vocabWordsForUnit(book, unit));
   if (reset) {
     vocabIndex = 0;
     vocabKnown = new Set();
@@ -6008,7 +6122,63 @@ function initVocabGame() {
     utterance.rate = .86;
     window.speechSynthesis.speak(utterance);
   });
+  $('#btn-vocab-add')?.addEventListener('click', openAddVocabDialog);
+  $('#btn-vocab-remove')?.addEventListener('click', removeCurrentVocabWord);
   renderVocabGame();
+}
+
+function openAddVocabDialog() {
+  if (!isOwner()) return;
+  const body = `<p class="hint">Từ mới được thêm vào đúng giáo trình và Unit đang chọn, lưu bền trên Supabase.</p>
+    <div class="vocab-manage-form">
+      <label>Từ / cụm từ<input id="vocab-new-word" type="text" placeholder="vd: make progress" /></label>
+      <label>Loại từ<input id="vocab-new-type" type="text" placeholder="n, v, adj, phr..." /></label>
+      <label>IPA<input id="vocab-new-ipa" type="text" placeholder="/.../" /></label>
+      <label>Nghĩa tiếng Việt<input id="vocab-new-vn" type="text" /></label>
+      <label class="vocab-manage-wide">Ví dụ<input id="vocab-new-example" type="text" placeholder="Example sentence..." /></label>
+    </div>`;
+  const dialog = openMiniDialog('Thêm từ vựng', body, async (overlay) => {
+    const word = {
+      w: overlay.querySelector('#vocab-new-word')?.value.trim() || '',
+      t: overlay.querySelector('#vocab-new-type')?.value.trim() || '',
+      ipa: overlay.querySelector('#vocab-new-ipa')?.value.trim() || '',
+      vn: overlay.querySelector('#vocab-new-vn')?.value.trim() || '',
+      ex: overlay.querySelector('#vocab-new-example')?.value.trim() || ''
+    };
+    if (!word.w || !word.vn) throw new Error('Cần nhập từ và nghĩa tiếng Việt.');
+    if (vocabDeck.some((item) => String(item.w || '').toLocaleLowerCase() === word.w.toLocaleLowerCase())) {
+      throw new Error('Từ này đã có trong Unit.');
+    }
+    const book = selectedVocabBook();
+    const unit = selectedVocabUnit();
+    await api('/vocabulary-customizations', {
+      method: 'POST', body: JSON.stringify({ bookId: book.id, unitNo: unit.unit, word })
+    });
+    await loadVocabCustomizations();
+    rebuildVocabDeck();
+  });
+  dialog.querySelector('#vocab-new-word')?.focus();
+}
+
+async function removeCurrentVocabWord() {
+  if (!isOwner()) return;
+  const word = vocabDeck[vocabIndex];
+  if (!word || !confirm(`Bỏ từ “${word.w}” khỏi Unit này?`)) return;
+  try {
+    await api('/vocabulary-customizations', {
+      method: 'DELETE',
+      body: JSON.stringify({
+        bookId: word._bookId || selectedVocabBook()?.id,
+        unitNo: word._unitNo || selectedVocabUnit()?.unit,
+        wordKey: word.w,
+        customId: word._customId || null
+      })
+    });
+    await loadVocabCustomizations();
+    rebuildVocabDeck();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 /* ---- Bảng công: phần nhập tay nhỏ, số liệu điểm danh đọc trực tiếp từ Sổ chủ nhiệm ---- */
@@ -6051,11 +6221,11 @@ function renderAttendance() {
         <td class="attendance-class">${escapeHtml(row.className)}</td>
         <td><b>${escapeHtml(row.recordType)}</b></td>
         <td>${escapeHtml(row.lessonLabel || `${row.recordType}${Number(row.lessonIndex) + 1}`)}</td>
-        <td><input data-field="lessonDate" type="date" value="${escapeHtml(attendanceField(row, 'lessonDate', row.recordDate || ''))}" /></td>
-        <td><input data-field="teacherName" type="text" value="${escapeHtml(attendanceField(row, 'teacherName', row.recordTeacher || teacherSession?.name || ''))}" /></td>
-        <td><input data-field="startTime" type="time" value="${escapeHtml(attendanceField(row, 'startTime'))}" /></td>
+        <td><input class="attendance-date-input" data-field="lessonDate" type="date" value="${escapeHtml(attendanceField(row, 'lessonDate') || row.recordDate || '')}" /></td>
+        <td><select class="attendance-teacher-select" data-field="teacherName">${teacherOptionsHtml(attendanceField(row, 'teacherName') || row.recordTeacher || 'Thầy Tùng', isOwner())}</select></td>
+        <td><input class="attendance-time-input" data-field="startTime" type="time" value="${escapeHtml(attendanceField(row, 'startTime') || row.recordStartTime || '')}" /></td>
         <td><input data-field="endTime" type="time" value="${escapeHtml(attendanceField(row, 'endTime'))}" /></td>
-        <td><input data-field="periods" type="number" min="0" max="20" step=".5" value="${escapeHtml(attendanceField(row, 'periods', ''))}" /></td>
+        <td><input class="attendance-period-input" data-field="periods" type="number" min="0" max="20" step=".5" value="${escapeHtml(attendanceField(row, 'periods', ''))}" /></td>
         <td class="attendance-sync">${Number(row.studentCount) || 0}</td>
         <td class="attendance-sync">${Number(row.presentCount) || 0}</td>
         <td class="attendance-sync attendance-absent ${Number(row.absentCount) ? 'has-absence' : ''}">${Number(row.absentCount) || 0}</td>
@@ -6065,11 +6235,36 @@ function renderAttendance() {
     }).join('')}</tbody>
   </table>`;
   root.querySelectorAll('input, select').forEach((input) => {
-    input.addEventListener('change', () => scheduleAttendanceSave(input.closest('tr')));
+    input.addEventListener('focus', () => { input.dataset.previousValue = input.value; });
+    input.addEventListener('change', () => {
+      if (input.dataset.field === 'teacherName' && input.value === '__custom__' && isOwner()) {
+        const previous = input.dataset.previousValue || 'Thầy Tùng';
+        input.value = previous;
+        openAttendanceCustomTeacher(input, input.closest('tr'));
+        return;
+      }
+      scheduleAttendanceSave(input.closest('tr'));
+    });
     if (input.tagName === 'INPUT' && !['date', 'time', 'number'].includes(input.type)) {
       input.addEventListener('input', () => scheduleAttendanceSave(input.closest('tr')));
     }
   });
+}
+
+function openAttendanceCustomTeacher(select, tr) {
+  openMiniDialog('Tên giáo viên tuỳ chỉnh',
+    '<label>Tên hiển thị<input id="attendance-custom-teacher" type="text" placeholder="vd: Cô Lan (Speaking)" /></label>',
+    async (overlay) => {
+      const name = overlay.querySelector('#attendance-custom-teacher')?.value.trim() || '';
+      if (!name) throw new Error('Nhập tên giáo viên.');
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      select.insertBefore(option, select.querySelector('option[value="__custom__"]'));
+      select.value = name;
+      scheduleAttendanceSave(tr);
+    }
+  ).querySelector('#attendance-custom-teacher')?.focus();
 }
 
 function collectAttendanceEntry(tr) {
@@ -6115,6 +6310,7 @@ async function loadAttendance() {
   }
   root.innerHTML = '<div class="attendance-empty">Đang đồng bộ Sổ chủ nhiệm...</div>';
   try {
+    if (!teacherDirectory.length) await loadTeacherDirectory();
     attendanceRows = await api('/attendance');
     const select = $('#attendance-class-filter');
     const current = select?.value || '';
@@ -6135,7 +6331,7 @@ async function copyAttendanceToExcel(button) {
   const headers = ['Lớp', 'Kỹ năng', 'Buổi', 'Ngày', 'Giáo viên', 'Giờ vào', 'Giờ ra', 'Số tiết', 'Sĩ số', 'Có mặt', 'Vắng', 'Trạng thái', 'Nội dung / ghi chú'];
   const values = rows.map((row) => {
     const e = row.entry || {};
-    return [row.className, row.recordType, row.lessonLabel, e.lessonDate || row.recordDate || '', e.teacherName || row.recordTeacher || '', e.startTime || '', e.endTime || '', e.periods || '', row.studentCount || 0, row.presentCount || 0, row.absentCount || 0, e.status || 'Chưa chốt', e.note || ''];
+    return [row.className, row.recordType, row.lessonLabel, e.lessonDate || row.recordDate || '', e.teacherName || row.recordTeacher || '', e.startTime || row.recordStartTime || '', e.endTime || '', e.periods || '', row.studentCount || 0, row.presentCount || 0, row.absentCount || 0, e.status || 'Chưa chốt', e.note || ''];
   });
   const clean = (value) => String(value ?? '').replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
   const tsv = [headers, ...values].map((row) => row.map(clean).join('\t')).join('\n');

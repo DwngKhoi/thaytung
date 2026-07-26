@@ -2556,6 +2556,10 @@ body.portal-page .free { color: #5f6899; }
 .vocab-flashcard.revealed .vocab-example { opacity: 1; transform: none; }
 .vocab-flip-hint { margin-top: 8px; color: #94a3b8; font-size: 11px; }
 .vocab-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; }
+.vocab-owner-divider { width: 1px; height: 30px; background: var(--border); margin: 0 3px; }
+.vocab-manage-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.vocab-manage-form label { display: flex; flex-direction: column; gap: 5px; }
+.vocab-manage-wide { grid-column: 1 / -1; }
 .vocab-known { border-color: rgba(16,185,129,.42); color: #047857; background: rgba(16,185,129,.09); }
 .vocab-known.active { color: white; background: #10b981; }
 body.dark .vocab-flashcard {
@@ -2588,8 +2592,8 @@ body.dark .vocab-example { color: #cbd5e1; }
 }
 .attendance-table th,
 .attendance-table td {
-  min-width: 82px;
-  padding: 8px 9px;
+  min-width: 0;
+  padding: 6px 7px;
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   background: var(--card);
@@ -2612,15 +2616,16 @@ body.dark .vocab-example { color: #cbd5e1; }
   position: sticky;
   left: 0;
   z-index: 2;
-  min-width: 90px;
+  min-width: 68px;
   font-weight: 800;
   color: var(--primary);
 }
 .attendance-table th.attendance-class { z-index: 6; }
 .attendance-table input,
 .attendance-table select {
-  width: 100%;
-  min-width: 82px;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
   min-height: 32px;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -2628,6 +2633,14 @@ body.dark .vocab-example { color: #cbd5e1; }
   background: transparent;
   color: var(--text);
 }
+.attendance-table .attendance-date-input { width: 126px; }
+.attendance-table .attendance-time-input,
+.attendance-table input[type="time"] { width: 88px; }
+.attendance-table .attendance-period-input { width: 58px; }
+.attendance-table .attendance-teacher-select { width: 145px; }
+.attendance-table select[data-field="status"] { width: 104px; }
+.attendance-table input[data-field="note"] { width: 210px; }
+.attendance-table .attendance-sync { min-width: 48px; }
 .attendance-table input:focus,
 .attendance-table select:focus {
   outline: none;
@@ -2661,11 +2674,18 @@ body.dark .vocab-example { color: #cbd5e1; }
 }
 .profile-identity-editor label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .profile-identity-editor input { width: 100%; }
+.slot-dialog-grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 10px; }
+.slot-dialog-grid label { display: flex; flex-direction: column; gap: 5px; }
+.slot-time { color: #0369a1; }
+.slot-teacher { color: #6d28d9; }
 
 @media (max-width: 820px) {
   .vocab-controls { grid-template-columns: 1fr 1fr; }
   .attendance-filters { grid-template-columns: 1fr 1fr; }
   .profile-identity-editor { grid-template-columns: 1fr; }
+  .vocab-manage-form,
+  .slot-dialog-grid { grid-template-columns: 1fr; }
+  .vocab-manage-wide { grid-column: auto; }
 }
 @media (max-width: 520px) {
   .vocab-controls,

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260726-05" />
+  <link rel="stylesheet" href="style.css?v=20260726-06" />
 </head>
 <body>
   <header>
@@ -210,11 +210,14 @@
           <span class="vocab-flip-hint">Ch&#7841;m th&#7867; &#273;&#7875; xem &#273;&#225;p &#225;n</span>
         </button>
         <div class="vocab-actions">
-          <button id="btn-vocab-prev" type="button">&#8592; T&#7915; tr&#432;&#7899;c</button>
-          <button id="btn-vocab-speak" class="btn-export" type="button">&#128266; Ph&#225;t &#226;m</button>
-          <button id="btn-vocab-known" class="vocab-known" type="button">&#10003; &#272;&#227; nh&#7899;</button>
-          <button id="btn-vocab-next" class="primary" type="button">T&#7915; ti&#7871;p theo &#8594;</button>
-        </div>
+        <button id="btn-vocab-prev" type="button">&#8592; T&#7915; tr&#432;&#7899;c</button>
+        <button id="btn-vocab-speak" class="btn-export" type="button">&#128266; Ph&#225;t &#226;m</button>
+        <button id="btn-vocab-known" class="vocab-known" type="button">&#10003; &#272;&#227; nh&#7899;</button>
+        <button id="btn-vocab-next" class="primary" type="button">T&#7915; ti&#7871;p theo &#8594;</button>
+        <span class="vocab-owner-divider owner-only hidden"></span>
+        <button id="btn-vocab-add" class="btn-export owner-only hidden" type="button">+ Th&#234;m t&#7915;</button>
+        <button id="btn-vocab-remove" class="btn-del-class owner-only hidden" type="button">B&#7887; t&#7915; n&#224;y</button>
+      </div>
       </div>
     </div>
   </section>
@@ -283,6 +286,6 @@
 
   <script src="config.js"></script>
   <script src="vocab-data.js?v=20260726-01"></script>
-  <script src="app.js?v=20260726-05"></script>
+  <script src="app.js?v=20260726-06"></script>
 </body>
 </html>

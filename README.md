@@ -119,9 +119,11 @@ Lưu ý: mã học sinh suy ra được từ tên + ngày sinh, nên chỉ bật
 ### Bảng công và trò chơi từ vựng
 
 Với database đã chạy schema cũ, vào **SQL Editor** và chạy file `supabase/attendance_profile.sql` một lần.
+Sau đó chạy thêm `supabase/vocab_schedule_sync.sql` để bật quản lý từ vựng, dropdown giáo viên và đồng bộ Lịch → Sổ chủ nhiệm → Bảng công.
 
 - **Bảng công:** mỗi dòng lấy từ một buổi LR/S/W trong Sổ chủ nhiệm. Sĩ số, có mặt và vắng được tính trực tiếp từ record nên không lưu lặp dữ liệu. Owner và giáo viên được phân công lớp có thể nhập ngày, giáo viên, giờ vào/ra, số tiết, trạng thái và ghi chú.
-- **Trò chơi:** dữ liệu 520 từ của ba mức Complete IELTS nằm trong `public/vocab-data.js`; chọn sách → Unit → lật thẻ/random/phát âm. Đây là file tĩnh trên GitHub Pages nên không dùng dung lượng database và không tạo request Supabase.
+- **Đồng bộ lịch:** trong tab Lịch, mỗi ô học có thể chọn giờ bắt đầu và giáo viên từ dropdown hệ thống. Khi lưu, Sổ chủ nhiệm tự điền mã buổi, thứ/ngày, giờ và giáo viên; Bảng công tiếp tục lấy các thông tin đó cùng dữ liệu điểm danh.
+- **Trò chơi:** dữ liệu gốc 520 từ của ba mức Complete IELTS nằm trong `public/vocab-data.js`; owner có thể thêm/bỏ từ theo từng Unit. Supabase chỉ lưu phần thay đổi nên không nhân đôi toàn bộ bộ từ.
 - `attendance_entries` chỉ lưu phần giáo viên nhập tay dưới dạng một JSON nhỏ cho mỗi buổi. Sổ chủ nhiệm tiếp tục lưu một JSON đã rút gọn cho mỗi `lớp × kỹ năng`; màu/nội dung mặc định không ghi xuống database.
 
 ### Dung lượng Supabase
@@ -176,6 +178,7 @@ apps-script/Code.gs   Backend Google Sheets + Apps Script
 supabase/schema.sql   Schema + RPC API Supabase (chạy toàn bộ file khi nâng cấp)
 supabase/student_profiles.sql   Khối SQL mã học sinh + hồ sơ + cổng phụ huynh
 supabase/attendance_profile.sql Migration sửa danh tính HS + Bảng công đồng bộ
+supabase/vocab_schedule_sync.sql Migration quản lý từ + đồng bộ Lịch/Sổ/Bảng công
 ```
 
 ## Lưu ý deploy
