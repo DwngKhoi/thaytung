@@ -148,6 +148,16 @@ Sau `schedule_v2.sql`, chạy thêm `supabase/schedule_v3.sql` một lần. Bả
 - Mỗi ô trong lịch từng lớp lưu tối đa **4 ca**. Chế độ **Tối giản** chỉ còn 7 cột **Thứ 2–Chủ nhật** và lấy nội dung từ ca chính; chế độ **Thêm ca** mới hiện các buổi cùng cả bốn ca và dùng `☆` để đổi ca chính.
 - Chỉ ca chính đồng bộ sang tab Lớp học, trang học sinh, Sổ chủ nhiệm và Bảng công. Ba ca còn lại là dữ liệu dự phòng, được lưu gọn trong cùng JSON của tuần.
 
+### Cá nhân hoá Olympus v4
+
+Sau `schedule_v3.sql`, chạy thêm `supabase/personalization_v4.sql` một lần. Bản cài mới đã có sẵn phần này trong `supabase/schema.sql`.
+
+- Tab **Cấu hình Olympus** cho owner đặt tên trung tâm, tên owner mặc định và chế độ lịch mặc định.
+- **Preset góc nhìn** lưu đồng thời chế độ Tối giản/Thêm ca, lớp đang ẩn, trạng thái thu gọn và sector đang mở. Owner lưu dùng chung; giáo viên có thể áp dụng các preset được cấp.
+- **Thư viện ký hiệu** cho phép đổi màu nền/màu chữ của `LR`, `L`, `R`, `W`, `S`, `MT`, `FT`, `Off`; màu được áp dụng vào Toàn cảnh, lịch từng lớp và lịch công khai.
+- **Địa điểm và cơ sở** thay thế danh sách Tầng 1/Tầng 2/CS2 cố định. Mã, tên và màu địa điểm được dùng lại khi chỉnh thông tin buổi học.
+- Toàn bộ cấu hình chỉ là một JSON nhỏ trong `app_settings`, có bản cache local để giao diện vẫn dùng được khi mạng chập chờn.
+
 ### Dung lượng Supabase
 
 Với vài trăm học sinh và vài nghìn buổi, dữ liệu dự kiến chỉ ở mức vài đến vài chục MB. Thiết kế hiện tại tránh lưu ảnh/file trong Postgres, không nhân bản danh sách điểm danh vào Bảng công và chỉ giữ các ô Sổ chủ nhiệm khác mặc định, nên còn cách rất xa quota database 500 MB của Free Plan.
@@ -203,6 +213,7 @@ supabase/attendance_profile.sql Migration sửa danh tính HS + Bảng công đ�
 supabase/vocab_schedule_sync.sql Migration quản lý từ + đồng bộ Lịch/Sổ/Bảng công
 supabase/schedule_v2.sql         Migration Lịch chia tối giản/chi tiết và bộ đếm buổi
 supabase/schedule_v3.sql         Migration lọc hiển thị và bốn ca dự phòng mỗi ô
+supabase/personalization_v4.sql  Migration hồ sơ vận hành, preset và thư viện màu
 ```
 
 ## Lưu ý deploy

@@ -3147,7 +3147,157 @@ body.dark .planner-compact-empty,
 body.dark .planner-compact-no-class { color: #94a3b8; }
 body.dark .week-slot.extra-lane { background: #172554; color: #bfdbfe; }
 body.dark .week-slot.extra-lane.current-slot { background: #1e3a8a !important; color: #dbeafe !important; }
+
+/* Olympus personalization control center */
+.personalization-card { overflow: visible; }
+.center-name {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.personalization-eyebrow {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .13em;
+}
+.personalization-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.personalization-section {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--primary) 6%);
+}
+.personalization-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.personalization-section-head h3 { margin: 0 0 3px; }
+.personalization-section-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.personalization-section-head button,
+.btn-personalization {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface));
+  color: var(--primary);
+  white-space: nowrap;
+}
+.personalization-general-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.personalization-general-grid label,
+.personalization-item-row label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+.personalization-item-list,
+.personalization-preset-list {
+  display: grid;
+  gap: 8px;
+}
+.personalization-item-row {
+  display: grid;
+  grid-template-columns: minmax(70px, .7fr) minmax(120px, 1.35fr) 68px 68px 34px;
+  gap: 8px;
+  align-items: end;
+}
+.personalization-item-row input[type="color"] {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 3px;
+}
+.personalization-remove-item {
+  width: 34px;
+  height: 38px;
+  padding: 0;
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #be123c;
+  font-size: 20px;
+}
+.personalization-preset {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.personalization-preset.active {
+  border-color: var(--primary);
+  box-shadow: inset 4px 0 0 var(--primary);
+}
+.personalization-preset div { display: grid; gap: 2px; }
+.personalization-preset small { color: var(--muted); }
+.personalization-savebar {
+  position: sticky;
+  z-index: 12;
+  bottom: 12px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 10px 30px rgba(15,23,42,.14);
+  backdrop-filter: blur(12px);
+}
+.overview-preset-control {
+  display: grid;
+  gap: 3px;
+  min-width: 132px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+.overview-preset-control select { min-width: 132px; }
+.slot-location {
+  align-self: center;
+  padding: 2px 5px;
+  border-radius: 5px;
+}
+body.dark .personalization-remove-item {
+  border-color: #7f1d1d;
+  background: #450a0a;
+  color: #fecdd3;
+}
 @media (max-width: 760px) {
   .planner-view-switch { width: 100%; }
   .planner-view-switch button { flex: 1; }
+  .personalization-grid { grid-template-columns: 1fr; }
+  .personalization-general-grid { grid-template-columns: 1fr; }
+  .personalization-item-row {
+    grid-template-columns: 80px minmax(0, 1fr) 56px 56px 34px;
+  }
+  .personalization-preset {
+    grid-template-columns: 1fr repeat(3, auto);
+  }
 }

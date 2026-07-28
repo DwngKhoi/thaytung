@@ -7,14 +7,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260729-02" />
+  <link rel="stylesheet" href="style.css?v=20260729-03" />
 </head>
-<body>
+<body data-page="teacher">
   <header>
     <div class="topbar">
       <div class="brand">
         <div class="logo" aria-label="Olympus English"></div>
         <div>
+          <span class="center-name" data-center-name>Olympus English</span>
           <h1>L&#7883;ch L&#7899;p <span class="badge-soft">Console</span></h1>
           <p class="sub">Qu&#7843;n l&#253; l&#7899;p, duy&#7879;t l&#7883;ch b&#7853;n v&#224; t&#236;m bu&#7893;i h&#7885;c ph&#249; h&#7907;p nh&#7845;t.</p>
         </div>
@@ -38,6 +39,7 @@
         <span>Qu&#7843;n l&#253;</span>
         <button class="tab" data-tab="homeroom">S&#7893; ch&#7911; nhi&#7879;m</button>
         <button class="tab" data-tab="accounts">T&#224;i kho&#7843;n GV</button>
+        <button class="tab" data-tab="personalization">C&#7845;u h&#236;nh Olympus</button>
       </div>
       <div class="system-nav-group">
         <span>C&#244;ng vi&#7879;c</span>
@@ -284,8 +286,23 @@
     </div>
   </section>
 
+  <section id="tab-personalization" class="tab-panel">
+    <div class="card personalization-card">
+      <div class="detail-head">
+        <div>
+          <span class="personalization-eyebrow">OLYMPUS CONTROL CENTER</span>
+          <h2>C&#7845;u h&#236;nh c&#225; nh&#226;n ho&#225;</h2>
+          <p class="hint">Thi&#7871;t l&#7853;p g&#243;c nh&#236;n, m&#224;u k&#253; hi&#7879;u, &#273;&#7883;a &#273;i&#7875;m v&#224; preset d&#249;ng chung cho to&#224;n h&#7879; th&#7889;ng.</p>
+        </div>
+      </div>
+      <div id="personalization-root">
+        <p class="placeholder">&#272;ang t&#7843;i c&#7845;u h&#236;nh...</p>
+      </div>
+    </div>
+  </section>
+
   <script src="config.js"></script>
   <script src="vocab-data.js?v=20260726-01"></script>
-  <script src="app.js?v=20260729-02"></script>
+  <script src="app.js?v=20260729-03"></script>
 </body>
 </html>

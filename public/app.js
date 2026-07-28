@@ -36,6 +36,8 @@ let vocabRevealed = false;
 let vocabKnown = new Set();
 let vocabCustomizations = [];
 let teacherDirectory = [];
+let personalizationProfile = null;
+let personalizationSaving = false;
 const HOMEROOM_DATA_PREFIX = 'lichlop-homeroom-record:';
 const HOMEROOM_SELECTED_CLASS_KEY = 'lichlop-homeroom-class';
 const HOMEROOM_RECORD_TYPE_KEY = 'lichlop-homeroom-record-type';
@@ -47,6 +49,7 @@ const SCHEDULE_OVERVIEW_MODE_KEY = 'lichlop-overview-mode';
 const SCHEDULE_OVERVIEW_HIDDEN_CLASSES_KEY = 'lichlop-overview-hidden-classes';
 const SCHEDULE_CLASS_VIEW_MODE_KEY = 'lichlop-class-schedule-mode';
 const SCHEDULE_EXPANDED_SECTORS_KEY = 'lichlop-schedule-expanded-sectors';
+const PERSONALIZATION_CACHE_KEY = 'lichlop-personalization-profile';
 
 const $ = (sel) => document.querySelector(sel);
 const API_BASE = window.API_BASE || '';
@@ -72,6 +75,126 @@ function isOwner() {
 
 function canManageAssignedClass() {
   return teacherSession?.role === 'owner' || teacherSession?.role === 'teacher';
+}
+
+function safeHexColor(value, fallback = '#ffffff') {
+  const color = String(value || '').trim();
+  return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : fallback;
+}
+
+function defaultPersonalizationProfile() {
+  return {
+    version: 1,
+    centerName: 'Olympus English',
+    defaultTeacherName: 'Thầy Tùng',
+    defaultOverviewMode: 'compact',
+    defaultClassMode: 'compact',
+    activePresetId: '',
+    presets: [],
+    symbols: [
+      { id: 'symbol-lr', code: 'LR', label: 'Listening & Reading', bg: '#fde9b4', fg: '#111827' },
+      { id: 'symbol-l', code: 'L', label: 'Listening', bg: '#dbeafe', fg: '#111827' },
+      { id: 'symbol-r', code: 'R', label: 'Reading', bg: '#dcfce7', fg: '#111827' },
+      { id: 'symbol-w', code: 'W', label: 'Writing', bg: '#fef3c7', fg: '#111827' },
+      { id: 'symbol-s', code: 'S', label: 'Speaking', bg: '#fce7f3', fg: '#111827' },
+      { id: 'symbol-mt', code: 'MT', label: 'Mid-Term Test', bg: '#ef2020', fg: '#ffffff' },
+      { id: 'symbol-ft', code: 'FT', label: 'Final-Term Test', bg: '#b91c1c', fg: '#ffffff' },
+      { id: 'symbol-off', code: 'OFF', label: 'Nghỉ', bg: '#12dfe2', fg: '#073b4c' }
+    ],
+    locations: [
+      { id: 'location-a1', code: 'A1', label: 'Tầng 1', bg: '#ff9f1c', fg: '#111827' },
+      { id: 'location-a2', code: 'A2', label: 'Tầng 2', bg: '#38bdf8', fg: '#111827' },
+      { id: 'location-cs2', code: 'CS2', label: 'Cơ sở 2', bg: '#fdfd0a', fg: '#111827' }
+    ]
+  };
+}
+
+function personalizationId(prefix = 'item') {
+  if (globalThis.crypto?.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizePersonalizationItems(items, defaults = []) {
+  if (!Array.isArray(items)) return defaults;
+  return items.slice(0, 40).map((item, index) => ({
+    id: String(item?.id || personalizationId('item')).slice(0, 100),
+    code: String(item?.code || '').trim().toUpperCase().slice(0, 20),
+    label: String(item?.label || '').trim().slice(0, 80),
+    bg: safeHexColor(item?.bg, '#ffffff'),
+    fg: safeHexColor(item?.fg, '#111827'),
+    sort: Number.isFinite(Number(item?.sort)) ? Number(item.sort) : index
+  })).filter((item) => item.code || item.label);
+}
+
+function normalizePersonalizationProfile(profile) {
+  const defaults = defaultPersonalizationProfile();
+  const source = profile && typeof profile === 'object' && !Array.isArray(profile) ? profile : {};
+  const presets = Array.isArray(source.presets) ? source.presets.slice(0, 30).map((preset) => ({
+    id: String(preset?.id || personalizationId('preset')).slice(0, 100),
+    name: String(preset?.name || 'Góc nhìn').trim().slice(0, 80),
+    overviewMode: preset?.overviewMode === 'detail' ? 'detail' : 'compact',
+    classMode: preset?.classMode === 'detail' ? 'detail' : 'compact',
+    hiddenClassIds: Array.isArray(preset?.hiddenClassIds) ? preset.hiddenClassIds.map(String).slice(0, 300) : [],
+    overviewCollapsed: Boolean(preset?.overviewCollapsed),
+    expandedSectorIds: Array.isArray(preset?.expandedSectorIds) ? preset.expandedSectorIds.map(String).slice(0, 100) : []
+  })) : [];
+  return {
+    version: 1,
+    centerName: String(source.centerName || defaults.centerName).trim().slice(0, 100),
+    defaultTeacherName: String(source.defaultTeacherName || defaults.defaultTeacherName).trim().slice(0, 100),
+    defaultOverviewMode: source.defaultOverviewMode === 'detail' ? 'detail' : 'compact',
+    defaultClassMode: source.defaultClassMode === 'detail' ? 'detail' : 'compact',
+    activePresetId: presets.some((preset) => preset.id === source.activePresetId) ? String(source.activePresetId) : '',
+    presets,
+    symbols: normalizePersonalizationItems(source.symbols, defaults.symbols),
+    locations: normalizePersonalizationItems(source.locations, defaults.locations)
+  };
+}
+
+function currentPersonalization() {
+  if (!personalizationProfile) {
+    try {
+      personalizationProfile = normalizePersonalizationProfile(
+        JSON.parse(localStorage.getItem(PERSONALIZATION_CACHE_KEY) || 'null')
+      );
+    } catch (err) {
+      personalizationProfile = defaultPersonalizationProfile();
+    }
+  }
+  return personalizationProfile;
+}
+
+function personalizedSymbol(value) {
+  const type = scheduleLessonTypeFromLabel(value) || String(value || '').trim().toUpperCase().replace(/[0-9]+[AB]?$/i, '');
+  return currentPersonalization().symbols.find((item) => item.code === type) || null;
+}
+
+function personalizedLocation(value) {
+  const normalized = String(value || '').trim().toLocaleLowerCase('vi');
+  return currentPersonalization().locations.find((item) => (
+    item.code.toLocaleLowerCase('vi') === normalized
+    || item.label.toLocaleLowerCase('vi') === normalized
+  )) || null;
+}
+
+function personalizationStyle(item) {
+  if (!item) return '';
+  return ` style="background:${safeHexColor(item.bg)};color:${safeHexColor(item.fg, '#111827')};"`;
+}
+
+function applyPersonalizationDefaults() {
+  const profile = currentPersonalization();
+  if (!localStorage.getItem(SCHEDULE_OVERVIEW_MODE_KEY)) {
+    localStorage.setItem(SCHEDULE_OVERVIEW_MODE_KEY, profile.defaultOverviewMode);
+  }
+  if (!localStorage.getItem(SCHEDULE_CLASS_VIEW_MODE_KEY)) {
+    localStorage.setItem(SCHEDULE_CLASS_VIEW_MODE_KEY, profile.defaultClassMode);
+  }
+  document.documentElement.style.setProperty('--olympus-brand-name-length', String(profile.centerName.length));
+  document.querySelectorAll('[data-center-name]').forEach((element) => {
+    element.textContent = profile.centerName;
+  });
+  if (document.body?.dataset.page === 'teacher') document.title = `Lịch lớp - ${profile.centerName}`;
 }
 
 const escapeHtml = (value) => String(value ?? '')
@@ -421,6 +544,16 @@ async function supabaseApi(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
   const body = opts.body ? JSON.parse(opts.body) : {};
   if (path === '/config') return supabaseRpc('api_config');
+  if (path === '/public-personalization' && method === 'GET') return supabaseRpc('api_public_personalization', {
+    student_key: STUDENT_KEY
+  });
+  if (path === '/personalization' && method === 'GET') return supabaseRpc('api_personalization_profile', {
+    teacher_key: teacherToken()
+  });
+  if (path === '/personalization' && method === 'POST') return supabaseRpc('api_save_personalization_profile', {
+    teacher_key: teacherToken(),
+    profile: body.profile || {}
+  });
   if (path === '/login' && method === 'POST') return supabaseRpc('api_login', { username: body.username, password: body.password });
   if (path === '/classes' && method === 'GET') return supabaseRpc('api_classes', { student_key: STUDENT_KEY });
   if (path === '/public-schedule' && method === 'POST') return supabaseRpc('api_public_schedule', {
@@ -674,6 +807,258 @@ function initTheme() {
   applyTheme(localStorage.getItem('lichlop-theme') || 'light');
 }
 
+async function loadPersonalization() {
+  currentPersonalization();
+  applyPersonalizationDefaults();
+  if (!teacherSession) return personalizationProfile;
+  try {
+    const remote = await api('/personalization');
+    if (remote && typeof remote === 'object' && Object.keys(remote).length) {
+      personalizationProfile = normalizePersonalizationProfile(remote);
+    }
+    localStorage.setItem(PERSONALIZATION_CACHE_KEY, JSON.stringify(personalizationProfile));
+    applyPersonalizationDefaults();
+  } catch (err) {
+    // Keep the cached profile available while the optional migration is not installed yet.
+  }
+  if ($('#tab-personalization')?.classList.contains('active')) renderPersonalizationSettings();
+  return personalizationProfile;
+}
+
+async function loadPublicPersonalization() {
+  currentPersonalization();
+  applyPersonalizationDefaults();
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !STUDENT_KEY) return personalizationProfile;
+  try {
+    const remote = await api('/public-personalization');
+    const cached = currentPersonalization();
+    personalizationProfile = normalizePersonalizationProfile({
+      ...cached,
+      centerName: remote?.centerName || cached.centerName,
+      symbols: Array.isArray(remote?.symbols) ? remote.symbols : cached.symbols,
+      locations: Array.isArray(remote?.locations) ? remote.locations : cached.locations
+    });
+    localStorage.setItem(PERSONALIZATION_CACHE_KEY, JSON.stringify(personalizationProfile));
+    applyPersonalizationDefaults();
+  } catch (err) {
+    // Public pages keep the last cached palette if the migration or network is unavailable.
+  }
+  return personalizationProfile;
+}
+
+async function savePersonalizationProfile(profile, message = '') {
+  if (!isOwner() || personalizationSaving) return false;
+  personalizationSaving = true;
+  personalizationProfile = normalizePersonalizationProfile(profile);
+  localStorage.setItem(PERSONALIZATION_CACHE_KEY, JSON.stringify(personalizationProfile));
+  applyPersonalizationDefaults();
+  try {
+    await api('/personalization', {
+      method: 'POST',
+      body: JSON.stringify({ profile: personalizationProfile })
+    });
+    return true;
+  } catch (err) {
+    if (message) showMsg($(message), err.message, 'err');
+    throw err;
+  } finally {
+    personalizationSaving = false;
+  }
+}
+
+function currentPresetSnapshot(name = 'Góc nhìn mới', id = '') {
+  let expandedSectorIds = [];
+  try {
+    const values = JSON.parse(localStorage.getItem(SCHEDULE_EXPANDED_SECTORS_KEY) || '[]');
+    if (Array.isArray(values)) expandedSectorIds = values.map(String);
+  } catch (err) { /* Keep an empty list. */ }
+  return {
+    id: id || personalizationId('preset'),
+    name: String(name || 'Góc nhìn mới').trim().slice(0, 80),
+    overviewMode: scheduleOverviewMode(),
+    classMode: scheduleClassViewMode(),
+    hiddenClassIds: [...overviewHiddenClassIds()],
+    overviewCollapsed: scheduleOverviewCollapsed(),
+    expandedSectorIds
+  };
+}
+
+function applyPersonalizationPreset(preset, { reload = true } = {}) {
+  if (!preset) return;
+  localStorage.setItem(SCHEDULE_OVERVIEW_MODE_KEY, preset.overviewMode === 'detail' ? 'detail' : 'compact');
+  localStorage.setItem(SCHEDULE_CLASS_VIEW_MODE_KEY, preset.classMode === 'detail' ? 'detail' : 'compact');
+  localStorage.setItem(SCHEDULE_OVERVIEW_HIDDEN_CLASSES_KEY, JSON.stringify(preset.hiddenClassIds || []));
+  localStorage.setItem(SCHEDULE_OVERVIEW_COLLAPSED_KEY, preset.overviewCollapsed ? '1' : '0');
+  localStorage.setItem(SCHEDULE_EXPANDED_SECTORS_KEY, JSON.stringify(preset.expandedSectorIds || []));
+  if (reload && $('#tab-schedule')?.classList.contains('active')) loadScheduleHome();
+}
+
+function personalizationPresetControlsHtml() {
+  const profile = currentPersonalization();
+  if (!profile.presets.length) return isOwner()
+    ? '<button id="overview-create-preset" class="btn-personalization" type="button">+ Lưu góc nhìn</button>'
+    : '';
+  return `<label class="overview-preset-control">Góc nhìn
+    <select id="overview-preset-select">
+      <option value="">Tuỳ chỉnh hiện tại</option>
+      ${profile.presets.map((preset) => `<option value="${escapeHtml(preset.id)}"${preset.id === profile.activePresetId ? ' selected' : ''}>${escapeHtml(preset.name)}</option>`).join('')}
+    </select>
+  </label>
+  <button id="overview-apply-preset" class="btn-personalization" type="button">Áp dụng</button>
+  ${isOwner() ? '<button id="overview-update-preset" class="btn-personalization" type="button">Lưu góc nhìn</button>' : ''}`;
+}
+
+function personalizationItemRow(item, type) {
+  return `<div class="personalization-item-row" data-personalization-item="${escapeHtml(type)}" data-id="${escapeHtml(item.id)}">
+    <input data-field="code" value="${escapeHtml(item.code)}" placeholder="${type === 'symbol' ? 'Mã: LR' : 'Mã: A1'}" maxlength="20" />
+    <input data-field="label" value="${escapeHtml(item.label)}" placeholder="Giải thích" maxlength="80" />
+    <label>Màu ô<input data-field="bg" type="color" value="${safeHexColor(item.bg)}" /></label>
+    <label>Màu chữ<input data-field="fg" type="color" value="${safeHexColor(item.fg, '#111827')}" /></label>
+    <button type="button" class="personalization-remove-item" title="Xoá">×</button>
+  </div>`;
+}
+
+function collectPersonalizationForm() {
+  const existing = currentPersonalization();
+  const readItems = (type) => [...document.querySelectorAll(`[data-personalization-item="${type}"]`)].map((row) => ({
+    id: row.dataset.id || personalizationId(type),
+    code: row.querySelector('[data-field="code"]')?.value || '',
+    label: row.querySelector('[data-field="label"]')?.value || '',
+    bg: row.querySelector('[data-field="bg"]')?.value || '#ffffff',
+    fg: row.querySelector('[data-field="fg"]')?.value || '#111827'
+  }));
+  return normalizePersonalizationProfile({
+    ...existing,
+    centerName: $('#personalization-center-name')?.value || existing.centerName,
+    defaultTeacherName: $('#personalization-teacher-name')?.value || existing.defaultTeacherName,
+    defaultOverviewMode: $('#personalization-overview-mode')?.value || existing.defaultOverviewMode,
+    defaultClassMode: $('#personalization-class-mode')?.value || existing.defaultClassMode,
+    symbols: readItems('symbol'),
+    locations: readItems('location')
+  });
+}
+
+function renderPersonalizationSettings() {
+  const root = $('#personalization-root');
+  if (!root) return;
+  if (!isOwner()) {
+    root.innerHTML = '<p class="placeholder">Chỉ owner được thay đổi cấu hình Olympus.</p>';
+    return;
+  }
+  const profile = currentPersonalization();
+  root.innerHTML = `<div class="personalization-grid">
+    <section class="personalization-section">
+      <div class="personalization-section-head"><div><h3>Hồ sơ vận hành</h3><p>Tên hiển thị và chế độ mặc định của hệ thống.</p></div></div>
+      <div class="personalization-general-grid">
+        <label>Tên trung tâm<input id="personalization-center-name" value="${escapeHtml(profile.centerName)}" /></label>
+        <label>Tên owner mặc định<input id="personalization-teacher-name" value="${escapeHtml(profile.defaultTeacherName)}" /></label>
+        <label>Toàn cảnh mặc định<select id="personalization-overview-mode"><option value="compact"${profile.defaultOverviewMode === 'compact' ? ' selected' : ''}>Tối giản</option><option value="detail"${profile.defaultOverviewMode === 'detail' ? ' selected' : ''}>Thêm ca</option></select></label>
+        <label>Lịch từng lớp mặc định<select id="personalization-class-mode"><option value="compact"${profile.defaultClassMode === 'compact' ? ' selected' : ''}>Tối giản</option><option value="detail"${profile.defaultClassMode === 'detail' ? ' selected' : ''}>Thêm ca</option></select></label>
+      </div>
+    </section>
+
+    <section class="personalization-section personalization-presets-section">
+      <div class="personalization-section-head"><div><h3>Preset góc nhìn</h3><p>Lưu lớp đang ẩn, chế độ bảng và sector đang mở.</p></div><button id="personalization-add-preset" type="button">+ Lưu trạng thái hiện tại</button></div>
+      <div class="personalization-preset-list">
+        ${profile.presets.length ? profile.presets.map((preset) => `<article class="personalization-preset${preset.id === profile.activePresetId ? ' active' : ''}" data-preset-id="${escapeHtml(preset.id)}">
+          <div><b>${escapeHtml(preset.name)}</b><small>${preset.overviewMode === 'compact' ? 'Tối giản' : 'Thêm ca'} · Ẩn ${preset.hiddenClassIds.length} lớp</small></div>
+          <button type="button" data-preset-action="apply">Áp dụng</button>
+          <button type="button" data-preset-action="replace">Cập nhật</button>
+          <button type="button" data-preset-action="delete" class="btn-del-class">Xoá</button>
+        </article>`).join('') : '<p class="placeholder">Chưa có preset. Hãy chỉnh Lịch chia rồi lưu trạng thái hiện tại.</p>'}
+      </div>
+    </section>
+
+    <section class="personalization-section">
+      <div class="personalization-section-head"><div><h3>Thư viện ký hiệu</h3><p>Gõ LR, S, W, MT… thì lịch tự dùng đúng màu.</p></div><button type="button" data-add-personalization-item="symbol">+ Ký hiệu</button></div>
+      <div id="personalization-symbols" class="personalization-item-list">${profile.symbols.map((item) => personalizationItemRow(item, 'symbol')).join('')}</div>
+    </section>
+
+    <section class="personalization-section">
+      <div class="personalization-section-head"><div><h3>Địa điểm và cơ sở</h3><p>Dùng chung trong lịch, file xuất và ghi chú buổi học.</p></div><button type="button" data-add-personalization-item="location">+ Địa điểm</button></div>
+      <div id="personalization-locations" class="personalization-item-list">${profile.locations.map((item) => personalizationItemRow(item, 'location')).join('')}</div>
+    </section>
+  </div>
+  <div class="personalization-savebar"><span id="personalization-msg" class="msg"></span><button id="personalization-save" class="primary" type="button">Lưu cấu hình Olympus</button></div>`;
+  wirePersonalizationSettings();
+}
+
+function wirePersonalizationSettings() {
+  $('#personalization-save')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const profile = collectPersonalizationForm();
+      await savePersonalizationProfile(profile, '#personalization-msg');
+      showMsg($('#personalization-msg'), 'Đã lưu cấu hình dùng chung.', 'ok');
+      renderPersonalizationSettings();
+    } catch (err) {
+      showMsg($('#personalization-msg'), err.message, 'err');
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.querySelectorAll('[data-add-personalization-item]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const profile = collectPersonalizationForm();
+      const type = button.dataset.addPersonalizationItem;
+      const target = type === 'symbol' ? profile.symbols : profile.locations;
+      target.push({
+        id: personalizationId(type),
+        code: '',
+        label: '',
+        bg: type === 'symbol' ? '#fde68a' : '#dbeafe',
+        fg: '#111827'
+      });
+      personalizationProfile = profile;
+      renderPersonalizationSettings();
+      const rows = document.querySelectorAll(`[data-personalization-item="${type}"]`);
+      rows[rows.length - 1]?.querySelector('input')?.focus();
+    });
+  });
+  document.querySelectorAll('.personalization-remove-item').forEach((button) => {
+    button.addEventListener('click', () => button.closest('.personalization-item-row')?.remove());
+  });
+  $('#personalization-add-preset')?.addEventListener('click', async () => {
+    const name = prompt('Tên góc nhìn:', `Góc nhìn ${currentPersonalization().presets.length + 1}`);
+    if (!name?.trim()) return;
+    const profile = collectPersonalizationForm();
+    const preset = currentPresetSnapshot(name);
+    profile.presets.push(preset);
+    profile.activePresetId = preset.id;
+    try {
+      await savePersonalizationProfile(profile, '#personalization-msg');
+      showMsg($('#personalization-msg'), 'Đã lưu preset từ trạng thái Lịch chia hiện tại.', 'ok');
+      renderPersonalizationSettings();
+    } catch (err) { /* Message is already displayed. */ }
+  });
+  document.querySelectorAll('.personalization-preset').forEach((card) => {
+    card.querySelectorAll('[data-preset-action]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const profile = collectPersonalizationForm();
+        const index = profile.presets.findIndex((preset) => preset.id === card.dataset.presetId);
+        if (index < 0) return;
+        const action = button.dataset.presetAction;
+        if (action === 'apply') {
+          profile.activePresetId = profile.presets[index].id;
+          applyPersonalizationPreset(profile.presets[index], { reload: false });
+        } else if (action === 'replace') {
+          profile.presets[index] = currentPresetSnapshot(profile.presets[index].name, profile.presets[index].id);
+          profile.activePresetId = profile.presets[index].id;
+        } else if (action === 'delete') {
+          if (!confirm(`Xoá preset “${profile.presets[index].name}”?`)) return;
+          profile.presets.splice(index, 1);
+          if (profile.activePresetId === card.dataset.presetId) profile.activePresetId = '';
+        }
+        try {
+          await savePersonalizationProfile(profile, '#personalization-msg');
+          renderPersonalizationSettings();
+        } catch (err) { /* Message is already displayed. */ }
+      });
+    });
+  });
+}
+
 function initTabs() {
   document.querySelectorAll('.tab').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -694,6 +1079,7 @@ function initTabs() {
       if (btn.dataset.tab === 'profiles') renderProfilesHome();
       if (btn.dataset.tab === 'games') renderVocabGame();
       if (btn.dataset.tab === 'attendance') loadAttendance();
+      if (btn.dataset.tab === 'personalization') renderPersonalizationSettings();
     });
   });
 }
@@ -759,7 +1145,7 @@ async function loginTeacher() {
     teacherSession = { name: result.name, role: result.role, token: result.token, at: Date.now() };
     showTeacherDashboard(teacherSession);
     localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(teacherSession));
-    await Promise.all([loadClasses(), loadTeacherDirectory(), loadVocabCustomizations()]);
+    await Promise.all([loadClasses(), loadTeacherDirectory(), loadVocabCustomizations(), loadPersonalization()]);
   } catch (err) {
     if (error) error.textContent = err.message;
   } finally {
@@ -786,6 +1172,7 @@ function restoreTeacherSession() {
     });
     loadTeacherDirectory();
     loadVocabCustomizations();
+    loadPersonalization();
     const lastClassId = localStorage.getItem(SELECTED_CLASS_KEY);
     if (lastClassId) {
       selectedClassId = lastClassId;
@@ -3241,15 +3628,15 @@ function compactOverviewTable(weekStart) {
         const lessonState = compactCellState(data, `compact|class|${cls.id}|day|${dayIdx}|lesson`, lessonAuto);
         const numberHtml = numberState.customized
           ? escapeHtml(numberState.value)
-          : entries.map((entry) => `<span class="compact-inline-entry${compactLessonClass(entry.label)}">${escapeHtml(entry.courseNo || (entry.label === 'OFF' ? 'Off' : '·'))}</span>`).join('<span class="compact-entry-separator">·</span>');
+          : entries.map((entry) => `<span class="compact-inline-entry${compactLessonClass(entry.label)}"${entry.label === 'OFF' ? personalizationStyle(personalizedSymbol(entry.label)) : ''}>${escapeHtml(entry.courseNo || (entry.label === 'OFF' ? 'Off' : '·'))}</span>`).join('<span class="compact-entry-separator">·</span>');
         const lessonHtml = lessonState.customized
           ? escapeHtml(lessonState.value)
           : entries.map((entry) => {
-            if (entry.label === 'OFF') return '<span class="compact-inline-entry is-off">Off</span>';
+            if (entry.label === 'OFF') return `<span class="compact-inline-entry is-off"${personalizationStyle(personalizedSymbol(entry.label))}>Off</span>`;
             const value = cls.courseKind === 'grammar'
               ? entry.sessionName || 'Đã chọn'
               : displayLessonLabel(entry.label) || entry.sessionName || 'Đã chọn';
-            return `<span class="compact-inline-entry${compactLessonClass(entry.label)}">${escapeHtml(value)}</span>`;
+            return `<span class="compact-inline-entry${compactLessonClass(entry.label)}"${personalizationStyle(personalizedSymbol(entry.label))}>${escapeHtml(value)}</span>`;
           }).join('<span class="compact-entry-separator">·</span>');
         html += `<td class="overview-cell compact-number-cell" data-col="compact-course-${dayIdx}" data-row-id="compact-class-${escapeHtml(cls.id)}" title="${escapeHtml(title)}" ${numberState.attrs}>${numberHtml || '&nbsp;'}</td><td class="overview-cell compact-lesson-cell" data-col="compact-lesson-${dayIdx}" data-row-id="compact-class-${escapeHtml(cls.id)}" title="${escapeHtml(title)}" ${lessonState.attrs}>${lessonHtml || '&nbsp;'}</td>`;
       });
@@ -3275,6 +3662,7 @@ function renderCompactScheduleOverview() {
           <button type="button" class="active" data-overview-mode="compact">T\u1ed1i gi\u1ea3n</button>
           <button type="button" data-overview-mode="detail">Th\u00eam ca</button>
         </div>
+        ${personalizationPresetControlsHtml()}
         <label>Ng\u00e0y \u0111\u1ea7u tu\u1ea7n <input id="overview-week-start" type="date" value="${escapeHtml(weekStart)}" /></label>
         <label>Tu\u1ea7n c\u0169 <select id="overview-week-select"><option value="">Ch\u1ecdn tu\u1ea7n...</option>${weeks.map((item) => `<option value="${escapeHtml(item.weekStart)}" ${item.weekStart === weekStart ? 'selected' : ''}>${escapeHtml(item.title || item.note || 'Tu\u1ea7n')} (${escapeHtml(weekRangeText(item.weekStart))})</option>`).join('')}</select></label>
         <button id="overview-class-picker-toggle" type="button">Chọn lớp</button>
@@ -3318,6 +3706,7 @@ function renderScheduleOverview() {
           <button type="button" data-overview-mode="compact">T\u1ed1i gi\u1ea3n</button>
           <button type="button" class="active" data-overview-mode="detail">Th\u00eam ca</button>
         </div>
+        ${personalizationPresetControlsHtml()}
         <label>Ng\u00e0y \u0111\u1ea7u tu\u1ea7n <input id="overview-week-start" type="date" value="${escapeHtml(weekStart)}" /></label>
         <label>Tu\u1ea7n c\u0169 <select id="overview-week-select"><option value="">Ch\u1ecdn tu\u1ea7n...</option>${weeks.map((item) => `<option value="${escapeHtml(item.weekStart)}" ${item.weekStart === weekStart ? 'selected' : ''}>${escapeHtml(item.note || 'Tu\u1ea7n')} (${escapeHtml(weekRangeText(item.weekStart))})</option>`).join('')}</select></label>
         <button id="overview-new-week" type="button">+ Tu\u1ea7n m\u1edbi</button>
@@ -3481,6 +3870,41 @@ function wireScheduleOverview() {
       loadScheduleHome();
     });
   });
+  $('#overview-apply-preset')?.addEventListener('click', async () => {
+    const presetId = $('#overview-preset-select')?.value || '';
+    const profile = currentPersonalization();
+    const preset = profile.presets.find((item) => item.id === presetId);
+    if (!preset) return;
+    profile.activePresetId = preset.id;
+    applyPersonalizationPreset(preset);
+    if (isOwner()) {
+      try { await savePersonalizationProfile(profile); } catch (err) { /* Preset is still applied locally. */ }
+    }
+  });
+  const saveOverviewPreset = async () => {
+    if (!isOwner()) return;
+    const profile = currentPersonalization();
+    const selectedId = $('#overview-preset-select')?.value || '';
+    const index = profile.presets.findIndex((item) => item.id === selectedId);
+    if (index >= 0) {
+      profile.presets[index] = currentPresetSnapshot(profile.presets[index].name, profile.presets[index].id);
+      profile.activePresetId = profile.presets[index].id;
+    } else {
+      const name = prompt('Tên góc nhìn:', `Góc nhìn ${profile.presets.length + 1}`);
+      if (!name?.trim()) return;
+      const preset = currentPresetSnapshot(name);
+      profile.presets.push(preset);
+      profile.activePresetId = preset.id;
+    }
+    try {
+      await savePersonalizationProfile(profile);
+      loadScheduleHome();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+  $('#overview-update-preset')?.addEventListener('click', saveOverviewPreset);
+  $('#overview-create-preset')?.addEventListener('click', saveOverviewPreset);
   $('#overview-class-picker-toggle')?.addEventListener('click', () => {
     $('#overview-class-picker')?.classList.toggle('hidden');
   });
@@ -3914,8 +4338,9 @@ function plannerSlotDisplayHtml(label, courseNo, courseKind = courseKindFromEdit
   const lesson = displayLessonLabel(label);
   const type = scheduleLessonTypeFromLabel(label, courseKind);
   if (!label && !courseNo) return '&middot;';
-  if (type === 'OFF') return '<span class="planner-course-no planner-off-label">Off</span>';
-  return `${courseNo ? `<span class="planner-course-no">${escapeHtml(courseNo)}</span>` : ''}${courseKind !== 'grammar' && lesson ? `<span class="planner-skill-label">${escapeHtml(lesson)}</span>` : ''}`;
+  const symbol = personalizedSymbol(type || label);
+  if (type === 'OFF') return `<span class="planner-course-no planner-off-label"${personalizationStyle(symbol)}>Off</span>`;
+  return `${courseNo ? `<span class="planner-course-no">${escapeHtml(courseNo)}</span>` : ''}${courseKind !== 'grammar' && lesson ? `<span class="planner-skill-label"${personalizationStyle(symbol)}>${escapeHtml(lesson)}</span>` : ''}`;
 }
 
 function updatePlannerSlotDisplay(cell) {
@@ -4070,8 +4495,9 @@ function slotDetailHtml(detail = {}) {
   const note = String(detail.note || '').trim();
   const startTime = String(detail.startTime || '').trim();
   const teacherName = String(detail.teacherName || '').trim();
+  const locationTheme = personalizedLocation(locationValue);
   if (!locationValue && !note && !startTime && !teacherName) return '';
-  return `<small class="slot-meta">${startTime ? `<span class="slot-time">🕒 ${escapeHtml(startTime)}</span>` : ''}${teacherName ? `<span class="slot-teacher">👤 ${escapeHtml(teacherName)}</span>` : ''}${locationValue ? `<span class="slot-location">📍 ${escapeHtml(locationValue)}</span>` : ''}${note ? `<span class="slot-note">📝 ${escapeHtml(note)}</span>` : ''}</small>`;
+  return `<small class="slot-meta">${startTime ? `<span class="slot-time">🕒 ${escapeHtml(startTime)}</span>` : ''}${teacherName ? `<span class="slot-teacher">👤 ${escapeHtml(teacherName)}</span>` : ''}${locationValue ? `<span class="slot-location"${personalizationStyle(locationTheme)}>📍 ${escapeHtml(locationValue)}</span>` : ''}${note ? `<span class="slot-note">📝 ${escapeHtml(note)}</span>` : ''}</small>`;
 }
 
 function plannerLaneValues(detail = {}, lesson = '', active = false) {
@@ -4369,9 +4795,13 @@ function refreshSlotDetails(cell) {
 
 function openSlotDetailsDialog(cell) {
   const currentLocation = String(cell.dataset.location || '');
-  const presets = ['Tầng 1', 'Tầng 2', 'CS2'];
-  const selectedPreset = !currentLocation ? 'Tầng 1' : presets.includes(currentLocation) ? currentLocation : 'custom';
-  const currentTeacher = String(cell.dataset.teacherName || 'Thầy Tùng');
+  const locationItems = currentPersonalization().locations;
+  const presets = locationItems.length
+    ? locationItems.map((item) => ({ value: item.code || item.label, label: [item.code, item.label].filter(Boolean).join(' — ') }))
+    : [{ value: 'Tầng 1', label: 'Tầng 1' }, { value: 'Tầng 2', label: 'Tầng 2' }, { value: 'CS2', label: 'CS2' }];
+  const matchedLocation = presets.find((item) => item.value === currentLocation || item.label === currentLocation);
+  const selectedPreset = !currentLocation ? presets[0].value : matchedLocation ? matchedLocation.value : 'custom';
+  const currentTeacher = String(cell.dataset.teacherName || currentPersonalization().defaultTeacherName || 'Thầy Tùng');
   const dialog = openMiniDialog('Thông tin buổi học', `
     <div class="slot-dialog-grid">
       <label>Giờ bắt đầu
@@ -4384,7 +4814,7 @@ function openSlotDetailsDialog(cell) {
     <input id="slot-teacher-custom" class="hidden" type="text" placeholder="Nhập tên hiển thị tuỳ chỉnh..." />
     <label>Địa điểm
       <select id="slot-location-preset">
-        ${presets.map((value) => `<option value="${escapeHtml(value)}"${selectedPreset === value ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('')}
+        ${presets.map((item) => `<option value="${escapeHtml(item.value)}"${selectedPreset === item.value ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}
         <option value="custom"${selectedPreset === 'custom' ? ' selected' : ''}>Địa điểm khác...</option>
       </select>
     </label>
@@ -4392,7 +4822,7 @@ function openSlotDetailsDialog(cell) {
     <label>Ghi chú
       <textarea id="slot-note" rows="3" placeholder="Ghi chú...">${escapeHtml(cell.dataset.note || '')}</textarea>
     </label>`, async (overlay) => {
-      const preset = overlay.querySelector('#slot-location-preset')?.value || 'Tầng 1';
+      const preset = overlay.querySelector('#slot-location-preset')?.value || presets[0].value;
       const custom = overlay.querySelector('#slot-location-custom')?.value.trim() || '';
       const teacherSelect = overlay.querySelector('#slot-teacher');
       const teacherCustom = overlay.querySelector('#slot-teacher-custom')?.value.trim() || '';
@@ -7315,6 +7745,7 @@ function renderParentResult(data) {
   DAYS = cfg.days;
   DAYS_SHORT = cfg.daysShort || cfg.days;
   DEFAULT_SESSIONS = cfg.sessions || ['S1', 'S2', 'C', '57', 'T'];
+  await loadPublicPersonalization();
   initStudent();
   initPublicScheduleViewer();
   initParentPortal();
