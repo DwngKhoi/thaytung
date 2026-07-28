@@ -179,6 +179,17 @@ Các bảng và RPC của Bảng công, từ vựng và luồng đồng bộ đ�
 - **So sánh tuần trước** đánh dấu viền cam cho các ô có nội dung, giờ, phòng, giáo viên hoặc ghi chú thay đổi.
 - **Sao chép sang lớp** cho phép tick nhiều lớp theo sector và chọn chỉ sao chép khung giờ/phòng/GV hoặc toàn bộ tuần.
 
+## Olympus Operations v7
+
+- Tab **Tổng quan** hiển thị số lớp, học sinh, buổi học, lịch chờ duyệt, tỷ lệ chốt bảng công và biểu đồ tải giáo viên/phòng/kỹ năng/ngày.
+- Trung tâm gợi ý ưu tiên các việc cần xử lý: trùng lịch, thiếu giáo viên/phòng, lớp chưa có lịch và lịch học sinh đang chờ.
+- **Olympus Optimizer** xếp lịch có xem trước dựa trên lịch bận học sinh, giới hạn buổi/ngày, ca/giờ, giáo viên ưu tiên và phòng còn trống.
+- Optimizer mặc định chỉ bổ sung lịch còn thiếu. Chế độ ghi đè phải được owner bật rõ ràng; mỗi lần áp dụng tạo snapshot để khôi phục.
+- Cảnh báo trùng lịch đã bao gồm học sinh học nhiều lớp cùng giờ.
+- Sổ chủ nhiệm có góc nhìn **Toàn bộ** LR/S/W, Undo/Redo, tìm và thay thế, sao chép định dạng, kéo fill, `Ctrl+B` và căn lề.
+- Lịch sử phiên bản hiển thị người sửa, thời gian và danh sách ô đã thay đổi.
+- Bộ máy luật tự động hỗ trợ điều kiện theo sector, lớp, kỹ năng, ca hoặc địa điểm; dữ liệu nhập tay luôn được ưu tiên.
+
 ### Dung lượng Supabase
 
 Với vài trăm học sinh và vài nghìn buổi, dữ liệu dự kiến chỉ ở mức vài đến vài chục MB. Thiết kế hiện tại tránh lưu ảnh/file trong Postgres, không nhân bản danh sách điểm danh vào Bảng công và chỉ giữ các ô Sổ chủ nhiệm khác mặc định, nên còn cách rất xa quota database 500 MB của Free Plan.

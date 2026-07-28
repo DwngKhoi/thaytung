@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260729-05" />
+  <link rel="stylesheet" href="style.css?v=20260729-06" />
 </head>
 <body data-page="teacher">
   <header>
@@ -37,6 +37,7 @@
       </div>
       <div class="system-nav-group owner-only hidden">
         <span>Qu&#7843;n l&#253;</span>
+        <button class="tab" data-tab="dashboard">T&#7893;ng quan</button>
         <button class="tab" data-tab="homeroom">S&#7893; ch&#7911; nhi&#7879;m</button>
         <button class="tab" data-tab="accounts">T&#224;i kho&#7843;n GV</button>
         <button class="tab" data-tab="personalization">C&#7845;u h&#236;nh Olympus</button>
@@ -238,6 +239,22 @@
     </div>
   </section>
 
+  <section id="tab-dashboard" class="tab-panel">
+    <div class="card operations-dashboard-card">
+      <div class="detail-head">
+        <div>
+          <span class="personalization-eyebrow">OLYMPUS OPERATIONS</span>
+          <h2>Trung t&#226;m &#273;i&#7873;u h&#224;nh</h2>
+          <p class="hint">Th&#7889;ng k&#234; v&#7853;n h&#224;nh, ph&#225;t hi&#7879;n r&#7911;i ro v&#224; g&#7907;i &#253; x&#7871;p l&#7883;ch. M&#7885;i &#273;&#7873; xu&#7845;t &#273;&#7873;u ph&#7843;i xem tr&#432;&#7899;c; d&#7919; li&#7879;u nh&#7853;p tay lu&#244;n &#273;&#432;&#7907;c &#432;u ti&#234;n.</p>
+        </div>
+        <button id="dashboard-refresh" class="btn-export" type="button">&#8635; L&#224;m m&#7899;i</button>
+      </div>
+      <div id="operations-dashboard-root">
+        <p class="placeholder">&#272;ang ph&#226;n t&#237;ch d&#7919; li&#7879;u Olympus...</p>
+      </div>
+    </div>
+  </section>
+
   <section id="tab-attendance" class="tab-panel">
     <div class="card attendance-card">
       <div class="detail-head">
@@ -303,6 +320,6 @@
 
   <script src="config.js"></script>
   <script src="vocab-data.js?v=20260726-01"></script>
-  <script src="app.js?v=20260729-05"></script>
+  <script src="app.js?v=20260729-06"></script>
 </body>
 </html>

@@ -5585,4 +5585,159 @@ grant execute on function api_schedule_versions(text, text, date) to anon;
 grant execute on function api_restore_schedule_version(text, text, uuid) to anon;
 revoke execute on function schedule_session_display_name(text) from anon;
 
+-- Olympus operations v7
+-- Adds compact internal statistics used by the dashboard/optimizer and
+-- cell-level summaries for the schedule version history.
+
+create or replace function api_schedule_overview(
+  teacher_key text,
+  week_start date default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  current_monday date := current_date - (extract(isodow from current_date)::integer - 1);
+  requested date := coalesce(api_schedule_overview.week_start, current_monday);
+  result jsonb;
+begin
+  perform require_teacher(api_schedule_overview.teacher_key);
+  with accessible as (
+    select c.*
+    from classes c
+    where not c.archived
+      and can_access_class(api_schedule_overview.teacher_key, c.id)
+  ),
+  week_directory as (
+    select w.week_start, max(w.title) as title
+    from class_schedule_weeks w
+    join accessible c on c.id = w.class_id
+    group by w.week_start
+  )
+  select jsonb_build_object(
+    'weekStart', requested::text,
+    'weeks', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'weekStart', wd.week_start::text,
+        'title', wd.title
+      ) order by wd.week_start desc)
+      from week_directory wd
+    ), '[]'::jsonb),
+    'classes', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', c.id,
+        'name', c.name,
+        'sessions', c.sessions,
+        'courseKind', c.course_kind,
+        'lessonStarts', c.lesson_starts,
+        'sectorId', c.sector_id,
+        'sectorName', (select cs.name from class_sectors cs where cs.id = c.sector_id),
+        'approvedCount', (
+          select count(*) from submissions s
+          where s.class_id = c.id and s.status = 'approved'
+        ),
+        'pendingCount', (
+          select count(*) from submissions s
+          where s.class_id = c.id and s.status = 'pending'
+        ),
+        'studentIds', coalesce((
+          select jsonb_agg(distinct s.student_id)
+          from submissions s
+          where s.class_id = c.id
+            and s.status = 'approved'
+            and s.student_id is not null
+        ), '[]'::jsonb),
+        'activeSlots', case
+          when requested = current_monday then c.current_slots
+          else coalesce(w.active_slots, '{}'::text[]) end,
+        'slots', case
+          when requested = current_monday then coalesce(nullif(w.slots, '{}'::jsonb), c.final_subjects, '{}'::jsonb)
+          else coalesce(w.slots, '{}'::jsonb) end,
+        'details', case
+          when w.id is not null then coalesce(w.details, '{}'::jsonb)
+          when requested = current_monday then coalesce((
+            select cw.details from class_schedule_weeks cw
+            where cw.class_id = c.id
+            order by
+              case when cw.week_start = c.current_schedule_week then 0 else 1 end,
+              cw.week_start desc
+            limit 1
+          ), '{}'::jsonb)
+          else '{}'::jsonb end
+      ) order by lower(coalesce((select cs.name from class_sectors cs where cs.id = c.sector_id), '')),
+                 lower(c.name), c.name, c.id)
+      from accessible c
+      left join class_schedule_weeks w
+        on w.class_id = c.id and w.week_start = requested
+    ), '[]'::jsonb)
+  )
+  into result;
+  return result;
+end;
+$$;
+
+create or replace function api_schedule_versions(
+  teacher_key text,
+  class_id text,
+  week_start date
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform require_class_manager(
+    api_schedule_versions.teacher_key,
+    api_schedule_versions.class_id
+  );
+  return coalesce((
+    with versioned as (
+      select
+        v.*,
+        lag(v.data) over (order by v.version_no) as previous_data
+      from schedule_week_versions v
+      where v.class_id = api_schedule_versions.class_id
+        and v.week_start = api_schedule_versions.week_start
+    )
+    select jsonb_agg(jsonb_build_object(
+      'id', v.id,
+      'version', v.version_no,
+      'title', v.title,
+      'editedBy', v.edited_by,
+      'createdAt', v.created_at,
+      'changedCells', coalesce((
+        select jsonb_agg(keys.cell_key order by keys.cell_key)
+        from (
+          select distinct k as cell_key
+          from (
+            select jsonb_object_keys(coalesce(v.data -> 'slots', '{}'::jsonb)) k
+            union all
+            select jsonb_object_keys(coalesce(v.data -> 'details', '{}'::jsonb)) k
+            union all
+            select jsonb_object_keys(coalesce(v.previous_data -> 'slots', '{}'::jsonb)) k
+            union all
+            select jsonb_object_keys(coalesce(v.previous_data -> 'details', '{}'::jsonb)) k
+          ) all_keys
+          where (coalesce(v.data -> 'slots', '{}'::jsonb) -> k)
+                  is distinct from
+                (coalesce(v.previous_data -> 'slots', '{}'::jsonb) -> k)
+             or (coalesce(v.data -> 'details', '{}'::jsonb) -> k)
+                  is distinct from
+                (coalesce(v.previous_data -> 'details', '{}'::jsonb) -> k)
+        ) keys
+      ), '[]'::jsonb)
+    ) order by v.version_no desc)
+    from versioned v
+  ), '[]'::jsonb);
+end;
+$$;
+
+grant execute on function api_schedule_overview(text, date) to anon;
+grant execute on function api_schedule_versions(text, text, date) to anon;
+
 commit;

@@ -38,6 +38,9 @@ let vocabCustomizations = [];
 let teacherDirectory = [];
 let personalizationProfile = null;
 let personalizationSaving = false;
+let operationsDashboardData = null;
+let optimizerPreviewPlans = [];
+let optimizerBusy = false;
 const HOMEROOM_DATA_PREFIX = 'lichlop-homeroom-record:';
 const HOMEROOM_SELECTED_CLASS_KEY = 'lichlop-homeroom-class';
 const HOMEROOM_RECORD_TYPE_KEY = 'lichlop-homeroom-record-type';
@@ -53,6 +56,8 @@ const SCHEDULE_RESOURCE_VIEW_KEY = 'lichlop-schedule-resource-view';
 const SCHEDULE_RESOURCE_FILTER_KEY = 'lichlop-schedule-resource-filter';
 const EXPORT_AUDIENCE_KEY = 'lichlop-export-audience';
 const PERSONALIZATION_CACHE_KEY = 'lichlop-personalization-profile';
+const DASHBOARD_RANGE_KEY = 'lichlop-dashboard-range';
+const OPTIMIZER_OPTIONS_KEY = 'lichlop-optimizer-options';
 
 const $ = (sel) => document.querySelector(sel);
 const API_BASE = window.API_BASE || '';
@@ -112,6 +117,7 @@ function defaultPersonalizationProfile() {
       grammarOnlyTotal: true
     },
     teacherSkillRules: [],
+    automationRules: [],
     grammarSectorKeywords: ['Ngữ pháp'],
     categoryColors: {
       classBg: '#22c55e', classFg: '#052e16',
@@ -159,6 +165,20 @@ function normalizeTeacherSkillRules(items) {
     teacher: String(item?.teacher || '').trim().slice(0, 120),
     enabled: item?.enabled !== false
   })).filter((item) => item.skill && item.teacher);
+}
+
+function normalizeAutomationRules(items) {
+  const conditions = new Set(['sector', 'skill', 'location', 'session', 'class']);
+  const actions = new Set(['teacher', 'location', 'color', 'courseKind']);
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, 80).map((item) => ({
+    id: String(item?.id || personalizationId('automation-rule')).slice(0, 100),
+    enabled: item?.enabled !== false,
+    conditionType: conditions.has(item?.conditionType) ? item.conditionType : 'skill',
+    conditionValue: String(item?.conditionValue || '').trim().slice(0, 100),
+    actionType: actions.has(item?.actionType) ? item.actionType : 'teacher',
+    actionValue: String(item?.actionValue || '').trim().slice(0, 120)
+  })).filter((item) => item.conditionValue && item.actionValue);
 }
 
 function normalizeCategoryColors(value, defaults) {
@@ -228,6 +248,7 @@ function normalizePersonalizationProfile(profile) {
       grammarOnlyTotal: source.countingRules?.grammarOnlyTotal !== false
     },
     teacherSkillRules: normalizeTeacherSkillRules(source.teacherSkillRules),
+    automationRules: normalizeAutomationRules(source.automationRules),
     grammarSectorKeywords: Array.isArray(source.grammarSectorKeywords)
       ? source.grammarSectorKeywords.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 20)
       : defaults.grammarSectorKeywords,
@@ -287,6 +308,41 @@ function teacherNameForDisplay(value) {
 function teacherForSkill(skill) {
   const code = scheduleLessonTypeFromLabel(skill) || String(skill || '').trim().toUpperCase();
   return currentPersonalization().teacherSkillRules.find((rule) => rule.enabled && rule.skill === code)?.teacher || '';
+}
+
+function automationRuleContext(cell, lessonType = '') {
+  const sessionIndex = Number(String(cell?.dataset.slot || '').split('-')[1]);
+  const session = getSessions(scheduleEditorData)[sessionIndex] || '';
+  return {
+    skill: String(lessonType || cell?.dataset.lessonType || '').trim().toUpperCase(),
+    session: String(session || '').trim(),
+    location: String(cell?.dataset.location || '').trim(),
+    sector: String(scheduleEditorData?.sectorName || '').trim(),
+    class: String(scheduleEditorData?.name || '').trim()
+  };
+}
+
+function matchingAutomationRules(context) {
+  return currentPersonalization().automationRules.filter((rule) => {
+    if (!rule.enabled) return false;
+    const actual = String(context?.[rule.conditionType] || '').trim().toLocaleLowerCase('vi');
+    const expected = String(rule.conditionValue || '').trim().toLocaleLowerCase('vi');
+    return actual && expected && (actual === expected || actual.includes(expected));
+  });
+}
+
+function suggestedCourseKindForClass(cls) {
+  const context = {
+    sector: String(cls?.sectorName || '').trim(),
+    class: String(cls?.name || '').trim(),
+    skill: '', location: '', session: ''
+  };
+  const explicit = matchingAutomationRules(context)
+    .find((rule) => rule.actionType === 'courseKind' && ['grammar', 'skills'].includes(rule.actionValue.toLowerCase()));
+  if (explicit) return explicit.actionValue.toLowerCase();
+  const sector = context.sector.toLocaleLowerCase('vi');
+  if (currentPersonalization().grammarSectorKeywords.some((keyword) => sector.includes(String(keyword).toLocaleLowerCase('vi')))) return 'grammar';
+  return '';
 }
 
 function classCodeIsValid(value) {
@@ -1150,6 +1206,27 @@ function personalizationTeacherRuleRow(rule) {
   </div>`;
 }
 
+function personalizationAutomationRuleRow(rule) {
+  const conditionLabels = {
+    sector: 'Sector', skill: 'Kỹ năng', location: 'Địa điểm', session: 'Ca', class: 'Lớp'
+  };
+  const actionLabels = {
+    teacher: 'Chọn giáo viên', location: 'Chọn phòng', color: 'Tô màu', courseKind: 'Loại khoá'
+  };
+  return `<div class="personalization-automation-row" data-personalization-automation-rule data-id="${escapeHtml(rule.id)}">
+    <label class="rule-enabled"><input data-field="enabled" type="checkbox"${rule.enabled ? ' checked' : ''} /> Bật</label>
+    <label>Khi
+      <select data-field="conditionType">${Object.entries(conditionLabels).map(([value, label]) => `<option value="${value}"${rule.conditionType === value ? ' selected' : ''}>${label}</option>`).join('')}</select>
+    </label>
+    <input data-field="conditionValue" value="${escapeHtml(rule.conditionValue)}" placeholder="Giá trị điều kiện" maxlength="100" />
+    <label>Thì
+      <select data-field="actionType">${Object.entries(actionLabels).map(([value, label]) => `<option value="${value}"${rule.actionType === value ? ' selected' : ''}>${label}</option>`).join('')}</select>
+    </label>
+    <input data-field="actionValue" value="${escapeHtml(rule.actionValue)}" placeholder="Giá trị hoặc #màu" maxlength="120" />
+    <button type="button" class="personalization-remove-item" title="Xoá">×</button>
+  </div>`;
+}
+
 function personalizationColorFields(colors) {
   const rows = [
     ['class', 'Lớp'], ['teacher', 'Giáo viên'], ['room', 'Phòng'],
@@ -1186,6 +1263,14 @@ function collectPersonalizationForm() {
     skill: row.querySelector('[data-field="skill"]')?.value || '',
     teacher: row.querySelector('[data-field="teacher"]')?.value || ''
   }));
+  const automationRules = [...document.querySelectorAll('[data-personalization-automation-rule]')].map((row) => ({
+    id: row.dataset.id || personalizationId('automation-rule'),
+    enabled: Boolean(row.querySelector('[data-field="enabled"]')?.checked),
+    conditionType: row.querySelector('[data-field="conditionType"]')?.value || 'skill',
+    conditionValue: row.querySelector('[data-field="conditionValue"]')?.value || '',
+    actionType: row.querySelector('[data-field="actionType"]')?.value || 'teacher',
+    actionValue: row.querySelector('[data-field="actionValue"]')?.value || ''
+  }));
   const categoryColors = Object.fromEntries([...document.querySelectorAll('[data-category-color]')]
     .map((input) => [input.dataset.categoryColor, input.value]));
   return normalizePersonalizationProfile({
@@ -1207,6 +1292,7 @@ function collectPersonalizationForm() {
     },
     grammarSectorKeywords: String($('#personalization-grammar-keywords')?.value || '').split(',').map((item) => item.trim()).filter(Boolean),
     teacherSkillRules,
+    automationRules,
     categoryColors,
     symbols: readItems('symbol'),
     locations: readItems('location')
@@ -1260,6 +1346,11 @@ function renderPersonalizationSettings() {
     <section class="personalization-section personalization-wide">
       <div class="personalization-section-head"><div><h3>Tự chọn giáo viên theo kỹ năng</h3><p>Ví dụ Speaking → Cô A. Nếu ô đã được nhập tay, hệ thống không ghi đè.</p></div><button type="button" id="personalization-add-teacher-rule">+ Quy tắc</button></div>
       <div class="personalization-rule-list">${profile.teacherSkillRules.length ? profile.teacherSkillRules.map(personalizationTeacherRuleRow).join('') : '<p class="placeholder">Chưa có quy tắc tự chọn giáo viên.</p>'}</div>
+    </section>
+
+    <section class="personalization-section personalization-wide">
+      <div class="personalization-section-head"><div><h3>Bộ máy quy tắc tự động</h3><p>Tạo điều kiện kiểu “Khi sector là Ngữ pháp → loại khoá grammar” hoặc “Khi địa điểm là CS2 → tô #fdfd0a”. Giá trị nhập tay luôn thắng.</p></div><button type="button" id="personalization-add-automation-rule">+ Luật tự động</button></div>
+      <div class="personalization-automation-list">${profile.automationRules.length ? profile.automationRules.map(personalizationAutomationRuleRow).join('') : '<p class="placeholder">Chưa có luật nâng cao. Các quy tắc ca/phòng và giáo viên theo kỹ năng vẫn hoạt động bình thường.</p>'}</div>
     </section>
 
     <section class="personalization-section personalization-presets-section">
@@ -1345,8 +1436,23 @@ function wirePersonalizationSettings() {
     const rows = document.querySelectorAll('[data-personalization-teacher-rule]');
     rows[rows.length - 1]?.querySelector('[data-field="teacher"]')?.focus();
   });
+  $('#personalization-add-automation-rule')?.addEventListener('click', () => {
+    const profile = collectPersonalizationForm();
+    profile.automationRules.push({
+      id: personalizationId('automation-rule'),
+      enabled: true,
+      conditionType: 'skill',
+      conditionValue: 'S',
+      actionType: 'teacher',
+      actionValue: ''
+    });
+    personalizationProfile = profile;
+    renderPersonalizationSettings();
+    const rows = document.querySelectorAll('[data-personalization-automation-rule]');
+    rows[rows.length - 1]?.querySelector('[data-field="actionValue"]')?.focus();
+  });
   document.querySelectorAll('.personalization-remove-item').forEach((button) => {
-    button.addEventListener('click', () => button.closest('.personalization-item-row, .personalization-session-row, .personalization-rule-row')?.remove());
+    button.addEventListener('click', () => button.closest('.personalization-item-row, .personalization-session-row, .personalization-rule-row, .personalization-automation-row')?.remove());
   });
   $('#personalization-add-preset')?.addEventListener('click', async () => {
     const name = prompt('Tên góc nhìn:', `Góc nhìn ${currentPersonalization().presets.length + 1}`);
@@ -1421,8 +1527,470 @@ function initTabs() {
       if (btn.dataset.tab === 'games') renderVocabGame();
       if (btn.dataset.tab === 'attendance') loadAttendance();
       if (btn.dataset.tab === 'personalization') renderPersonalizationSettings();
+      if (btn.dataset.tab === 'dashboard') loadOperationsDashboard();
     });
   });
+}
+
+function dashboardMetric(label, value, note, tone = 'blue') {
+  return `<article class="ops-metric tone-${escapeHtml(tone)}">
+    <span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(note || '')}</small>
+  </article>`;
+}
+
+function dashboardBars(title, items, emptyText = 'Chưa có dữ liệu') {
+  const safeItems = (items || []).filter((item) => Number(item.value) > 0).slice(0, 12);
+  const maximum = Math.max(1, ...safeItems.map((item) => Number(item.value) || 0));
+  return `<section class="ops-chart">
+    <h3>${escapeHtml(title)}</h3>
+    ${safeItems.length ? `<div class="ops-bars">${safeItems.map((item) => {
+      const percent = Math.max(4, Math.round((Number(item.value) || 0) / maximum * 100));
+      return `<div class="ops-bar-row"><span title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span><div><i style="width:${percent}%;background:${escapeHtml(item.color || '#4f46e5')}"></i></div><b>${escapeHtml(item.value)}</b></div>`;
+    }).join('')}</div>` : `<p class="placeholder">${escapeHtml(emptyText)}</p>`}
+  </section>`;
+}
+
+function countBy(items, getter) {
+  const result = new Map();
+  (items || []).forEach((item) => {
+    const key = String(getter(item) || '').trim();
+    if (!key) return;
+    result.set(key, (result.get(key) || 0) + 1);
+  });
+  return [...result.entries()]
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value || compareText(a.label, b.label));
+}
+
+function dashboardRecommendations(entries, conflicts) {
+  const recommendations = [];
+  const missingTeacher = entries.filter((item) => !item.teacherRaw).length;
+  const missingRoom = entries.filter((item) => !item.room).length;
+  const unscheduled = overviewScheduleClasses().filter((cls) => !(cls.activeSlots || []).length);
+  const pending = overviewScheduleClasses().reduce((sum, cls) => sum + Number(cls.pendingCount || 0), 0);
+  if (conflicts.length) recommendations.push({
+    tone: 'danger', title: `${conflicts.length} xung đột lịch`,
+    text: 'Mở Lịch chia để xem giáo viên, phòng hoặc lớp đang trùng giờ.', tab: 'schedule'
+  });
+  if (missingTeacher) recommendations.push({
+    tone: 'warning', title: `${missingTeacher} buổi chưa có giáo viên`,
+    text: 'Cấu hình giáo viên ưu tiên theo kỹ năng rồi chạy Olympus Optimizer.', tab: 'personalization'
+  });
+  if (missingRoom) recommendations.push({
+    tone: 'warning', title: `${missingRoom} buổi chưa có phòng`,
+    text: 'Đặt phòng mặc định cho từng ca hoặc để Optimizer chọn phòng còn trống.', tab: 'personalization'
+  });
+  if (unscheduled.length) recommendations.push({
+    tone: 'info', title: `${unscheduled.length} lớp chưa có lịch tuần`,
+    text: `Có thể tạo đề xuất tự động cho ${unscheduled.slice(0, 4).map((cls) => cls.name).join(', ')}${unscheduled.length > 4 ? '…' : ''}.`,
+    optimizer: true
+  });
+  if (pending) recommendations.push({
+    tone: 'info', title: `${pending} lịch học sinh đang chờ duyệt`,
+    text: 'Duyệt lịch bận trước khi tối ưu để kết quả chính xác hơn.', tab: 'teacher'
+  });
+  if (!recommendations.length) recommendations.push({
+    tone: 'ok', title: 'Vận hành tuần đang ổn định',
+    text: 'Không phát hiện xung đột hay dữ liệu lịch còn thiếu.'
+  });
+  return recommendations;
+}
+
+function optimizerOptions() {
+  try {
+    const value = JSON.parse(localStorage.getItem(OPTIMIZER_OPTIONS_KEY) || '{}');
+    return {
+      weekStart: value.weekStart || overviewWeekStart(),
+      lessons: Math.max(1, Math.min(7, Number(value.lessons) || 2)),
+      maxPerDay: Math.max(1, Math.min(4, Number(value.maxPerDay) || 1)),
+      skills: String(value.skills || 'LR,S,W'),
+      replace: Boolean(value.replace)
+    };
+  } catch (err) {
+    return { weekStart: overviewWeekStart(), lessons: 2, maxPerDay: 1, skills: 'LR,S,W', replace: false };
+  }
+}
+
+function optimizerClassChecklist() {
+  const defaultSelected = new Set(overviewScheduleClasses()
+    .filter((cls) => !(cls.activeSlots || []).length)
+    .map((cls) => String(cls.id)));
+  return buildSectorGroups(teacherClasses).map((sector) => {
+    const classes = sector.classes || [];
+    if (!classes.length) return '';
+    return `<fieldset class="optimizer-sector"><legend>${escapeHtml(sector.name || 'Chưa phân mục')}</legend>
+      <div>${classes.map((cls) => `<label><input class="optimizer-class-check" type="checkbox" value="${escapeHtml(cls.id)}"${defaultSelected.has(String(cls.id)) ? ' checked' : ''} /> <span>${escapeHtml(cls.name)}</span></label>`).join('')}</div>
+    </fieldset>`;
+  }).join('');
+}
+
+function renderOptimizerPreview() {
+  if (!optimizerPreviewPlans.length) return '<p class="placeholder">Chọn lớp rồi bấm “Tạo đề xuất”. Hệ thống chưa thay đổi dữ liệu cho đến khi anh xác nhận áp dụng.</p>';
+  const totalAdded = optimizerPreviewPlans.reduce((sum, plan) => sum + plan.addedSlots.length, 0);
+  const unresolved = optimizerPreviewPlans.reduce((sum, plan) => sum + plan.warnings.length, 0);
+  return `<div class="optimizer-preview-head">
+      <div><b>${optimizerPreviewPlans.length} lớp · ${totalAdded} buổi được đề xuất</b><small>${unresolved ? `${unresolved} lưu ý cần kiểm tra` : 'Không có xung đột cứng trong phương án'}</small></div>
+      <button id="optimizer-apply" class="primary" type="button"${optimizerBusy ? ' disabled' : ''}>Áp dụng phương án</button>
+    </div>
+    <div class="optimizer-plan-list">${optimizerPreviewPlans.map((plan) => `<article class="optimizer-plan">
+      <div class="optimizer-plan-title"><b>${escapeHtml(plan.className)}</b><span>Điểm ${escapeHtml(Math.round(plan.score))}/100</span></div>
+      <div class="optimizer-slot-list">${plan.addedSlots.map((slot) => `<span><b>${escapeHtml(DAYS_SHORT[slot.dayIdx] || DAYS[slot.dayIdx] || `Ngày ${slot.dayIdx + 1}`)}</b> ${escapeHtml(slot.session)} · ${escapeHtml(slot.lessonLabel)} · ${escapeHtml(slot.startTime || '')}${slot.location ? ` · ${escapeHtml(slot.location)}` : ''}${slot.teacher ? ` · ${escapeHtml(teacherNameForDisplay(slot.teacher))}` : ''}<small>${escapeHtml(slot.availableText)}</small></span>`).join('')}</div>
+      ${plan.warnings.length ? `<ul class="optimizer-warning-list">${plan.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>` : ''}
+    </article>`).join('')}</div>`;
+}
+
+function renderOperationsDashboard() {
+  const root = $('#operations-dashboard-root');
+  if (!root || !isOwner()) return;
+  const entries = scheduleResourceEntries();
+  const conflicts = scheduleConflictItems();
+  const classes = overviewScheduleClasses();
+  const uniqueStudents = new Set(classes.flatMap((cls) => Array.isArray(cls.studentIds) ? cls.studentIds.map(String) : []));
+  const approvedTotal = classes.reduce((sum, cls) => sum + Number(cls.approvedCount || teacherClasses.find((item) => String(item.id) === String(cls.id))?.approvedCount || 0), 0);
+  const pendingTotal = classes.reduce((sum, cls) => sum + Number(cls.pendingCount || 0), 0);
+  const scheduledClasses = classes.filter((cls) => (cls.activeSlots || []).length).length;
+  const confirmedAttendance = attendanceRows.filter((row) => String(attendanceField(row, 'status', 'Chưa chốt')) !== 'Chưa chốt').length;
+  const attendanceRate = attendanceRows.length ? Math.round(confirmedAttendance / attendanceRows.length * 100) : 0;
+  const recommendations = dashboardRecommendations(entries, conflicts);
+  const skills = countBy(entries, (item) => scheduleLessonTypeFromLabel(item.skill) || item.skill || 'Chưa ghi kỹ năng')
+    .map((item) => ({ ...item, color: personalizedSymbol(item.label)?.bg || '#8b5cf6' }));
+  const teacherLoads = countBy(entries, (item) => item.teacher || 'Chưa phân công')
+    .map((item) => ({ ...item, color: '#2563eb' }));
+  const roomLoads = countBy(entries, (item) => item.room || 'Chưa có phòng')
+    .map((item) => ({ ...item, color: personalizedLocation(item.label)?.bg || '#f59e0b' }));
+  const dayLoads = countBy(entries, (item) => item.day)
+    .map((item) => ({ ...item, color: '#10b981' }));
+  const options = optimizerOptions();
+  root.innerHTML = `<div class="ops-metrics">
+      ${dashboardMetric('Lớp đang hoạt động', classes.length, `${scheduledClasses}/${classes.length || 0} lớp đã có lịch`, 'blue')}
+      ${dashboardMetric('Học sinh', uniqueStudents.size || approvedTotal, uniqueStudents.size ? 'Không tính trùng học nhiều lớp' : 'Tổng lượt học sinh đã duyệt', 'green')}
+      ${dashboardMetric('Buổi trong tuần', entries.length, `${conflicts.length} xung đột`, conflicts.length ? 'red' : 'green')}
+      ${dashboardMetric('Lịch chờ duyệt', pendingTotal, pendingTotal ? 'Cần xử lý trước khi tối ưu' : 'Đã xử lý hết', pendingTotal ? 'orange' : 'green')}
+      ${dashboardMetric('Bảng công', `${attendanceRate}%`, `${confirmedAttendance}/${attendanceRows.length} buổi đã chốt`, attendanceRate >= 80 ? 'green' : 'orange')}
+    </div>
+    <div class="ops-dashboard-grid">
+      ${dashboardBars('Tải giảng dạy theo giáo viên', teacherLoads)}
+      ${dashboardBars('Mức sử dụng phòng', roomLoads)}
+      ${dashboardBars('Phân bố kỹ năng', skills)}
+      ${dashboardBars('Mật độ theo ngày', dayLoads)}
+    </div>
+    <section class="ops-recommendations">
+      <div class="ops-section-head"><div><span>GỢI Ý VẬN HÀNH</span><h3>Việc nên xử lý tiếp theo</h3></div><small>Phân tích từ tuần ${escapeHtml(weekRangeText(overviewWeekStart()))}</small></div>
+      <div class="ops-recommendation-list">${recommendations.map((item) => `<button type="button" class="ops-recommendation tone-${escapeHtml(item.tone)}"${item.tab ? ` data-ops-tab="${escapeHtml(item.tab)}"` : ''}${item.optimizer ? ' data-open-optimizer="1"' : ''}><b>${escapeHtml(item.title)}</b><span>${escapeHtml(item.text)}</span></button>`).join('')}</div>
+    </section>
+    <section id="olympus-optimizer" class="optimizer-console">
+      <div class="ops-section-head"><div><span>OLYMPUS OPTIMIZER</span><h3>Gợi ý xếp lịch tối ưu</h3></div><small>Xem trước → kiểm tra → áp dụng. Có thể sửa tay sau khi áp dụng.</small></div>
+      <div class="optimizer-controls">
+        <label>Tuần<input id="optimizer-week-start" type="date" value="${escapeHtml(options.weekStart)}" /></label>
+        <label>Số buổi/lớp<input id="optimizer-lessons" type="number" min="1" max="7" value="${options.lessons}" /></label>
+        <label>Tối đa mỗi ngày<input id="optimizer-max-day" type="number" min="1" max="4" value="${options.maxPerDay}" /></label>
+        <label>Vòng kỹ năng<input id="optimizer-skills" value="${escapeHtml(options.skills)}" placeholder="LR,S,W" /></label>
+        <label class="optimizer-replace"><input id="optimizer-replace" type="checkbox"${options.replace ? ' checked' : ''} /> Ghi đè lịch tuần hiện tại</label>
+      </div>
+      <p class="hint">Mặc định Optimizer chỉ bổ sung ô còn thiếu. Bật “Ghi đè” là một xác nhận thủ công rõ ràng; lịch cũ vẫn có snapshot để khôi phục.</p>
+      <div class="optimizer-picker-head"><b>Chọn lớp</b><span><button id="optimizer-select-missing" type="button">Lớp chưa có lịch</button><button id="optimizer-select-all" type="button">Tất cả</button><button id="optimizer-select-none" type="button">Bỏ chọn</button></span></div>
+      <div class="optimizer-class-picker">${optimizerClassChecklist()}</div>
+      <div class="optimizer-actions"><button id="optimizer-generate" class="primary" type="button"${optimizerBusy ? ' disabled' : ''}>${optimizerBusy ? 'Đang tính phương án…' : 'Tạo đề xuất'}</button><span id="optimizer-message" class="msg"></span></div>
+      <div id="optimizer-preview" class="optimizer-preview">${renderOptimizerPreview()}</div>
+    </section>`;
+  wireOperationsDashboard();
+}
+
+async function loadOperationsDashboard() {
+  const root = $('#operations-dashboard-root');
+  if (!root || !teacherSession || !isOwner()) return;
+  root.innerHTML = '<p class="placeholder">Đang phân tích lịch, phòng, giáo viên và bảng công…</p>';
+  try {
+    if (!teacherClasses.length) await loadClasses();
+    const [overview, attendance] = await Promise.all([
+      api('/schedule-overview', { method: 'GET', body: JSON.stringify({ weekStart: overviewWeekStart() }) }),
+      api('/attendance').catch(() => [])
+    ]);
+    scheduleOverviewData = overview || { classes: [] };
+    attendanceRows = Array.isArray(attendance) ? attendance : [];
+    operationsDashboardData = { overview: scheduleOverviewData, attendance: attendanceRows, loadedAt: Date.now() };
+    renderOperationsDashboard();
+  } catch (err) {
+    root.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function optimizerSelectedClassIds() {
+  return [...document.querySelectorAll('.optimizer-class-check:checked')].map((input) => input.value);
+}
+
+function optimizerReadOptions() {
+  const options = {
+    weekStart: $('#optimizer-week-start')?.value || overviewWeekStart(),
+    lessons: Math.max(1, Math.min(7, Number($('#optimizer-lessons')?.value) || 2)),
+    maxPerDay: Math.max(1, Math.min(4, Number($('#optimizer-max-day')?.value) || 1)),
+    skills: String($('#optimizer-skills')?.value || 'LR,S,W').toUpperCase(),
+    replace: Boolean($('#optimizer-replace')?.checked)
+  };
+  localStorage.setItem(OPTIMIZER_OPTIONS_KEY, JSON.stringify(options));
+  return options;
+}
+
+function optimizerSkillPattern(value, courseKind) {
+  if (courseKind === 'grammar') return ['LESSON'];
+  const allowed = new Set(['LR', 'L', 'R', 'W', 'S']);
+  const parsed = String(value || '').split(',').map((item) => item.trim().toUpperCase()).filter((item) => allowed.has(item));
+  return parsed.length ? parsed : ['LR', 'S', 'W'];
+}
+
+function optimizerOccupiedState(excludedClassIds = new Set()) {
+  const state = { teachers: new Set(), rooms: new Set(), classes: new Set(), students: new Set() };
+  overviewScheduleClasses().forEach((cls) => {
+    if (excludedClassIds.has(String(cls.id))) return;
+    const sessions = getSessions(cls);
+    const details = cls.details || {};
+    (cls.activeSlots || []).forEach((slotId) => {
+      const [dayIdx, sessionIdx] = String(slotId).split('-').map(Number);
+      const raw = details[slotId] || {};
+      const lane = Array.isArray(raw.lanes) ? raw.lanes[Math.max(0, Number(raw.primaryLane || 0))] || {} : {};
+      const detail = { ...raw, ...lane };
+      const session = sessions[sessionIdx] || '';
+      const time = String(detail.startTime || personalizedSession(session)?.startTime || session).trim().toLowerCase();
+      const base = `${dayIdx}|${time}`;
+      const teacher = String(detail.teacherName || '').trim().toLocaleLowerCase('vi');
+      const room = String(personalizedLocation(detail.location)?.code || detail.location || '').trim().toLocaleLowerCase('vi');
+      if (teacher) state.teachers.add(`${base}|${teacher}`);
+      if (room) state.rooms.add(`${base}|${room}`);
+      state.classes.add(`${base}|${cls.id}`);
+      (cls.studentIds || []).forEach((studentId) => state.students.add(`${base}|${studentId}`));
+    });
+  });
+  return state;
+}
+
+function optimizerMaximums(planner, slots) {
+  const result = { S: 0, W: 0, LR: 0, L: 0, R: 0, COURSE: 0 };
+  Object.entries(planner?.sequenceBefore || {}).forEach(([key, value]) => {
+    if (key in result) result[key] = Math.max(result[key], Number(value) || 0);
+  });
+  Object.values(slots || {}).forEach((label) => {
+    const match = String(label || '').toUpperCase().match(/^(LR|L|R|W|S)(\d+)$/);
+    if (match) result[match[1]] = Math.max(result[match[1]], Number(match[2]));
+  });
+  Object.values(planner?.selectedWeek?.details || {}).forEach((detail) => {
+    const course = String(detail?.courseNo || '').match(/^(\d+)/);
+    if (course) result.COURSE = Math.max(result.COURSE, Number(course[1]));
+  });
+  return result;
+}
+
+function optimizerBestRoom(baseKey, preferred, occupied) {
+  const locations = currentPersonalization().locations;
+  const ordered = [
+    personalizedLocation(preferred)?.code || String(preferred || '').trim(),
+    ...locations.map((item) => item.code)
+  ].filter(Boolean);
+  const unique = [...new Set(ordered)];
+  return unique.find((room) => !occupied.rooms.has(`${baseKey}|${room.toLocaleLowerCase('vi')}`)) || unique[0] || '';
+}
+
+function buildOptimizerPlan(cls, classData, planner, options, occupied) {
+  const sessions = getSessions(planner);
+  const existingWeek = planner.selectedWeek || {};
+  const existingActive = Array.isArray(existingWeek.activeSlots) ? existingWeek.activeSlots : [];
+  const active = options.replace ? [] : [...new Set(existingActive)];
+  const slots = options.replace ? {} : { ...(existingWeek.slots || {}) };
+  const details = options.replace ? {} : { ...(existingWeek.details || {}) };
+  const approved = (classData.submissions || []).filter((item) => item.status === 'approved');
+  const skillPattern = optimizerSkillPattern(options.skills, planner.courseKind);
+  const maxima = optimizerMaximums(planner, slots);
+  const needed = Math.max(0, options.lessons - active.length);
+  const dayCounts = active.reduce((map, slotId) => {
+    const day = Number(String(slotId).split('-')[0]);
+    map[day] = (map[day] || 0) + 1;
+    return map;
+  }, {});
+  const candidates = [];
+  DAYS.forEach((day, dayIdx) => sessions.forEach((session, sessionIdx) => {
+    const slotId = `${dayIdx}-${sessionIdx}`;
+    if (active.includes(slotId)) return;
+    const defaultSession = personalizedSession(session);
+    const startTime = defaultSession?.startTime || session;
+    const baseKey = `${dayIdx}|${String(startTime).trim().toLowerCase()}`;
+    const busyCount = approved.filter((student) => (student.busySlots || []).includes(slotId)).length;
+    const availability = approved.length ? (approved.length - busyCount) / approved.length : 1;
+    const sharedStudents = approved.filter((student) => student.studentId && occupied.students.has(`${baseKey}|${student.studentId}`)).length;
+    const spreadPenalty = (dayCounts[dayIdx] || 0) * 18;
+    const weekendPenalty = dayIdx === 6 ? 4 : 0;
+    candidates.push({ slotId, dayIdx, sessionIdx, session, startTime, baseKey, busyCount, availability, sharedStudents, score: availability * 100 - sharedStudents * 22 - spreadPenalty - weekendPenalty });
+  }));
+  const selected = [];
+  while (selected.length < needed) {
+    const eligible = candidates.filter((candidate) => !selected.includes(candidate) && (dayCounts[candidate.dayIdx] || 0) < options.maxPerDay);
+    if (!eligible.length) break;
+    eligible.sort((a, b) => b.score - a.score || a.dayIdx - b.dayIdx || a.sessionIdx - b.sessionIdx);
+    const candidate = eligible[0];
+    selected.push(candidate);
+    dayCounts[candidate.dayIdx] = (dayCounts[candidate.dayIdx] || 0) + 1;
+  }
+  const addedSlots = [];
+  const warnings = [];
+  selected.forEach((candidate, index) => {
+    const lessonType = skillPattern[index % skillPattern.length];
+    maxima.COURSE += 1;
+    let lessonLabel = 'LESSON';
+    if (lessonType !== 'LESSON') {
+      maxima[lessonType] = Number(maxima[lessonType] || 0) + 1;
+      lessonLabel = `${lessonType}${maxima[lessonType]}`;
+    }
+    const teacher = lessonType === 'LESSON' ? '' : teacherForSkill(lessonType);
+    const preferredRoom = personalizedSession(candidate.session)?.defaultLocation || currentPersonalization().locations[0]?.code || '';
+    const location = optimizerBestRoom(candidate.baseKey, preferredRoom, occupied);
+    const teacherKey = String(teacher || '').trim().toLocaleLowerCase('vi');
+    const roomKey = String(location || '').trim().toLocaleLowerCase('vi');
+    if (teacherKey && occupied.teachers.has(`${candidate.baseKey}|${teacherKey}`)) warnings.push(`${DAYS_SHORT[candidate.dayIdx]} ${candidate.startTime}: giáo viên ${teacherNameForDisplay(teacher)} đang có lịch.`);
+    if (roomKey && occupied.rooms.has(`${candidate.baseKey}|${roomKey}`)) warnings.push(`${DAYS_SHORT[candidate.dayIdx]} ${candidate.startTime}: phòng ${location} đang được sử dụng.`);
+    if (candidate.busyCount) warnings.push(`${DAYS_SHORT[candidate.dayIdx]} ${candidate.session}: ${candidate.busyCount}/${approved.length} học sinh báo bận.`);
+    if (candidate.sharedStudents) warnings.push(`${DAYS_SHORT[candidate.dayIdx]} ${candidate.session}: ${candidate.sharedStudents} học sinh trùng lịch lớp khác.`);
+    const detail = {
+      ...(details[candidate.slotId] || {}),
+      startTime: candidate.startTime,
+      location,
+      teacherName: teacher,
+      lessonType,
+      courseNo: String(maxima.COURSE),
+      primaryLane: 0,
+      lanes: [{
+        active: true, lesson: lessonLabel, lessonType, courseNo: String(maxima.COURSE),
+        startTime: candidate.startTime, location, teacherName: teacher, note: ''
+      }]
+    };
+    active.push(candidate.slotId);
+    slots[candidate.slotId] = lessonLabel;
+    details[candidate.slotId] = detail;
+    if (teacherKey) occupied.teachers.add(`${candidate.baseKey}|${teacherKey}`);
+    if (roomKey) occupied.rooms.add(`${candidate.baseKey}|${roomKey}`);
+    occupied.classes.add(`${candidate.baseKey}|${cls.id}`);
+    approved.forEach((student) => {
+      if (student.studentId) occupied.students.add(`${candidate.baseKey}|${student.studentId}`);
+    });
+    addedSlots.push({
+      ...candidate, lessonType, lessonLabel, teacher, location,
+      availableText: approved.length ? `${approved.length - candidate.busyCount}/${approved.length} học sinh rảnh` : 'Chưa có dữ liệu lịch bận'
+    });
+  });
+  if (needed && selected.length < needed) warnings.push(`Chỉ tìm được ${selected.length}/${needed} buổi theo giới hạn mỗi ngày.`);
+  if (addedSlots.some((item) => !item.teacher) && planner.courseKind !== 'grammar') warnings.push('Một số kỹ năng chưa có quy tắc giáo viên ưu tiên; có thể bổ sung trong Cấu hình Olympus.');
+  if (!addedSlots.length && active.length >= options.lessons) warnings.push('Lớp đã đủ số buổi yêu cầu; không cần bổ sung.');
+  const average = addedSlots.length ? addedSlots.reduce((sum, item) => sum + Math.max(0, item.score), 0) / addedSlots.length : 100;
+  return {
+    classId: String(cls.id), className: cls.name, weekStart: options.weekStart,
+    title: existingWeek.title || defaultWeekTitle(options.weekStart),
+    sessions, courseKind: planner.courseKind || 'skills',
+    lessonStarts: planner.lessonStarts || {},
+    currentSlots: [...new Set(active)],
+    slots, details, addedSlots, warnings: [...new Set(warnings)], score: Math.min(100, average)
+  };
+}
+
+async function generateOptimizerPlans() {
+  if (optimizerBusy) return;
+  const classIds = optimizerSelectedClassIds();
+  const message = $('#optimizer-message');
+  if (!classIds.length) return showMsg(message, 'Hãy chọn ít nhất một lớp.', 'err');
+  const options = optimizerReadOptions();
+  optimizerBusy = true;
+  optimizerPreviewPlans = [];
+  showMsg(message, `Đang phân tích ${classIds.length} lớp…`, '');
+  $('#optimizer-generate').disabled = true;
+  try {
+    const excluded = options.replace ? new Set(classIds.map(String)) : new Set();
+    const occupied = optimizerOccupiedState(excluded);
+    const results = await Promise.all(classIds.map(async (classId) => {
+      const cls = teacherClasses.find((item) => String(item.id) === String(classId));
+      const [classData, planner] = await Promise.all([
+        api(`/classes/${classId}`),
+        api(`/classes/${classId}/schedule`, { method: 'GET', body: JSON.stringify({ weekStart: options.weekStart }) })
+      ]);
+      return { cls, classData, planner };
+    }));
+    optimizerPreviewPlans = results.filter((item) => item.cls).map((item) => buildOptimizerPlan(item.cls, item.classData, item.planner, options, occupied));
+    renderOperationsDashboard();
+    showMsg($('#optimizer-message'), 'Đã tạo phương án. Hãy xem cảnh báo trước khi áp dụng.', 'ok');
+  } catch (err) {
+    showMsg(message, err.message, 'err');
+  } finally {
+    optimizerBusy = false;
+    const generateButton = $('#optimizer-generate');
+    if (generateButton) {
+      generateButton.disabled = false;
+      generateButton.textContent = 'Tạo đề xuất';
+    }
+    $('#optimizer-apply')?.removeAttribute('disabled');
+  }
+}
+
+async function applyOptimizerPlans() {
+  if (optimizerBusy || !optimizerPreviewPlans.length) return;
+  const changedPlans = optimizerPreviewPlans.filter((plan) => plan.addedSlots.length);
+  if (!changedPlans.length) return alert('Không có thay đổi cần áp dụng.');
+  if (!confirm(`Áp dụng phương án cho ${changedPlans.length} lớp? Hệ thống sẽ tạo snapshot để có thể khôi phục.`)) return;
+  optimizerBusy = true;
+  const button = $('#optimizer-apply');
+  const message = $('#optimizer-message');
+  if (button) { button.disabled = true; button.textContent = 'Đang lưu…'; }
+  try {
+    for (let index = 0; index < changedPlans.length; index++) {
+      const plan = changedPlans[index];
+      showMsg(message, `Đang lưu ${index + 1}/${changedPlans.length}: ${plan.className}`, '');
+      await api(`/classes/${plan.classId}/schedule`, {
+        method: 'POST',
+        body: JSON.stringify({
+          weekStart: plan.weekStart, title: plan.title, slots: plan.slots, details: plan.details,
+          currentSlots: plan.currentSlots, sessions: plan.sessions, lessonStarts: plan.lessonStarts
+        })
+      });
+      await api(`/classes/${plan.classId}/schedule-meta`, {
+        method: 'POST', body: JSON.stringify({ weekStart: plan.weekStart, details: plan.details })
+      });
+      try {
+        await api(`/classes/${plan.classId}/schedule-versions`, {
+          method: 'POST',
+          body: JSON.stringify({
+            weekStart: plan.weekStart,
+            title: `${plan.title} · Olympus Optimizer`,
+            data: {
+              weekStart: plan.weekStart, title: plan.title, slots: plan.slots, details: plan.details,
+              currentSlots: plan.currentSlots, sessions: plan.sessions, lessonStarts: plan.lessonStarts,
+              source: 'optimizer'
+            }
+          })
+        });
+      } catch (err) { /* Schedule remains saved if snapshot SQL is not installed yet. */ }
+    }
+    optimizerPreviewPlans = [];
+    await loadClasses();
+    await loadOperationsDashboard();
+    showMsg($('#optimizer-message'), `Đã áp dụng ${changedPlans.length} phương án và đồng bộ sang Lớp học.`, 'ok');
+  } catch (err) {
+    showMsg(message, err.message, 'err');
+  } finally {
+    optimizerBusy = false;
+    if (button) { button.disabled = false; button.textContent = 'Áp dụng phương án'; }
+  }
+}
+
+function wireOperationsDashboard() {
+  $('#dashboard-refresh')?.addEventListener('click', loadOperationsDashboard);
+  document.querySelectorAll('[data-ops-tab]').forEach((button) => button.addEventListener('click', () => {
+    document.querySelector(`.tab[data-tab="${button.dataset.opsTab}"]`)?.click();
+  }));
+  document.querySelectorAll('[data-open-optimizer]').forEach((button) => button.addEventListener('click', () => {
+    $('#olympus-optimizer')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+  $('#optimizer-select-all')?.addEventListener('click', () => document.querySelectorAll('.optimizer-class-check').forEach((input) => { input.checked = true; }));
+  $('#optimizer-select-none')?.addEventListener('click', () => document.querySelectorAll('.optimizer-class-check').forEach((input) => { input.checked = false; }));
+  $('#optimizer-select-missing')?.addEventListener('click', () => {
+    const missing = new Set(overviewScheduleClasses().filter((cls) => !(cls.activeSlots || []).length).map((cls) => String(cls.id)));
+    document.querySelectorAll('.optimizer-class-check').forEach((input) => { input.checked = missing.has(String(input.value)); });
+  });
+  $('#optimizer-generate')?.addEventListener('click', generateOptimizerPlans);
+  $('#optimizer-apply')?.addEventListener('click', applyOptimizerPlans);
 }
 
 function initTeacher() {
@@ -3419,6 +3987,10 @@ function normalizeOverviewStyle(style = {}) {
   const result = {};
   if (backgroundColor) result.backgroundColor = backgroundColor;
   if (color) result.color = color;
+  if (['bold', '700', '800', '900'].includes(String(style.fontWeight || ''))) result.fontWeight = '700';
+  if (['left', 'center', 'right'].includes(String(style.textAlign || ''))) result.textAlign = String(style.textAlign);
+  if (style.fontStyle === 'italic') result.fontStyle = 'italic';
+  if (String(style.textDecoration || '').includes('underline')) result.textDecoration = 'underline';
   return result;
 }
 
@@ -3529,6 +4101,10 @@ function overviewCellStyle(style = {}) {
   const parts = [];
   if (normalized.backgroundColor) parts.push(`background:${escapeHtml(normalized.backgroundColor)} !important`);
   if (normalized.color) parts.push(`color:${escapeHtml(normalized.color)} !important`);
+  if (normalized.fontWeight) parts.push(`font-weight:${escapeHtml(normalized.fontWeight)}`);
+  if (normalized.textAlign) parts.push(`text-align:${escapeHtml(normalized.textAlign)}`);
+  if (normalized.fontStyle) parts.push(`font-style:${escapeHtml(normalized.fontStyle)}`);
+  if (normalized.textDecoration) parts.push(`text-decoration:${escapeHtml(normalized.textDecoration)}`);
   if (style.width) {
     parts.push(`width:${escapeHtml(style.width)}`);
     parts.push(`min-width:${escapeHtml(style.width)}`);
@@ -4565,6 +5141,7 @@ function scheduleConflictItems() {
   const classes = sortClasses(overviewScheduleClasses());
   const groups = new Map();
   const classTimeGroups = new Map();
+  const studentTimeGroups = new Map();
   classes.forEach((cls) => {
     const active = cls.activeSlots || cls.currentSlots || [];
     const details = cls.details || cls.finalDetails || {};
@@ -4586,10 +5163,16 @@ function scheduleConflictItems() {
         session,
         time: timeValue,
         teacher: String(detail.teacherName || '').trim(),
-        location: String(detail.location || '').trim()
+        location: String(detail.location || '').trim(),
+        studentIds: Array.isArray(cls.studentIds) ? cls.studentIds.map(String) : []
       };
       if (!classTimeGroups.has(`${timeKey}|${entry.classId}`)) classTimeGroups.set(`${timeKey}|${entry.classId}`, []);
       classTimeGroups.get(`${timeKey}|${entry.classId}`).push(entry);
+      entry.studentIds.forEach((studentId) => {
+        const key = `${timeKey}|${studentId}`;
+        if (!studentTimeGroups.has(key)) studentTimeGroups.set(key, []);
+        studentTimeGroups.get(key).push(entry);
+      });
       const locationProfile = personalizedLocation(entry.location);
       [
         ['teacher', entry.teacher, normalizeTeacher(entry.teacher)],
@@ -4624,6 +5207,17 @@ function scheduleConflictItems() {
       time: entries[0].time
     });
   });
+  studentTimeGroups.forEach((entries) => {
+    const distinctClasses = [...new Set(entries.map((entry) => entry.classId))];
+    if (distinctClasses.length < 2) return;
+    conflicts.push({
+      type: 'student',
+      value: 'Học sinh học nhiều lớp',
+      entries,
+      dayIdx: entries[0].dayIdx,
+      time: entries[0].time
+    });
+  });
   return conflicts.sort((a, b) => (
     a.dayIdx - b.dayIdx
     || compareText(a.time, b.time)
@@ -4639,7 +5233,7 @@ function renderScheduleConflictCenter() {
       <div class="schedule-conflict-summary"><span>✓</span><div><b>Lịch tuần không có xung đột</b><small>Không trùng giáo viên, địa điểm hoặc lớp theo giờ đã nhập.</small></div></div>
     </section>`;
   }
-  const typeNames = { teacher: 'Giáo viên', location: 'Địa điểm', class: 'Lớp học' };
+  const typeNames = { teacher: 'Giáo viên', location: 'Địa điểm', class: 'Lớp học', student: 'Học sinh' };
   return `<details class="schedule-conflict-center" open>
     <summary class="schedule-conflict-summary"><span>!</span><div><b>${conflicts.length} xung đột cần kiểm tra</b><small>Hệ thống so theo thứ và giờ bắt đầu; nếu chưa có giờ thì dùng tên ca.</small></div></summary>
     <div class="schedule-conflict-list">${conflicts.map((conflict) => {
@@ -4911,6 +5505,10 @@ async function openScheduleClass(classId, options = {}) {
       method: 'GET',
       body: JSON.stringify({ weekStart })
     });
+    const suggestedKind = suggestedCourseKindForClass(scheduleEditorData);
+    if (suggestedKind && !scheduleEditorData.selectedWeek && !(scheduleEditorData.weeks || []).length) {
+      scheduleEditorData.courseKind = suggestedKind;
+    }
     try {
       scheduleEditorData.templates = await api(`/classes/${classId}/schedule-templates`);
     } catch (err) {
@@ -5368,6 +5966,28 @@ function applyAutomaticSlotDefaults(cell, lessonType) {
   if (!cell.dataset.location && session?.defaultLocation) cell.dataset.location = session.defaultLocation;
   const preferredTeacher = teacherForSkill(lessonType);
   if (!cell.dataset.teacherName && preferredTeacher) cell.dataset.teacherName = preferredTeacher;
+  matchingAutomationRules(automationRuleContext(cell, lessonType)).forEach((rule) => {
+    if (rule.actionType === 'teacher' && !cell.dataset.teacherName) cell.dataset.teacherName = rule.actionValue;
+    if (rule.actionType === 'location' && !cell.dataset.location) cell.dataset.location = rule.actionValue;
+    if (rule.actionType === 'color' && !cell.dataset.manualColor) {
+      const color = safeHexColor(rule.actionValue, '');
+      if (color) {
+        cell.dataset.autoColor = color;
+        cell.style.setProperty('background', color, 'important');
+      }
+    }
+  });
+  // Location-based rules are evaluated again after the default room is known.
+  matchingAutomationRules(automationRuleContext(cell, lessonType)).forEach((rule) => {
+    if (rule.actionType === 'teacher' && !cell.dataset.teacherName) cell.dataset.teacherName = rule.actionValue;
+    if (rule.actionType === 'color' && !cell.dataset.manualColor) {
+      const color = safeHexColor(rule.actionValue, '');
+      if (color) {
+        cell.dataset.autoColor = color;
+        cell.style.setProperty('background', color, 'important');
+      }
+    }
+  });
   refreshSlotDetails(cell);
 }
 
@@ -5711,7 +6331,7 @@ async function openScheduleVersionHistory() {
   const dialog = openMiniDialog('Lịch sử phiên bản tuần', versions.length
     ? `<p class="hint">Mỗi lần bấm Lưu tuần, Olympus tạo một snapshot nhỏ. Chỉ giữ tối đa 30 phiên bản mỗi tuần.</p>
       <div class="schedule-version-list">${versions.map((item) => `<article>
-        <div><b>Phiên bản ${escapeHtml(item.version)}</b><small>${escapeHtml(formatDateTime(item.createdAt))} · ${escapeHtml(item.editedBy || 'Tài khoản Olympus')}</small><span>${escapeHtml(item.title || '')}</span></div>
+        <div><b>Phiên bản ${escapeHtml(item.version)}</b><small>${escapeHtml(formatDateTime(item.createdAt))} · ${escapeHtml(item.editedBy || 'Tài khoản Olympus')}</small><span>${escapeHtml(item.title || '')}</span>${Array.isArray(item.changedCells) ? `<em>${item.changedCells.length ? `${item.changedCells.length} ô thay đổi: ${escapeHtml(item.changedCells.slice(0, 8).join(', '))}${item.changedCells.length > 8 ? '…' : ''}` : 'Snapshot đầu tiên hoặc không đổi nội dung'}</em>` : ''}</div>
         <button type="button" data-restore-version="${escapeHtml(item.id)}">Khôi phục</button>
       </article>`).join('')}</div>`
     : '<p class="placeholder">Tuần này chưa có snapshot. Snapshot đầu tiên sẽ được tạo khi bấm Lưu tuần.</p>', async () => {});
@@ -6271,7 +6891,11 @@ function styleChangedFromDefault(cell, type, metaRows, lessonCount) {
   const fg = cell.dataset.fg || '';
   const width = cell.dataset.width || '';
   const height = cell.dataset.height || '';
-  return Boolean(width || height || bg !== (defaults.backgroundColor || '') || fg !== (defaults.color || ''));
+  const fontWeight = cell.dataset.fontWeight || '';
+  const textAlign = cell.dataset.textAlign || '';
+  const fontStyle = cell.dataset.fontStyle || '';
+  const textDecoration = cell.dataset.textDecoration || '';
+  return Boolean(width || height || fontWeight || textAlign || fontStyle || textDecoration || bg !== (defaults.backgroundColor || '') || fg !== (defaults.color || ''));
 }
 
 function collectHomeroomDataFromDom() {
@@ -6290,7 +6914,13 @@ function collectHomeroomDataFromDom() {
     const fg = cell.dataset.fg || '';
     const width = cell.dataset.width || '';
     const height = cell.dataset.height || '';
-    if (styleChangedFromDefault(cell, homeroomRecordType, metaRows, lessonCount)) styles[key] = { backgroundColor: bg, color: fg, width, height };
+    const fontWeight = cell.dataset.fontWeight || '';
+    const textAlign = cell.dataset.textAlign || '';
+    const fontStyle = cell.dataset.fontStyle || '';
+    const textDecoration = cell.dataset.textDecoration || '';
+    if (styleChangedFromDefault(cell, homeroomRecordType, metaRows, lessonCount)) {
+      styles[key] = { backgroundColor: bg, color: fg, width, height, fontWeight, textAlign, fontStyle, textDecoration };
+    }
   });
   return {
     cells,
@@ -6382,9 +7012,43 @@ function isLegacyHomeroomDefaultStyle(style, row, col, type, metaRows) {
   return (saved.backgroundColor || '') === (legacy.backgroundColor || '') && (saved.color || '') === (legacy.color || '');
 }
 
+async function renderHomeroomCombined(cls) {
+  const types = ['LR', 'S', 'W'];
+  const [syncResults, savedResults] = await Promise.all([
+    Promise.all(types.map((type) => api(`/classes/${cls.id}/homeroom-sync/${encodeURIComponent(type)}`).catch(() => []))),
+    Promise.all(types.map((type) => loadHomeroomData(cls.id, type)))
+  ]);
+  const students = sortSubmissions((cls.submissions || []).filter((item) => item.status === 'approved'));
+  const typeData = Object.fromEntries(types.map((type, index) => [type, Array.isArray(syncResults[index]) ? syncResults[index] : []]));
+  const savedByType = Object.fromEntries(types.map((type, index) => [type, savedResults[index] || {}]));
+  const cell = (type, studentIndex) => {
+    const lessons = typeData[type];
+    const latest = lessons[lessons.length - 1] || {};
+    const row = homeroomMetaRows(type) + studentIndex;
+    const notes = Object.entries(savedByType[type]?.cells || {})
+      .filter(([key, value]) => Number(String(key).split('|')[0]) === row && String(value || '').trim())
+      .sort(([a], [b]) => Number(a.split('|')[1]) - Number(b.split('|')[1]))
+      .map(([, value]) => String(value).trim())
+      .slice(0, 3);
+    const title = notes.join(' · ') || latest.lessonLabel || latest.lesson || latest.courseNo || '';
+    const date = latest.lessonDate || latest.date || '';
+    return `<td><b>${escapeHtml(title || `${lessons.length} buổi`)}</b><small>${escapeHtml([date ? shortDate(date) : '', teacherNameForDisplay(latest.teacherName || latest.teacher || '')].filter(Boolean).join(' · '))}</small></td>`;
+  };
+  return `<section class="homeroom-combined">
+    <div class="homeroom-record-head">
+      <div><h3>${escapeHtml(cls.name)} · Toàn bộ record</h3><p class="hint">Góc nhìn tổng hợp LR, Speaking và Writing. Bấm một kỹ năng để mở bảng Excel chi tiết và chỉnh sửa.</p></div>
+      <div class="homeroom-record-actions">${types.map((type) => `<button type="button" data-open-homeroom-type="${type}">Mở ${type}-rec</button>`).join('')}</div>
+    </div>
+    <div class="homeroom-combined-metrics">${types.map((type) => dashboardMetric(`${type}-rec`, typeData[type].length, typeData[type].length ? 'Buổi đã đồng bộ từ Lịch' : 'Chưa có buổi', type === 'LR' ? 'blue' : type === 'S' ? 'green' : 'orange')).join('')}</div>
+    <div class="schedule-scroll"><table class="schedule homeroom-combined-table"><thead><tr><th>#</th><th>Học viên</th><th>LR gần nhất</th><th>S gần nhất</th><th>W gần nhất</th></tr></thead><tbody>
+      ${students.length ? students.map((student, index) => `<tr><td>${index + 1}</td><td><b>${escapeHtml(student.studentName || student.displayName || '')}</b><small>${escapeHtml(formatDobInputValue(student.dob))}</small></td>${cell('LR', index)}${cell('S', index)}${cell('W', index)}</tr>`).join('') : '<tr><td colspan="5" class="placeholder">Chưa có học sinh đã duyệt.</td></tr>'}
+    </tbody></table></div>
+  </section>`;
+}
+
 async function renderHomeroomTable(cls, type) {
   if (type === 'ALL') {
-    return `<div class="placeholder">To\u00e0n b\u1ed9 s\u1ebd g\u1ed9p LR/S/W \u1edf b\u01b0\u1edbc sau. Hi\u1ec7n t\u1ea1i h\u00e3y ch\u1ecdn LR-rec, S-rec ho\u1eb7c W-rec.</div>`;
+    return renderHomeroomCombined(cls);
   }
   const [saved, scheduleLessons] = await Promise.all([
     loadHomeroomData(cls.id, type),
@@ -6407,7 +7071,7 @@ async function renderHomeroomTable(cls, type) {
         <button id="homeroom-download-excel" class="btn-export btn-download-excel" type="button">T\u1ea3i Excel</button>
         <button id="homeroom-export-image" class="btn-export btn-export-image" type="button">Xu\u1ea5t \u1ea3nh</button>
         <button id="homeroom-add-lesson" type="button">+ Bu\u1ed5i m\u1edbi</button>
-        ${homeroomEditMode ? `<button id="homeroom-remove-lesson" class="homeroom-danger-action" type="button">\u2212 Bu\u1ed5i cu\u1ed1i</button><button id="homeroom-add-row" type="button">+ Ch\u00e8n h\u00e0ng</button><button id="homeroom-remove-row" class="homeroom-danger-action" type="button">\u2212 H\u00e0ng</button><button id="homeroom-add-col" type="button">+ Ch\u00e8n c\u1ed9t</button><button id="homeroom-remove-col" class="homeroom-danger-action" type="button">\u2212 C\u1ed9t</button>` : ''}
+        ${homeroomEditMode ? `<button id="homeroom-undo" type="button" title="Ctrl+Z">\u21b6</button><button id="homeroom-redo" type="button" title="Ctrl+Y">\u21b7</button><button id="homeroom-find" type="button" title="Ctrl+F">T\u00ecm/Thay</button><button id="homeroom-format-painter" type="button" title="Sao ch\u00e9p \u0111\u1ecbnh d\u1ea1ng">\ud83d\udd8c</button><button id="homeroom-bold" type="button" title="Ctrl+B"><b>B</b></button><button id="homeroom-align-left" type="button" title="C\u0103n tr\u00e1i">\u2261\u2190</button><button id="homeroom-align-center" type="button" title="C\u0103n gi\u1eefa">\u2261</button><button id="homeroom-align-right" type="button" title="C\u0103n ph\u1ea3i">\u2192\u2261</button><button id="homeroom-remove-lesson" class="homeroom-danger-action" type="button">\u2212 Bu\u1ed5i cu\u1ed1i</button><button id="homeroom-add-row" type="button">+ Ch\u00e8n h\u00e0ng</button><button id="homeroom-remove-row" class="homeroom-danger-action" type="button">\u2212 H\u00e0ng</button><button id="homeroom-add-col" type="button">+ Ch\u00e8n c\u1ed9t</button><button id="homeroom-remove-col" class="homeroom-danger-action" type="button">\u2212 C\u1ed9t</button>` : ''}
         <button id="homeroom-edit" type="button">${homeroomEditMode ? 'L\u01b0u record' : 'Ch\u1ec9nh s\u1eeda'}</button>
       </div>
     </div>
@@ -6444,7 +7108,7 @@ async function renderHomeroomTable(cls, type) {
       const normalized = normalizeOverviewStyle(style);
       const tag = !rowMap.inserted && rowMap.base < defaults.metaRows ? 'th' : 'td';
       const hasValue = String(value || '').trim() ? ' has-value' : '';
-      html += `<${tag} class="homeroom-cell${hasValue}" data-homeroom-cell="${key}" data-base-row="${rowMap.inserted ? '' : rowMap.base}" data-base-col="${colMap.inserted ? '' : colMap.base}" data-auto="${escapeHtml(autoValue)}" data-bg="${escapeHtml(normalized.backgroundColor || '')}" data-fg="${escapeHtml(normalized.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}" data-col="hr-${col}" data-row-id="hr-${row}"${homeroomCellStyle(style)}>${escapeHtml(value)}</${tag}>`;
+      html += `<${tag} class="homeroom-cell${hasValue}" data-homeroom-cell="${key}" data-base-row="${rowMap.inserted ? '' : rowMap.base}" data-base-col="${colMap.inserted ? '' : colMap.base}" data-auto="${escapeHtml(autoValue)}" data-bg="${escapeHtml(normalized.backgroundColor || '')}" data-fg="${escapeHtml(normalized.color || '')}" data-width="${escapeHtml(style.width || '')}" data-height="${escapeHtml(style.height || '')}" data-font-weight="${escapeHtml(normalized.fontWeight || '')}" data-text-align="${escapeHtml(normalized.textAlign || '')}" data-font-style="${escapeHtml(normalized.fontStyle || '')}" data-text-decoration="${escapeHtml(normalized.textDecoration || '')}" data-col="hr-${col}" data-row-id="hr-${row}"${homeroomCellStyle(style)}>${escapeHtml(value)}</${tag}>`;
     }
     html += '</tr>';
   }
@@ -6535,13 +7199,23 @@ function copyCellFormat(source, target, includeText = true) {
     target.textContent = source.textContent;
     target.classList.toggle('has-value', Boolean(target.textContent.trim()));
   }
-  ['bg', 'fg', 'width', 'height'].forEach((name) => { target.dataset[name] = source.dataset[name] || ''; });
+  ['bg', 'fg', 'width', 'height', 'fontWeight', 'textAlign', 'fontStyle', 'textDecoration'].forEach((name) => { target.dataset[name] = source.dataset[name] || ''; });
   if (source.dataset.bg) target.style.setProperty('background', source.dataset.bg, 'important');
   else target.style.removeProperty('background');
   if (source.dataset.fg) target.style.setProperty('color', source.dataset.fg, 'important');
   else target.style.removeProperty('color');
   if (source.dataset.width) { target.style.width = source.dataset.width; target.style.minWidth = source.dataset.width; }
+  else { target.style.removeProperty('width'); target.style.removeProperty('min-width'); }
   if (source.dataset.height) target.style.height = source.dataset.height;
+  else target.style.removeProperty('height');
+  if (source.dataset.fontWeight) target.style.fontWeight = source.dataset.fontWeight;
+  else target.style.removeProperty('font-weight');
+  if (source.dataset.textAlign) target.style.textAlign = source.dataset.textAlign;
+  else target.style.removeProperty('text-align');
+  if (source.dataset.fontStyle) target.style.fontStyle = source.dataset.fontStyle;
+  else target.style.removeProperty('font-style');
+  if (source.dataset.textDecoration) target.style.textDecoration = source.dataset.textDecoration;
+  else target.style.removeProperty('text-decoration');
 }
 
 function tableCellMatrix(table) {
@@ -7004,7 +7678,16 @@ function openHomeroomExportDialog(mode, button) {
 
 function wireHomeroomRecord() {
   const root = $('#homeroom-record');
-  if (!root || homeroomRecordType === 'ALL') return;
+  if (homeroomRecordType === 'ALL') {
+    document.querySelectorAll('[data-open-homeroom-type]').forEach((button) => button.addEventListener('click', () => {
+      homeroomRecordType = button.dataset.openHomeroomType || 'LR';
+      localStorage.setItem(HOMEROOM_RECORD_TYPE_KEY, homeroomRecordType);
+      homeroomEditMode = false;
+      renderHomeroomHome();
+    }));
+    return;
+  }
+  if (!root) return;
   homeroomWireAbort?.abort();
   homeroomWireAbort = new AbortController();
   const wireSignal = homeroomWireAbort.signal;
@@ -7040,12 +7723,122 @@ function wireHomeroomRecord() {
   let selectionAnchor = null;
   let draggingSelection = false;
   let contextCoordinate = null;
+  let formatPainterStyle = null;
+  let restoringSheetHistory = false;
+  const undoStack = [];
+  const redoStack = [];
   const selectedTargets = () => [...root.querySelectorAll('.homeroom-selected-cell')];
   const cellCoordinate = (cell) => {
     const [row, col] = String(cell?.dataset.homeroomCell || '').split('|').map(Number);
     return Number.isFinite(row) && Number.isFinite(col) ? { row, col } : null;
   };
   const cellAt = (row, col) => root.querySelector(`[data-homeroom-cell="${row}|${col}"]`);
+  const captureSheetState = () => [...root.querySelectorAll('.homeroom-cell')].map((cell) => ({
+    key: cell.dataset.homeroomCell,
+    text: cell.textContent,
+    bg: cell.dataset.bg || '',
+    fg: cell.dataset.fg || '',
+    width: cell.dataset.width || '',
+    height: cell.dataset.height || '',
+    fontWeight: cell.dataset.fontWeight || '',
+    textAlign: cell.dataset.textAlign || '',
+    fontStyle: cell.dataset.fontStyle || '',
+    textDecoration: cell.dataset.textDecoration || ''
+  }));
+  const sheetStateKey = (state) => JSON.stringify(state);
+  const rememberSheetState = () => {
+    if (restoringSheetHistory) return;
+    const state = captureSheetState();
+    if (undoStack.length && sheetStateKey(undoStack[undoStack.length - 1]) === sheetStateKey(state)) return;
+    undoStack.push(state);
+    if (undoStack.length > 60) undoStack.shift();
+    redoStack.length = 0;
+  };
+  const restoreSheetState = (state) => {
+    if (!Array.isArray(state)) return;
+    restoringSheetHistory = true;
+    state.forEach((item) => {
+      const cell = root.querySelector(`[data-homeroom-cell="${item.key}"]`);
+      if (!cell) return;
+      cell.textContent = item.text || '';
+      cell.dataset.bg = item.bg || '';
+      cell.dataset.fg = item.fg || '';
+      cell.dataset.width = item.width || '';
+      cell.dataset.height = item.height || '';
+      cell.dataset.fontWeight = item.fontWeight || '';
+      cell.dataset.textAlign = item.textAlign || '';
+      cell.dataset.fontStyle = item.fontStyle || '';
+      cell.dataset.textDecoration = item.textDecoration || '';
+      [
+        ['background', item.bg, true], ['color', item.fg, true], ['width', item.width], ['min-width', item.width],
+        ['height', item.height], ['font-weight', item.fontWeight], ['text-align', item.textAlign],
+        ['font-style', item.fontStyle], ['text-decoration', item.textDecoration]
+      ].forEach(([property, value, important]) => {
+        if (value) cell.style.setProperty(property, value, important ? 'important' : '');
+        else cell.style.removeProperty(property);
+      });
+      cell.classList.toggle('has-value', Boolean(String(item.text || '').trim()));
+      addHomeroomResizeHandles(cell);
+    });
+    restoringSheetHistory = false;
+    syncPanel();
+  };
+  const undoSheet = () => {
+    if (!undoStack.length) return;
+    const previous = undoStack.pop();
+    redoStack.push(captureSheetState());
+    restoreSheetState(previous);
+  };
+  const redoSheet = () => {
+    if (!redoStack.length) return;
+    const next = redoStack.pop();
+    undoStack.push(captureSheetState());
+    restoreSheetState(next);
+  };
+  const openFindReplaceDialog = () => {
+    const dialog = openMiniDialog('Tìm và thay thế', `<div class="sheet-find-dialog">
+      <label>Tìm<input id="sheet-find-value" autocomplete="off" /></label>
+      <label>Thay bằng<input id="sheet-replace-value" autocomplete="off" /></label>
+      <label><input id="sheet-match-case" type="checkbox" /> Phân biệt chữ hoa/thường</label>
+      <div class="image-export-actions"><button id="sheet-find-next" type="button">Chọn ô khớp</button><button id="sheet-replace-all" class="primary" type="button">Thay tất cả</button></div>
+      <p id="sheet-find-message" class="msg"></p>
+    </div>`);
+    if (!dialog) return;
+    const matchingCells = () => {
+      const needleRaw = dialog.querySelector('#sheet-find-value')?.value || '';
+      const matchCase = Boolean(dialog.querySelector('#sheet-match-case')?.checked);
+      const needle = matchCase ? needleRaw : needleRaw.toLocaleLowerCase('vi');
+      if (!needle) return [];
+      return [...root.querySelectorAll('.homeroom-cell')].filter((cell) => {
+        const haystack = matchCase ? cell.textContent : cell.textContent.toLocaleLowerCase('vi');
+        return haystack.includes(needle);
+      });
+    };
+    dialog.querySelector('#sheet-find-next')?.addEventListener('click', () => {
+      const matches = matchingCells();
+      root.querySelectorAll('.homeroom-selected-cell').forEach((cell) => cell.classList.remove('homeroom-selected-cell'));
+      matches.forEach((cell) => cell.classList.add('homeroom-selected-cell'));
+      matches[0]?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      dialog.querySelector('#sheet-find-message').textContent = `${matches.length} ô phù hợp`;
+      syncPanel();
+    });
+    dialog.querySelector('#sheet-replace-all')?.addEventListener('click', () => {
+      const matches = matchingCells();
+      if (!matches.length) return;
+      const findValue = dialog.querySelector('#sheet-find-value')?.value || '';
+      const replacement = dialog.querySelector('#sheet-replace-value')?.value || '';
+      const matchCase = Boolean(dialog.querySelector('#sheet-match-case')?.checked);
+      rememberSheetState();
+      const expression = new RegExp(findValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), matchCase ? 'g' : 'gi');
+      matches.forEach((cell) => {
+        cell.textContent = cell.textContent.replace(expression, replacement);
+        cell.classList.toggle('has-value', Boolean(cell.textContent.trim()));
+      });
+      dialog.querySelector('#sheet-find-message').textContent = `Đã thay ${matches.length} ô`;
+      syncPanel();
+    });
+    setTimeout(() => dialog.querySelector('#sheet-find-value')?.focus(), 0);
+  };
   const updateAxisHighlights = (first) => {
     root.querySelectorAll('.homeroom-axis-active').forEach((item) => item.classList.remove('homeroom-axis-active'));
     const coordinate = cellCoordinate(first);
@@ -7056,6 +7849,7 @@ function wireHomeroomRecord() {
   const syncPanel = () => {
     const targets = selectedTargets();
     const first = targets[0];
+    root.querySelectorAll('.homeroom-fill-handle').forEach((item) => item.remove());
     updateAxisHighlights(first);
     const coordinate = cellCoordinate(first);
     if (nameBox) nameBox.textContent = coordinate ? `${excelColumnName(coordinate.col)}${coordinate.row + 1}` : '';
@@ -7068,6 +7862,35 @@ function wireHomeroomRecord() {
     positionCellEditPanel(panel, targets, 'homeroom-panel-docked');
     if (countLabel) countLabel.textContent = `${targets.length} \u00f4`;
     if (!first) return;
+    const last = targets[targets.length - 1];
+    if (last) {
+      const handle = document.createElement('span');
+      handle.className = 'homeroom-fill-handle';
+      handle.title = 'Kéo để sao chép xuống hoặc sang ngang';
+      handle.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const source = first;
+        const start = cellCoordinate(first);
+        rememberSheetState();
+        const move = (moveEvent) => {
+          const hovered = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest?.('.homeroom-cell');
+          if (hovered && root.contains(hovered)) selectRange(start, cellCoordinate(hovered));
+        };
+        const up = () => {
+          const targetsToFill = selectedTargets();
+          targetsToFill.forEach((target) => {
+            if (target !== source) copyCellFormat(source, target, true);
+          });
+          document.removeEventListener('mousemove', move);
+          document.removeEventListener('mouseup', up);
+          syncPanel();
+        };
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', up);
+      });
+      last.appendChild(handle);
+    }
     if (contentInput) {
       contentInput.value = targets.length === 1 ? first.textContent.trim() : '';
       contentInput.placeholder = targets.length === 1 ? 'Nh\u1eadp n\u1ed9i dung...' : 'B\u1ecf tr\u1ed1ng n\u1ebfu ch\u1ec9 \u0111\u1ed5i m\u00e0u';
@@ -7094,6 +7917,7 @@ function wireHomeroomRecord() {
     syncPanel();
   };
   const applyToSelection = (bg, fg, options = {}) => {
+    if (options.record !== false) rememberSheetState();
     selectedTargets().forEach((target) => {
       if (bg !== undefined) {
         target.dataset.bg = bg || '';
@@ -7115,6 +7939,26 @@ function wireHomeroomRecord() {
         if (options.height) target.style.height = options.height;
         else target.style.removeProperty('height');
       }
+      if (options.fontWeight !== undefined) {
+        target.dataset.fontWeight = options.fontWeight || '';
+        if (options.fontWeight) target.style.fontWeight = options.fontWeight;
+        else target.style.removeProperty('font-weight');
+      }
+      if (options.textAlign !== undefined) {
+        target.dataset.textAlign = options.textAlign || '';
+        if (options.textAlign) target.style.textAlign = options.textAlign;
+        else target.style.removeProperty('text-align');
+      }
+      if (options.fontStyle !== undefined) {
+        target.dataset.fontStyle = options.fontStyle || '';
+        if (options.fontStyle) target.style.fontStyle = options.fontStyle;
+        else target.style.removeProperty('font-style');
+      }
+      if (options.textDecoration !== undefined) {
+        target.dataset.textDecoration = options.textDecoration || '';
+        if (options.textDecoration) target.style.textDecoration = options.textDecoration;
+        else target.style.removeProperty('text-decoration');
+      }
       if (options.text !== undefined) {
         target.textContent = options.text;
         target.classList.toggle('has-value', Boolean(String(options.text || '').trim()));
@@ -7134,7 +7978,10 @@ function wireHomeroomRecord() {
     if (!cell) return;
     root.querySelectorAll('.homeroom-cell-editing').forEach((item) => item.classList.remove('homeroom-cell-editing'));
     selectTarget(cell, false);
-    if (replace) cell.textContent = '';
+    if (replace) {
+      rememberSheetState();
+      cell.textContent = '';
+    }
     cell.classList.add('homeroom-cell-editing');
     cell.focus();
     placeCaretAtEnd(cell);
@@ -7187,6 +8034,7 @@ function wireHomeroomRecord() {
   const sameRowCells = (cell) => [...root.querySelectorAll('.homeroom-cell')].filter((item) => item.dataset.rowId === cell.dataset.rowId);
   const startResize = (event, cell, type) => {
     event.preventDefault(); event.stopPropagation();
+    rememberSheetState();
     const targets = type === 'col' ? sameColumnCells(cell) : sameRowCells(cell);
     const startX = event.clientX; const startY = event.clientY;
     const startWidth = cell.getBoundingClientRect().width; const startHeight = cell.getBoundingClientRect().height;
@@ -7204,6 +8052,28 @@ function wireHomeroomRecord() {
     const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
     document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
   };
+  $('#homeroom-undo')?.addEventListener('click', undoSheet);
+  $('#homeroom-redo')?.addEventListener('click', redoSheet);
+  $('#homeroom-find')?.addEventListener('click', openFindReplaceDialog);
+  $('#homeroom-bold')?.addEventListener('click', () => {
+    const first = selectedTargets()[0];
+    applyToSelection(undefined, undefined, { fontWeight: first?.dataset.fontWeight ? '' : '700' });
+  });
+  $('#homeroom-align-left')?.addEventListener('click', () => applyToSelection(undefined, undefined, { textAlign: 'left' }));
+  $('#homeroom-align-center')?.addEventListener('click', () => applyToSelection(undefined, undefined, { textAlign: 'center' }));
+  $('#homeroom-align-right')?.addEventListener('click', () => applyToSelection(undefined, undefined, { textAlign: 'right' }));
+  $('#homeroom-format-painter')?.addEventListener('click', (event) => {
+    const source = selectedTargets()[0];
+    if (!source) return;
+    formatPainterStyle = {
+      bg: source.dataset.bg || '', fg: source.dataset.fg || '',
+      width: source.dataset.width || '', height: source.dataset.height || '',
+      fontWeight: source.dataset.fontWeight || '', textAlign: source.dataset.textAlign || '',
+      fontStyle: source.dataset.fontStyle || '', textDecoration: source.dataset.textDecoration || ''
+    };
+    event.currentTarget.classList.add('active');
+    event.currentTarget.title = 'Chọn ô đích để dán định dạng';
+  });
   addHomeroomResizeHandles(root);
   const writeHomeroomCell = (cell, value) => {
     cell.textContent = value;
@@ -7214,6 +8084,7 @@ function wireHomeroomRecord() {
     cell.contentEditable = 'true';
     cell.tabIndex = -1;
     cell.spellcheck = false;
+    cell.addEventListener('beforeinput', () => rememberSheetState());
     cell.addEventListener('input', () => {
       cell.classList.toggle('has-value', Boolean(cell.textContent.trim()));
       if (cell.classList.contains('homeroom-selected-cell') && selectedTargets().length === 1 && contentInput) {
@@ -7224,6 +8095,7 @@ function wireHomeroomRecord() {
     cell.addEventListener('paste', (event) => {
       const text = event.clipboardData?.getData('text/plain') || '';
       event.preventDefault();
+      rememberSheetState();
       if (!pasteGridIntoTable(root.querySelector('table'), cell, text, writeHomeroomCell)) writeHomeroomCell(cell, text);
       syncPanel();
     });
@@ -7232,6 +8104,27 @@ function wireHomeroomRecord() {
       const key = event.key.toLowerCase();
       const coordinate = cellCoordinate(cell);
       const editingCell = cell.classList.contains('homeroom-cell-editing');
+      if (shortcut && key === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redoSheet(); else undoSheet();
+        return;
+      }
+      if (shortcut && key === 'y') {
+        event.preventDefault();
+        redoSheet();
+        return;
+      }
+      if (shortcut && key === 'b') {
+        event.preventDefault();
+        const first = selectedTargets()[0] || cell;
+        applyToSelection(undefined, undefined, { fontWeight: first.dataset.fontWeight ? '' : '700' });
+        return;
+      }
+      if (shortcut && key === 'f') {
+        event.preventDefault();
+        openFindReplaceDialog();
+        return;
+      }
       if (shortcut && key === 'a') {
         event.preventDefault();
         root.querySelectorAll('.homeroom-cell').forEach((item) => item.classList.add('homeroom-selected-cell'));
@@ -7245,6 +8138,7 @@ function wireHomeroomRecord() {
         return;
       }
       if (shortcut && key === 'd') {
+        rememberSheetState();
         if (fillSelectedFromFirst(selectedTargets())) {
           event.preventDefault();
           syncPanel();
@@ -7304,6 +8198,16 @@ function wireHomeroomRecord() {
     cell.addEventListener('mousedown', (event) => {
       if (event.button !== 0 || event.target.closest('.overview-col-resizer, .overview-row-resizer') || cell.classList.contains('homeroom-cell-editing')) return;
       event.preventDefault();
+      if (formatPainterStyle) {
+        root.querySelectorAll('.homeroom-selected-cell').forEach((item) => item.classList.remove('homeroom-selected-cell'));
+        cell.classList.add('homeroom-selected-cell');
+        rememberSheetState();
+        copyCellFormat({ dataset: formatPainterStyle, textContent: '' }, cell, false);
+        formatPainterStyle = null;
+        $('#homeroom-format-painter')?.classList.remove('active');
+        syncPanel();
+        return;
+      }
       const coordinate = cellCoordinate(cell);
       if (event.shiftKey && selectionAnchor) selectRange(selectionAnchor, coordinate);
       else {
