@@ -126,6 +126,18 @@ Sau đó chạy thêm `supabase/vocab_schedule_sync.sql` để bật quản lý 
 - **Trò chơi:** dữ liệu gốc 520 từ của ba mức Complete IELTS nằm trong `public/vocab-data.js`; owner có thể thêm/bỏ từ theo từng Unit. Supabase chỉ lưu phần thay đổi nên không nhân đôi toàn bộ bộ từ.
 - `attendance_entries` chỉ lưu phần giáo viên nhập tay dưới dạng một JSON nhỏ cho mỗi buổi. Sổ chủ nhiệm tiếp tục lưu một JSON đã rút gọn cho mỗi `lớp × kỹ năng`; màu/nội dung mặc định không ghi xuống database.
 
+### Lịch chia v2
+
+Với database đang chạy, vào **SQL Editor** và chạy `supabase/schedule_v2.sql` một lần. File này cũng đã được nối vào cuối `supabase/schema.sql` cho lần cài mới.
+
+- **Tối giản** là chế độ mặc định, trình bày theo thói quen của file xếp lịch Olympus: mỗi ngày gồm cột **Buổi khoá** và **Nội dung**; lớp được nhóm theo sector.
+- **Thêm ca** giữ bảng chi tiết theo giờ, phòng, lớp, kỹ năng, giáo viên và ghi chú để xử lý các buổi trùng địa điểm.
+- Trong lịch từng lớp, bấm trực tiếp vào ô rồi chọn `LR / L / R / W / S / MT / FT / Off`; không còn kéo-thả.
+- Số buổi toàn khoá và số buổi từng kỹ năng được tính tự động. Hai ô MT/FT liên tiếp dùng chung một số buổi theo dạng `18a`, `18b`; buổi tiếp theo là `19`. Off không tăng số.
+- Với dữ liệu lịch cũ chưa từng lưu số buổi toàn khoá, owner mở từng lớp và nhập **Buổi khoá bắt đầu từ** đúng một lần (ví dụ đã học 17 buổi thì nhập 18).
+- Lớp ngữ pháp chỉ hiển thị số buổi toàn khoá. Hệ thống tự nhận diện ban đầu từ mã lớp `G...` hoặc sector có tên “Ngữ pháp”, sau đó owner vẫn đổi được loại lớp.
+- Lịch ở tab **Lớp học**, trang lịch công khai, Sổ chủ nhiệm và Bảng công đều đọc cùng dữ liệu tuần đã chốt.
+
 ### Dung lượng Supabase
 
 Với vài trăm học sinh và vài nghìn buổi, dữ liệu dự kiến chỉ ở mức vài đến vài chục MB. Thiết kế hiện tại tránh lưu ảnh/file trong Postgres, không nhân bản danh sách điểm danh vào Bảng công và chỉ giữ các ô Sổ chủ nhiệm khác mặc định, nên còn cách rất xa quota database 500 MB của Free Plan.
@@ -148,7 +160,7 @@ order by pg_total_relation_size(relid) desc;
 - Owner tạo tài khoản giáo viên bộ môn và phân công lớp trong tab **Tài khoản giáo viên**.
 - Giáo viên bộ môn có đầy đủ quyền quản lý trên đúng các lớp owner đã phân công, đồng thời có thể tự điền Bảng công của các lớp đó.
 - Phiên đăng nhập có hạn 30 ngày. Mật khẩu giáo viên bộ môn được băm bằng `pgcrypto`, token phiên chỉ được lưu dạng hash trong database.
-- **Lịch hiện tại** được lưu riêng theo từng lớp. Ô này có màu hồng và bị khoá trên phiếu học sinh.
+- **Lịch hiện tại** được lưu riêng theo từng lớp. Ô này có màu vàng và bị khoá trên phiếu học sinh.
 
 ## Tài khoản giáo viên demo (backend Express cũ)
 
@@ -179,6 +191,7 @@ supabase/schema.sql   Schema + RPC API Supabase (chạy toàn bộ file khi nân
 supabase/student_profiles.sql   Khối SQL mã học sinh + hồ sơ + cổng phụ huynh
 supabase/attendance_profile.sql Migration sửa danh tính HS + Bảng công đồng bộ
 supabase/vocab_schedule_sync.sql Migration quản lý từ + đồng bộ Lịch/Sổ/Bảng công
+supabase/schedule_v2.sql         Migration Lịch chia tối giản/chi tiết và bộ đếm buổi
 ```
 
 ## Lưu ý deploy
