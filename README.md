@@ -87,7 +87,7 @@ Supabase nhanh hơn Apps Script/Google Sheets vì dữ liệu nằm trong Postgr
 
 1. Tạo project mới trên Supabase.
 2. Vào **SQL Editor**.
-3. Dán toàn bộ file `supabase/schema.sql` và bấm **Run**.
+3. Dán toàn bộ file `supabase/OLYMPUS_ALL_IN_ONE.sql` và bấm **Run**.
 4. Vào **Project Settings → API**, copy:
    - Project URL
    - anon public key
@@ -102,19 +102,20 @@ Supabase nhanh hơn Apps Script/Google Sheets vì dữ liệu nằm trong Postgr
 
 Khi `SUPABASE_URL` và `SUPABASE_ANON_KEY` có giá trị, frontend sẽ ưu tiên Supabase và không gọi Apps Script nữa.
 
-Khi nâng cấp một database Supabase đã có, chạy lại toàn bộ `supabase/schema.sql`. Các lệnh migration dùng `if not exists`/`create or replace`, nên giữ nguyên lớp và học sinh hiện tại.
+Khi nâng cấp database Supabase đã có, cũng chạy lại đúng file `supabase/OLYMPUS_ALL_IN_ONE.sql`.
 
-### Chỉ dùng một query SQL khi nâng cấp
+### Một file SQL duy nhất
 
-Từ bản v5, project Supabase đang chạy chỉ cần mở **một** SQL Editor query, dán toàn bộ file `supabase/OLYMPUS_ALL_IN_ONE.sql` rồi bấm **Run**. File này gộp các migration hồ sơ học sinh, Sổ chủ nhiệm, Bảng công, đồng bộ lịch, Lịch chia v2/v3, cá nhân hoá v4 và mẫu tuần v5 trong một transaction. Có thể chạy lại khi cần cập nhật; các file migration lẻ được giữ lại để tham khảo và sửa lỗi riêng.
+Project chỉ còn một file database: `supabase/OLYMPUS_ALL_IN_ONE.sql`. File này chứa cả schema nền, RPC API và toàn bộ tính năng hồ sơ học sinh, Sổ chủ nhiệm, Bảng công, đồng bộ lịch, Lịch chia, cá nhân hoá và mẫu tuần.
 
-- **Project đang sử dụng:** chạy `OLYMPUS_ALL_IN_ONE.sql`.
-- **Project Supabase mới hoàn toàn:** chạy `schema.sql`.
+- **Project mới hoàn toàn:** chạy `OLYMPUS_ALL_IN_ONE.sql`.
+- **Project đang sử dụng:** cũng chạy `OLYMPUS_ALL_IN_ONE.sql`.
+- Có thể chạy lại file này; dữ liệu lớp, học sinh, lịch, sổ chủ nhiệm và cấu hình hiện có được giữ nguyên.
 - Các tab `Untitled query` cũ trong Supabase chỉ là bản nháp phía trình duyệt; sau khi file tổng chạy thành công có thể đóng và chọn **Discard**.
 
 ### Mã học sinh, hồ sơ và cổng phụ huynh (Olympus Portal)
 
-Tính năng thêm ngày 26/07/2026. Để kích hoạt trên database Supabase đang chạy, vào **SQL Editor** và chạy lại toàn bộ `supabase/schema.sql` (hoặc chỉ file `supabase/student_profiles.sql` nếu schema cũ đã cập nhật đến trước đó). Chạy lại nhiều lần đều an toàn.
+Tính năng này đã nằm trong file SQL tổng. Chạy `supabase/OLYMPUS_ALL_IN_ONE.sql` để kích hoạt hoặc cập nhật.
 
 - **Mã học sinh:** mỗi học sinh được cấp mã duy nhất trộn từ tên + ngày sinh, ví dụ `Lê Đăng Khôi` sinh 09/03 → `LDK0903` (chữ cái đầu các từ trong tên đã bỏ dấu + ngày-tháng sinh; nếu trùng sẽ tự thêm 1 ký tự hậu tố). Mã cấp một lần và giữ nguyên kể cả khi đổi tên; owner có thể "Cấp lại mã" trong tab Hồ sơ. Học sinh cũ được tự cấp mã ngay khi chạy SQL.
 - **Tab Hồ sơ HS (console giáo viên):** tìm học sinh theo tên/mã, xem và nhập các trường thông tin (điểm đầu vào...), xem lộ trình khóa học, copy mã hoặc link tra cứu cho phụ huynh. Owner bấm **Trường thông tin** để tự định nghĩa trường (kiểu chữ/số/ngày/lựa chọn) và tick **PH xem** cho những trường phụ huynh được thấy.
@@ -126,8 +127,7 @@ Lưu ý: mã học sinh suy ra được từ tên + ngày sinh, nên chỉ bật
 
 ### Bảng công và trò chơi từ vựng
 
-Với database đã chạy schema cũ, vào **SQL Editor** và chạy file `supabase/attendance_profile.sql` một lần.
-Sau đó chạy thêm `supabase/vocab_schedule_sync.sql` để bật quản lý từ vựng, dropdown giáo viên và đồng bộ Lịch → Sổ chủ nhiệm → Bảng công.
+Các bảng và RPC của Bảng công, từ vựng và luồng đồng bộ đều đã nằm trong file SQL tổng.
 
 - **Bảng công:** mỗi dòng lấy từ một buổi LR/S/W trong Sổ chủ nhiệm. Sĩ số, có mặt và vắng được tính trực tiếp từ record nên không lưu lặp dữ liệu. Owner và giáo viên được phân công lớp có thể nhập ngày, giáo viên, giờ vào/ra, số tiết, trạng thái và ghi chú.
 - **Đồng bộ lịch:** trong tab Lịch, mỗi ô học có thể chọn giờ bắt đầu và giáo viên từ dropdown hệ thống. Khi lưu, Sổ chủ nhiệm tự điền mã buổi, thứ/ngày, giờ và giáo viên; Bảng công tiếp tục lấy các thông tin đó cùng dữ liệu điểm danh.
@@ -135,8 +135,6 @@ Sau đó chạy thêm `supabase/vocab_schedule_sync.sql` để bật quản lý 
 - `attendance_entries` chỉ lưu phần giáo viên nhập tay dưới dạng một JSON nhỏ cho mỗi buổi. Sổ chủ nhiệm tiếp tục lưu một JSON đã rút gọn cho mỗi `lớp × kỹ năng`; màu/nội dung mặc định không ghi xuống database.
 
 ### Lịch chia v2
-
-Với database đang chạy, vào **SQL Editor** và chạy `supabase/schedule_v2.sql` một lần. File này cũng đã được nối vào cuối `supabase/schema.sql` cho lần cài mới.
 
 - **Tối giản** là chế độ mặc định, trình bày theo thói quen của file xếp lịch Olympus: mỗi ngày gồm cột **Buổi khoá** và **Nội dung**; lớp được nhóm theo sector.
 - **Thêm ca** giữ bảng chi tiết theo giờ, phòng, lớp, kỹ năng, giáo viên và ghi chú để xử lý các buổi trùng địa điểm.
@@ -148,8 +146,6 @@ Với database đang chạy, vào **SQL Editor** và chạy `supabase/schedule_v
 
 ### Lịch chia v3: lọc lớp và bốn ca dự phòng
 
-Sau `schedule_v2.sql`, chạy thêm `supabase/schedule_v3.sql` một lần. Bản cài mới đã có sẵn phần này trong `supabase/schema.sql`.
-
 - Bảng **Tối giản** có nút **Chỉnh sửa** để đổi nội dung, màu chữ, màu nền, chiều rộng và chiều cao của toàn bộ ô.
 - Nút **Chọn lớp** cho phép ẩn các lớp phụ/backup khỏi cả hai chế độ. Danh sách ẩn chỉ là tuỳ chọn hiển thị của trình duyệt, không xoá dữ liệu lớp.
 - Các hàng Tối giản có chiều cao đồng đều; ô đã chọn nhưng chưa xếp kỹ năng vẫn hiện tên ca để không bị hiểu nhầm là trống.
@@ -157,8 +153,6 @@ Sau `schedule_v2.sql`, chạy thêm `supabase/schedule_v3.sql` một lần. Bả
 - Chỉ ca chính đồng bộ sang tab Lớp học, trang học sinh, Sổ chủ nhiệm và Bảng công. Ba ca còn lại là dữ liệu dự phòng, được lưu gọn trong cùng JSON của tuần.
 
 ### Cá nhân hoá Olympus v4
-
-Sau `schedule_v3.sql`, chạy thêm `supabase/personalization_v4.sql` một lần. Bản cài mới đã có sẵn phần này trong `supabase/schema.sql`.
 
 - Tab **Cấu hình Olympus** cho owner đặt tên trung tâm, tên owner mặc định và chế độ lịch mặc định.
 - **Preset góc nhìn** lưu đồng thời chế độ Tối giản/Thêm ca, lớp đang ẩn, trạng thái thu gọn và sector đang mở. Owner lưu dùng chung; giáo viên có thể áp dụng các preset được cấp.
@@ -222,16 +216,7 @@ public/
   app.js              Logic frontend dùng chung
 render.yaml           Cấu hình deploy Render
 apps-script/Code.gs   Backend Google Sheets + Apps Script
-supabase/schema.sql   Schema + RPC API Supabase (chạy toàn bộ file khi nâng cấp)
-supabase/student_profiles.sql   Khối SQL mã học sinh + hồ sơ + cổng phụ huynh
-supabase/attendance_profile.sql Migration sửa danh tính HS + Bảng công đồng bộ
-supabase/vocab_schedule_sync.sql Migration quản lý từ + đồng bộ Lịch/Sổ/Bảng công
-supabase/schedule_v2.sql         Migration Lịch chia tối giản/chi tiết và bộ đếm buổi
-supabase/schedule_v3.sql         Migration lọc hiển thị và bốn ca dự phòng mỗi ô
-supabase/personalization_v4.sql  Migration hồ sơ vận hành, preset và thư viện màu
-supabase/schedule_templates_v5.sql Migration mẫu tuần dùng lại
-supabase/OLYMPUS_ALL_IN_ONE.sql  File nâng cấp tổng duy nhất cho project đang chạy
-scripts/build-all-in-one-sql.js   Tạo lại file SQL tổng sau khi thêm migration mới
+supabase/OLYMPUS_ALL_IN_ONE.sql  Toàn bộ schema + RPC, dùng cho cả cài mới và nâng cấp
 ```
 
 ## Lưu ý deploy
