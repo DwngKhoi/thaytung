@@ -5076,6 +5076,10 @@ begin
         'lessonStarts', c.lesson_starts,
         'sectorId', c.sector_id,
         'sectorName', (select cs.name from class_sectors cs where cs.id = c.sector_id),
+        'pendingCount', (
+          select count(*) from submissions s
+          where s.class_id = c.id and s.status = 'pending'
+        ),
         'activeSlots', case
           when requested = current_monday then c.current_slots
           else coalesce(w.active_slots, '{}'::text[]) end,
@@ -5186,8 +5190,8 @@ begin
   if jsonb_typeof(clean_profile) <> 'object' then
     raise exception 'Cấu hình Olympus phải là một object';
   end if;
-  if octet_length(clean_profile::text) > 131072 then
-    raise exception 'Cấu hình Olympus vượt quá 128 KB';
+  if octet_length(clean_profile::text) > 262144 then
+    raise exception 'Cấu hình Olympus vượt quá 256 KB';
   end if;
 
   insert into app_settings (key, value)
@@ -5338,5 +5342,247 @@ $$;
 grant execute on function api_schedule_templates(text, text) to anon;
 grant execute on function api_save_schedule_template(text, text, uuid, text, text, jsonb) to anon;
 grant execute on function api_delete_schedule_template(text, text, uuid) to anon;
+
+-- Olympus operating profile, schedule versions and manual restore v6.
+
+create or replace function api_public_personalization(student_key text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  full_profile jsonb;
+begin
+  perform require_student(api_public_personalization.student_key);
+  begin
+    full_profile := coalesce(nullif(setting_value('OLYMPUS_PERSONALIZATION'), '')::jsonb, '{}'::jsonb);
+  exception when others then
+    full_profile := '{}'::jsonb;
+  end;
+  return jsonb_build_object(
+    'centerName', coalesce(full_profile ->> 'centerName', 'Olympus English'),
+    'teacherDisplayMode', coalesce(full_profile ->> 'teacherDisplayMode', 'title-short'),
+    'dateFormat', coalesce(full_profile ->> 'dateFormat', 'dd/mm'),
+    'weekFormat', coalesce(full_profile ->> 'weekFormat', 'Tuần {n} ({from}–{to})'),
+    'sessionDefaults', coalesce(full_profile -> 'sessionDefaults', '[]'::jsonb),
+    'symbols', coalesce(full_profile -> 'symbols', '[]'::jsonb),
+    'locations', coalesce(full_profile -> 'locations', '[]'::jsonb)
+  );
+end;
+$$;
+
+create table if not exists schedule_week_versions (
+  id uuid primary key default gen_random_uuid(),
+  class_id text not null references classes(id) on delete cascade,
+  week_start date not null,
+  version_no integer not null,
+  title text not null default 'Tuần',
+  data jsonb not null default '{}'::jsonb,
+  edited_by text not null default 'Tài khoản Olympus',
+  created_at timestamptz not null default now(),
+  unique (class_id, week_start, version_no)
+);
+
+create index if not exists schedule_week_versions_lookup_idx
+  on schedule_week_versions (class_id, week_start, version_no desc);
+
+alter table schedule_week_versions enable row level security;
+drop policy if exists "deny direct schedule_week_versions" on schedule_week_versions;
+create policy "deny direct schedule_week_versions"
+  on schedule_week_versions for all using (false) with check (false);
+
+create or replace function schedule_session_display_name(session_token text)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce((
+    select s.display_name
+    from teacher_sessions s
+    where s.token_hash = encode(extensions.digest(coalesce(session_token, ''), 'sha256'), 'hex')
+      and s.expires_at > now()
+  ), case when session_role(session_token) = 'owner' then setting_value('TEACHER_NAME') else 'Tài khoản Olympus' end);
+$$;
+
+create or replace function api_create_schedule_version(
+  teacher_key text,
+  class_id text,
+  week_start date,
+  title text,
+  version_data jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  clean_data jsonb := coalesce(api_create_schedule_version.version_data, '{}'::jsonb);
+  clean_title text := coalesce(nullif(clean_name(api_create_schedule_version.title), ''), 'Tuần');
+  next_version integer;
+  saved_id uuid;
+  latest schedule_week_versions;
+begin
+  perform require_class_manager(
+    api_create_schedule_version.teacher_key,
+    api_create_schedule_version.class_id
+  );
+  if api_create_schedule_version.week_start is null then raise exception 'Thiếu ngày bắt đầu tuần'; end if;
+  if jsonb_typeof(clean_data) <> 'object' then raise exception 'Snapshot lịch không hợp lệ'; end if;
+  if octet_length(clean_data::text) > 262144 then raise exception 'Snapshot lịch vượt quá 256 KB'; end if;
+  perform pg_advisory_xact_lock(hashtext(api_create_schedule_version.class_id || '|' || api_create_schedule_version.week_start::text));
+
+  select v.* into latest
+  from schedule_week_versions v
+  where v.class_id = api_create_schedule_version.class_id
+    and v.week_start = api_create_schedule_version.week_start
+  order by v.version_no desc
+  limit 1;
+
+  if found and latest.title = clean_title and latest.data = clean_data then
+    return jsonb_build_object('ok', true, 'id', latest.id, 'version', latest.version_no, 'unchanged', true);
+  end if;
+
+  select coalesce(max(v.version_no), 0) + 1 into next_version
+  from schedule_week_versions v
+  where v.class_id = api_create_schedule_version.class_id
+    and v.week_start = api_create_schedule_version.week_start;
+
+  insert into schedule_week_versions (class_id, week_start, version_no, title, data, edited_by)
+  values (
+    api_create_schedule_version.class_id,
+    api_create_schedule_version.week_start,
+    next_version,
+    clean_title,
+    clean_data,
+    left(coalesce(schedule_session_display_name(api_create_schedule_version.teacher_key), 'Tài khoản Olympus'), 120)
+  )
+  returning id into saved_id;
+
+  delete from schedule_week_versions old
+  where old.id in (
+    select v.id
+    from schedule_week_versions v
+    where v.class_id = api_create_schedule_version.class_id
+      and v.week_start = api_create_schedule_version.week_start
+    order by v.version_no desc
+    offset 30
+  );
+
+  return jsonb_build_object('ok', true, 'id', saved_id, 'version', next_version);
+end;
+$$;
+
+create or replace function api_schedule_versions(
+  teacher_key text,
+  class_id text,
+  week_start date
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform require_class_manager(
+    api_schedule_versions.teacher_key,
+    api_schedule_versions.class_id
+  );
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'id', v.id,
+      'version', v.version_no,
+      'title', v.title,
+      'editedBy', v.edited_by,
+      'createdAt', v.created_at
+    ) order by v.version_no desc)
+    from schedule_week_versions v
+    where v.class_id = api_schedule_versions.class_id
+      and v.week_start = api_schedule_versions.week_start
+  ), '[]'::jsonb);
+end;
+$$;
+
+create or replace function api_restore_schedule_version(
+  teacher_key text,
+  class_id text,
+  version_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  selected schedule_week_versions;
+  payload jsonb;
+  clean_sessions text[];
+  clean_slots text[];
+begin
+  perform require_class_manager(
+    api_restore_schedule_version.teacher_key,
+    api_restore_schedule_version.class_id
+  );
+  select v.* into selected
+  from schedule_week_versions v
+  where v.id = api_restore_schedule_version.version_id
+    and v.class_id = api_restore_schedule_version.class_id;
+  if not found then raise exception 'Không tìm thấy phiên bản lịch'; end if;
+  payload := selected.data;
+  select coalesce(array_agg(x.value), '{}') into clean_sessions
+  from jsonb_array_elements_text(coalesce(payload -> 'sessions', '[]'::jsonb)) x(value);
+  select coalesce(array_agg(x.value), '{}') into clean_slots
+  from jsonb_array_elements_text(coalesce(payload -> 'currentSlots', '[]'::jsonb)) x(value);
+  if coalesce(array_length(clean_sessions, 1), 0) = 0 then
+    select c.sessions into clean_sessions from classes c where c.id = selected.class_id;
+  end if;
+
+  insert into class_schedule_weeks (class_id, week_start, title, slots, active_slots, details, updated_at)
+  values (
+    selected.class_id,
+    selected.week_start,
+    selected.title,
+    coalesce(payload -> 'slots', '{}'::jsonb),
+    clean_slots,
+    coalesce(payload -> 'details', '{}'::jsonb),
+    now()
+  )
+  on conflict on constraint class_schedule_weeks_class_id_week_start_key do update
+  set title = excluded.title,
+      slots = excluded.slots,
+      active_slots = excluded.active_slots,
+      details = excluded.details,
+      updated_at = now();
+
+  update classes c
+  set sessions = clean_sessions,
+      current_slots = clean_slots,
+      final_subjects = coalesce(payload -> 'slots', '{}'::jsonb),
+      lesson_starts = coalesce(payload -> 'lessonStarts', c.lesson_starts),
+      course_kind = case when payload ->> 'courseKind' = 'grammar' then 'grammar' else 'skills' end,
+      current_schedule_week = selected.week_start
+  where c.id = selected.class_id;
+
+  perform api_create_schedule_version(
+    api_restore_schedule_version.teacher_key,
+    selected.class_id,
+    selected.week_start,
+    selected.title || ' · khôi phục v' || selected.version_no,
+    payload
+  );
+  return jsonb_build_object('ok', true, 'weekStart', selected.week_start, 'restoredVersion', selected.version_no);
+end;
+$$;
+
+grant execute on function api_public_personalization(text) to anon;
+grant execute on function api_create_schedule_version(text, text, date, text, jsonb) to anon;
+grant execute on function api_schedule_versions(text, text, date) to anon;
+grant execute on function api_restore_schedule_version(text, text, uuid) to anon;
+revoke execute on function schedule_session_display_name(text) from anon;
 
 commit;

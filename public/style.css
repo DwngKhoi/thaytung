@@ -3399,3 +3399,131 @@ body.dark .schedule-conflict-type { background: #7c2d12; }
   .schedule-conflict-item { grid-template-columns: 72px 1fr; }
   .schedule-conflict-classes { grid-column: 1 / -1; }
 }
+
+/* Olympus operating profile v6 */
+.personalization-wide { grid-column: 1 / -1; }
+.personalization-head-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.personalization-session-list,
+.personalization-rule-list { display: grid; gap: 8px; }
+.personalization-session-row {
+  display: grid;
+  grid-template-columns: minmax(72px,.65fr) minmax(120px,1fr) 112px 112px minmax(130px,1fr) 34px;
+  align-items: end;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(248,250,252,.7);
+}
+.personalization-rule-row {
+  display: grid;
+  grid-template-columns: 72px minmax(150px,.8fr) minmax(180px,1.2fr) 34px;
+  align-items: end;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(248,250,252,.7);
+}
+.personalization-session-row label,
+.personalization-rule-row label,
+.personalization-check-list label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.personalization-rule-row .rule-enabled { display: flex; align-items: center; align-self: center; }
+.personalization-check-list { display: grid; gap: 10px; }
+.personalization-check-list > label:not(:last-child) { grid-template-columns: 18px 1fr; align-items: center; }
+.personalization-color-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap: 8px; }
+.personalization-color-item {
+  display: grid;
+  grid-template-columns: 1fr 46px 46px;
+  align-items: center;
+  gap: 6px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+.personalization-color-item label { display: grid; justify-items: center; gap: 3px; font-size: 10px; color: var(--muted); }
+.personalization-color-item input[type="color"] { width: 38px; height: 30px; padding: 2px; }
+
+.system-notification-center,
+.schedule-resource-view {
+  margin-bottom: 14px;
+  padding: 15px;
+  border: 1px solid #c7d2fe;
+  border-radius: 18px;
+  background: linear-gradient(145deg,rgba(255,255,255,.98),rgba(238,242,255,.9));
+  box-shadow: 0 10px 24px rgba(30,64,175,.08);
+}
+.system-notification-head,
+.schedule-resource-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.system-notification-head h3,
+.schedule-resource-head h3 { margin: 2px 0 0; }
+.system-notification-head span { color: #4f46e5; font-size: 10px; font-weight: 900; letter-spacing: .12em; }
+.system-notification-head small { color: var(--muted); }
+.system-notification-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 8px; }
+.system-notification-item {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #fff;
+  text-align: left;
+}
+.system-notification-item b { display: grid; place-items: center; min-height: 36px; border-radius: 10px; background: #eff6ff; color: #1d4ed8; font-size: 18px; }
+.system-notification-item.is-warning b { background: #fef3c7; color: #92400e; }
+.system-notification-item.is-danger b { background: #fee2e2; color: #b91c1c; }
+.system-notification-clear { padding: 11px; border-radius: 11px; background: #dcfce7; color: #166534; font-weight: 800; }
+.schedule-resource-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.schedule-resource-controls label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.schedule-resource-groups { display: grid; gap: 8px; }
+.schedule-resource-group { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: #fff; }
+.schedule-resource-group summary { display: flex; justify-content: space-between; gap: 8px; padding: 10px 12px; cursor: pointer; }
+.schedule-resource-group summary small { color: var(--muted); }
+.schedule-resource-table-wrap { overflow-x: auto; border-top: 1px solid var(--border); }
+.schedule-resource-table-wrap table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.schedule-resource-table-wrap th,
+.schedule-resource-table-wrap td { padding: 7px 9px; border: 1px solid #e5e7eb; text-align: center; white-space: nowrap; }
+.schedule-resource-table-wrap th { background: #f8fafc; }
+.schedule-resource-table-wrap button { padding: 4px 7px; color: #1d4ed8; background: #eff6ff; border-color: #bfdbfe; }
+.schedule-version-list { display: grid; gap: 8px; max-height: 55vh; overflow-y: auto; }
+.schedule-version-list article { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px; border: 1px solid var(--border); border-radius: 12px; }
+.schedule-version-list article div { display: grid; gap: 2px; }
+.schedule-version-list small { color: var(--muted); }
+.schedule-version-list span { font-size: 12px; }
+.week-slot.changed-from-previous { box-shadow: inset 0 0 0 3px #f97316 !important; position: relative; }
+.week-slot.changed-from-previous::after {
+  content: "Đã đổi";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: #f97316;
+  color: #fff;
+  font-size: 8px;
+  font-weight: 900;
+}
+body.dark .personalization-session-row,
+body.dark .personalization-rule-row,
+body.dark .schedule-resource-group,
+body.dark .system-notification-item { background: rgba(15,23,42,.82); }
+body.dark .system-notification-center,
+body.dark .schedule-resource-view { background: linear-gradient(145deg,rgba(15,23,42,.98),rgba(30,41,59,.95)); border-color: #3730a3; }
+
+@media (max-width: 860px) {
+  .personalization-session-row { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .personalization-session-row .personalization-remove-item { grid-column: 2; justify-self: end; }
+  .personalization-rule-row { grid-template-columns: 1fr; }
+  .personalization-rule-row .personalization-remove-item { justify-self: end; }
+  .system-notification-head,
+  .schedule-resource-head { flex-direction: column; }
+}

@@ -167,6 +167,18 @@ Các bảng và RPC của Bảng công, từ vựng và luồng đồng bộ đ�
 - Mẫu thuộc đúng lớp và dùng chung cho owner cùng giáo viên được phân công lớp đó.
 - **Trung tâm cảnh báo** trên Lịch chia phát hiện giáo viên, địa điểm hoặc chính một lớp bị xếp trùng theo thứ và giờ bắt đầu; nếu chưa nhập giờ thì hệ thống dùng tên ca.
 
+### Trung tâm vận hành và lịch sử v6
+
+- **Cấu hình Olympus** quản lý chung format tuần/ngày, cách rút gọn tên giáo viên, quy tắc mã lớp, ca + giờ + phòng mặc định, quy tắc đếm buổi và giáo viên ưu tiên theo kỹ năng.
+- Nút **Tạo preset mẫu** sinh sẵn bảy góc nhìn: điện thoại, xếp lịch, gửi giáo viên, gửi học sinh, in, phòng học và bảng công; preset giữ cả màu cùng kích thước ô của Toàn cảnh.
+- **Góc nhìn vận hành** trên Lịch chia đổi tức thời giữa lớp, giáo viên, phòng, cơ sở, khung giờ và kỹ năng.
+- **Trung tâm vận hành** tổng hợp lớp chưa có lịch, buổi thiếu giáo viên/phòng, lịch học sinh mới và các xung đột cần xử lý.
+- Khi chọn kỹ năng cho một ô, hệ thống chỉ tự điền các trường đang trống. Giá trị giáo viên nhập tay luôn được ưu tiên.
+- Xuất ảnh/Excel có lựa chọn **Owner / Giáo viên / Học sinh / Phụ huynh** để tự ẩn ghi chú và thông tin không cần thiết.
+- Mỗi lần **Lưu tuần** tạo một snapshot tối ưu trên Supabase. Nút **Lịch sử** cho xem người sửa, thời gian và khôi phục; tối đa 30 phiên bản mỗi lớp/tuần.
+- **So sánh tuần trước** đánh dấu viền cam cho các ô có nội dung, giờ, phòng, giáo viên hoặc ghi chú thay đổi.
+- **Sao chép sang lớp** cho phép tick nhiều lớp theo sector và chọn chỉ sao chép khung giờ/phòng/GV hoặc toàn bộ tuần.
+
 ### Dung lượng Supabase
 
 Với vài trăm học sinh và vài nghìn buổi, dữ liệu dự kiến chỉ ở mức vài đến vài chục MB. Thiết kế hiện tại tránh lưu ảnh/file trong Postgres, không nhân bản danh sách điểm danh vào Bảng công và chỉ giữ các ô Sổ chủ nhiệm khác mặc định, nên còn cách rất xa quota database 500 MB của Free Plan.

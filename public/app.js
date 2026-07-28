@@ -49,6 +49,9 @@ const SCHEDULE_OVERVIEW_MODE_KEY = 'lichlop-overview-mode';
 const SCHEDULE_OVERVIEW_HIDDEN_CLASSES_KEY = 'lichlop-overview-hidden-classes';
 const SCHEDULE_CLASS_VIEW_MODE_KEY = 'lichlop-class-schedule-mode';
 const SCHEDULE_EXPANDED_SECTORS_KEY = 'lichlop-schedule-expanded-sectors';
+const SCHEDULE_RESOURCE_VIEW_KEY = 'lichlop-schedule-resource-view';
+const SCHEDULE_RESOURCE_FILTER_KEY = 'lichlop-schedule-resource-filter';
+const EXPORT_AUDIENCE_KEY = 'lichlop-export-audience';
 const PERSONALIZATION_CACHE_KEY = 'lichlop-personalization-profile';
 
 const $ = (sel) => document.querySelector(sel);
@@ -84,13 +87,39 @@ function safeHexColor(value, fallback = '#ffffff') {
 
 function defaultPersonalizationProfile() {
   return {
-    version: 1,
+    version: 2,
     centerName: 'Olympus English',
     defaultTeacherName: 'Thầy Tùng',
+    teacherDisplayMode: 'title-short',
+    dateFormat: 'dd/mm',
+    weekFormat: 'Tuần {n} ({from}–{to})',
+    classCodePattern: '^[A-ZĐ][A-ZĐ0-9-]{1,15}$',
+    classCodeHint: 'Ví dụ: F14, L02, G11',
     defaultOverviewMode: 'compact',
     defaultClassMode: 'compact',
     activePresetId: '',
     presets: [],
+    sessionDefaults: [
+      { id: 'session-s1', code: 'S1', label: 'Sáng 1', startTime: '07:30', endTime: '09:00', defaultLocation: 'A1' },
+      { id: 'session-s2', code: 'S2', label: 'Sáng 2', startTime: '09:15', endTime: '10:45', defaultLocation: 'A2' },
+      { id: 'session-c', code: 'C', label: 'Chiều', startTime: '14:15', endTime: '15:45', defaultLocation: 'A1' },
+      { id: 'session-57', code: '57', label: 'Ca 57', startTime: '17:00', endTime: '18:30', defaultLocation: 'A2' },
+      { id: 'session-t', code: 'T', label: 'Tối', startTime: '19:30', endTime: '21:00', defaultLocation: 'A1' }
+    ],
+    countingRules: {
+      assessmentPairs: true,
+      offCounts: false,
+      grammarOnlyTotal: true
+    },
+    teacherSkillRules: [],
+    grammarSectorKeywords: ['Ngữ pháp'],
+    categoryColors: {
+      classBg: '#22c55e', classFg: '#052e16',
+      teacherBg: '#dbeafe', teacherFg: '#1e3a8a',
+      roomBg: '#fef3c7', roomFg: '#713f12',
+      assessmentBg: '#dc2626', assessmentFg: '#ffffff',
+      offBg: '#12dfe2', offFg: '#073b4c'
+    },
     symbols: [
       { id: 'symbol-lr', code: 'LR', label: 'Listening & Reading', bg: '#fde9b4', fg: '#111827' },
       { id: 'symbol-l', code: 'L', label: 'Listening', bg: '#dbeafe', fg: '#111827' },
@@ -107,6 +136,36 @@ function defaultPersonalizationProfile() {
       { id: 'location-cs2', code: 'CS2', label: 'Cơ sở 2', bg: '#fdfd0a', fg: '#111827' }
     ]
   };
+}
+
+function normalizeSessionDefaults(items, defaults = []) {
+  if (!Array.isArray(items)) return defaults;
+  return items.slice(0, 20).map((item, index) => ({
+    id: String(item?.id || personalizationId('session')).slice(0, 100),
+    code: String(item?.code || '').trim().toUpperCase().slice(0, 20),
+    label: String(item?.label || '').trim().slice(0, 80),
+    startTime: /^\d{2}:\d{2}$/.test(String(item?.startTime || '')) ? String(item.startTime) : '',
+    endTime: /^\d{2}:\d{2}$/.test(String(item?.endTime || '')) ? String(item.endTime) : '',
+    defaultLocation: String(item?.defaultLocation || '').trim().slice(0, 80),
+    sort: Number.isFinite(Number(item?.sort)) ? Number(item.sort) : index
+  })).filter((item) => item.code);
+}
+
+function normalizeTeacherSkillRules(items) {
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, 40).map((item) => ({
+    id: String(item?.id || personalizationId('teacher-rule')).slice(0, 100),
+    skill: String(item?.skill || '').trim().toUpperCase().slice(0, 20),
+    teacher: String(item?.teacher || '').trim().slice(0, 120),
+    enabled: item?.enabled !== false
+  })).filter((item) => item.skill && item.teacher);
+}
+
+function normalizeCategoryColors(value, defaults) {
+  const source = value && typeof value === 'object' ? value : {};
+  return Object.fromEntries(Object.entries(defaults).map(([key, color]) => [
+    key, safeHexColor(source[key], color)
+  ]));
 }
 
 function personalizationId(prefix = 'item') {
@@ -136,16 +195,43 @@ function normalizePersonalizationProfile(profile) {
     classMode: preset?.classMode === 'detail' ? 'detail' : 'compact',
     hiddenClassIds: Array.isArray(preset?.hiddenClassIds) ? preset.hiddenClassIds.map(String).slice(0, 300) : [],
     overviewCollapsed: Boolean(preset?.overviewCollapsed),
-    expandedSectorIds: Array.isArray(preset?.expandedSectorIds) ? preset.expandedSectorIds.map(String).slice(0, 100) : []
+    expandedSectorIds: Array.isArray(preset?.expandedSectorIds) ? preset.expandedSectorIds.map(String).slice(0, 100) : [],
+    resourceView: ['class', 'teacher', 'room', 'center', 'time', 'skill'].includes(preset?.resourceView) ? preset.resourceView : 'class',
+    resourceFilter: String(preset?.resourceFilter || '').slice(0, 120),
+    audience: ['owner', 'teacher', 'student', 'parent'].includes(preset?.audience) ? preset.audience : 'owner',
+    overviewLayout: preset?.overviewLayout && typeof preset.overviewLayout === 'object'
+      ? {
+        styles: Object.fromEntries(Object.entries(preset.overviewLayout.styles || {}).slice(0, 600)),
+        noteStyle: preset.overviewLayout.noteStyle || {},
+        legendBoxStyle: preset.overviewLayout.legendBoxStyle || {},
+        legend: Array.isArray(preset.overviewLayout.legend) ? preset.overviewLayout.legend.slice(0, 40) : []
+      }
+      : null
   })) : [];
   return {
-    version: 1,
+    version: 2,
     centerName: String(source.centerName || defaults.centerName).trim().slice(0, 100),
     defaultTeacherName: String(source.defaultTeacherName || defaults.defaultTeacherName).trim().slice(0, 100),
+    teacherDisplayMode: ['short', 'title-short', 'full'].includes(source.teacherDisplayMode) ? source.teacherDisplayMode : defaults.teacherDisplayMode,
+    dateFormat: ['dd/mm', 'dd/mm/yyyy', 'yyyy-mm-dd'].includes(source.dateFormat) ? source.dateFormat : defaults.dateFormat,
+    weekFormat: String(source.weekFormat || defaults.weekFormat).trim().slice(0, 100),
+    classCodePattern: String(source.classCodePattern || defaults.classCodePattern).trim().slice(0, 120),
+    classCodeHint: String(source.classCodeHint || defaults.classCodeHint).trim().slice(0, 120),
     defaultOverviewMode: source.defaultOverviewMode === 'detail' ? 'detail' : 'compact',
     defaultClassMode: source.defaultClassMode === 'detail' ? 'detail' : 'compact',
     activePresetId: presets.some((preset) => preset.id === source.activePresetId) ? String(source.activePresetId) : '',
     presets,
+    sessionDefaults: normalizeSessionDefaults(source.sessionDefaults, defaults.sessionDefaults),
+    countingRules: {
+      assessmentPairs: source.countingRules?.assessmentPairs !== false,
+      offCounts: Boolean(source.countingRules?.offCounts),
+      grammarOnlyTotal: source.countingRules?.grammarOnlyTotal !== false
+    },
+    teacherSkillRules: normalizeTeacherSkillRules(source.teacherSkillRules),
+    grammarSectorKeywords: Array.isArray(source.grammarSectorKeywords)
+      ? source.grammarSectorKeywords.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 20)
+      : defaults.grammarSectorKeywords,
+    categoryColors: normalizeCategoryColors(source.categoryColors, defaults.categoryColors),
     symbols: normalizePersonalizationItems(source.symbols, defaults.symbols),
     locations: normalizePersonalizationItems(source.locations, defaults.locations)
   };
@@ -175,6 +261,41 @@ function personalizedLocation(value) {
     item.code.toLocaleLowerCase('vi') === normalized
     || item.label.toLocaleLowerCase('vi') === normalized
   )) || null;
+}
+
+function personalizedSession(value) {
+  const normalized = String(value || '').trim().toLocaleLowerCase('vi');
+  return currentPersonalization().sessionDefaults.find((item) => (
+    item.code.toLocaleLowerCase('vi') === normalized
+    || item.label.toLocaleLowerCase('vi') === normalized
+  )) || null;
+}
+
+function teacherNameForDisplay(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const profile = currentPersonalization();
+  if (profile.teacherDisplayMode === 'full') return raw;
+  const title = raw.match(/^(Thầy|Cô)\s+/i)?.[1] || '';
+  const withoutTitle = raw.replace(/^(Thầy|Cô)\s+/i, '').trim();
+  const words = withoutTitle.split(/\s+/).filter(Boolean);
+  const short = words.at(-1) || withoutTitle;
+  if (profile.teacherDisplayMode === 'short') return short;
+  return [title || 'Thầy', short].filter(Boolean).join(' ');
+}
+
+function teacherForSkill(skill) {
+  const code = scheduleLessonTypeFromLabel(skill) || String(skill || '').trim().toUpperCase();
+  return currentPersonalization().teacherSkillRules.find((rule) => rule.enabled && rule.skill === code)?.teacher || '';
+}
+
+function classCodeIsValid(value) {
+  const pattern = currentPersonalization().classCodePattern;
+  try {
+    return new RegExp(pattern, 'u').test(String(value || '').trim().toUpperCase());
+  } catch (err) {
+    return true;
+  }
 }
 
 function personalizationStyle(item) {
@@ -659,6 +780,25 @@ async function supabaseApi(path, opts = {}) {
       template_id: decodeURIComponent(action.split('/')[1] || '')
     });
   }
+  if (action === 'schedule-versions') {
+    if (method === 'GET') return supabaseRpc('api_schedule_versions', {
+      teacher_key: teacherToken(), class_id, week_start: body.weekStart
+    });
+    if (method === 'POST') return supabaseRpc('api_create_schedule_version', {
+      teacher_key: teacherToken(),
+      class_id,
+      week_start: body.weekStart,
+      title: body.title,
+      version_data: body.data || {}
+    });
+  }
+  if (action.startsWith('schedule-versions/') && action.endsWith('/restore') && method === 'POST') {
+    return supabaseRpc('api_restore_schedule_version', {
+      teacher_key: teacherToken(),
+      class_id,
+      version_id: decodeURIComponent(action.split('/')[1] || '')
+    });
+  }
   if (action === 'schedule') {
     if (method === 'GET') return supabaseRpc('api_schedule_class', {
       teacher_key: teacherToken(),
@@ -855,6 +995,10 @@ async function loadPublicPersonalization() {
     personalizationProfile = normalizePersonalizationProfile({
       ...cached,
       centerName: remote?.centerName || cached.centerName,
+      teacherDisplayMode: remote?.teacherDisplayMode || cached.teacherDisplayMode,
+      dateFormat: remote?.dateFormat || cached.dateFormat,
+      weekFormat: remote?.weekFormat || cached.weekFormat,
+      sessionDefaults: Array.isArray(remote?.sessionDefaults) ? remote.sessionDefaults : cached.sessionDefaults,
       symbols: Array.isArray(remote?.symbols) ? remote.symbols : cached.symbols,
       locations: Array.isArray(remote?.locations) ? remote.locations : cached.locations
     });
@@ -892,6 +1036,7 @@ function currentPresetSnapshot(name = 'Góc nhìn mới', id = '') {
     const values = JSON.parse(localStorage.getItem(SCHEDULE_EXPANDED_SECTORS_KEY) || '[]');
     if (Array.isArray(values)) expandedSectorIds = values.map(String);
   } catch (err) { /* Keep an empty list. */ }
+  const overviewData = loadOverviewData(overviewWeekStart());
   return {
     id: id || personalizationId('preset'),
     name: String(name || 'Góc nhìn mới').trim().slice(0, 80),
@@ -899,8 +1044,38 @@ function currentPresetSnapshot(name = 'Góc nhìn mới', id = '') {
     classMode: scheduleClassViewMode(),
     hiddenClassIds: [...overviewHiddenClassIds()],
     overviewCollapsed: scheduleOverviewCollapsed(),
-    expandedSectorIds
+    expandedSectorIds,
+    resourceView: localStorage.getItem(SCHEDULE_RESOURCE_VIEW_KEY) || 'class',
+    resourceFilter: localStorage.getItem(SCHEDULE_RESOURCE_FILTER_KEY) || '',
+    audience: localStorage.getItem(EXPORT_AUDIENCE_KEY) || 'owner',
+    overviewLayout: {
+      styles: overviewData.styles || {},
+      noteStyle: overviewData.noteStyle || {},
+      legendBoxStyle: overviewData.legendBoxStyle || {},
+      legend: overviewData.legend || []
+    }
   };
+}
+
+function recommendedPersonalizationPresets() {
+  const base = currentPresetSnapshot('');
+  const backupIds = teacherClasses
+    .filter((cls) => /backup|dự phòng|du phong/i.test(String(cls.name || '')))
+    .map((cls) => String(cls.id));
+  return [
+    { name: 'Xem nhanh trên điện thoại', overviewMode: 'compact', classMode: 'compact', audience: 'owner', resourceView: 'class' },
+    { name: 'Xếp lịch tuần', overviewMode: 'detail', classMode: 'detail', audience: 'owner', resourceView: 'class' },
+    { name: 'Lịch gửi giáo viên', overviewMode: 'compact', classMode: 'compact', audience: 'teacher', resourceView: 'teacher' },
+    { name: 'Lịch gửi học sinh', overviewMode: 'compact', classMode: 'compact', audience: 'student', resourceView: 'class' },
+    { name: 'Lịch để in', overviewMode: 'compact', classMode: 'compact', audience: 'owner', resourceView: 'class' },
+    { name: 'Lịch phòng học', overviewMode: 'detail', classMode: 'detail', audience: 'owner', resourceView: 'room' },
+    { name: 'Bảng công cuối tháng', overviewMode: 'compact', classMode: 'compact', audience: 'owner', resourceView: 'teacher' }
+  ].map((item) => ({
+    ...base,
+    ...item,
+    id: personalizationId('preset'),
+    hiddenClassIds: ['teacher', 'student', 'parent'].includes(item.audience) ? backupIds : base.hiddenClassIds
+  }));
 }
 
 function applyPersonalizationPreset(preset, { reload = true } = {}) {
@@ -910,6 +1085,20 @@ function applyPersonalizationPreset(preset, { reload = true } = {}) {
   localStorage.setItem(SCHEDULE_OVERVIEW_HIDDEN_CLASSES_KEY, JSON.stringify(preset.hiddenClassIds || []));
   localStorage.setItem(SCHEDULE_OVERVIEW_COLLAPSED_KEY, preset.overviewCollapsed ? '1' : '0');
   localStorage.setItem(SCHEDULE_EXPANDED_SECTORS_KEY, JSON.stringify(preset.expandedSectorIds || []));
+  localStorage.setItem(SCHEDULE_RESOURCE_VIEW_KEY, preset.resourceView || 'class');
+  localStorage.setItem(SCHEDULE_RESOURCE_FILTER_KEY, preset.resourceFilter || '');
+  localStorage.setItem(EXPORT_AUDIENCE_KEY, preset.audience || 'owner');
+  if (preset.overviewLayout) {
+    const weekStart = overviewWeekStart();
+    const existing = loadOverviewData(weekStart);
+    localStorage.setItem(SCHEDULE_OVERVIEW_DATA_PREFIX + weekStart, JSON.stringify({
+      ...existing,
+      styles: preset.overviewLayout.styles || {},
+      noteStyle: preset.overviewLayout.noteStyle || {},
+      legendBoxStyle: preset.overviewLayout.legendBoxStyle || {},
+      legend: preset.overviewLayout.legend?.length ? preset.overviewLayout.legend : existing.legend
+    }));
+  }
   if (reload && $('#tab-schedule')?.classList.contains('active')) loadScheduleHome();
 }
 
@@ -938,6 +1127,42 @@ function personalizationItemRow(item, type) {
   </div>`;
 }
 
+function personalizationSessionRow(item) {
+  return `<div class="personalization-session-row" data-personalization-session data-id="${escapeHtml(item.id)}">
+    <input data-field="code" value="${escapeHtml(item.code)}" placeholder="Mã ca" maxlength="20" />
+    <input data-field="label" value="${escapeHtml(item.label)}" placeholder="Tên ca" maxlength="80" />
+    <label>Bắt đầu<input data-field="startTime" type="time" value="${escapeHtml(item.startTime)}" /></label>
+    <label>Kết thúc<input data-field="endTime" type="time" value="${escapeHtml(item.endTime)}" /></label>
+    <input data-field="defaultLocation" value="${escapeHtml(item.defaultLocation)}" placeholder="Phòng mặc định" maxlength="80" />
+    <button type="button" class="personalization-remove-item" title="Xoá">×</button>
+  </div>`;
+}
+
+function personalizationTeacherRuleRow(rule) {
+  const skills = currentPersonalization().symbols.filter((item) => !['OFF'].includes(item.code));
+  return `<div class="personalization-rule-row" data-personalization-teacher-rule data-id="${escapeHtml(rule.id)}">
+    <label class="rule-enabled"><input data-field="enabled" type="checkbox"${rule.enabled ? ' checked' : ''} /> Bật</label>
+    <label>Khi kỹ năng
+      <select data-field="skill">${skills.map((item) => `<option value="${escapeHtml(item.code)}"${item.code === rule.skill ? ' selected' : ''}>${escapeHtml(item.code)} · ${escapeHtml(item.label)}</option>`).join('')}</select>
+    </label>
+    <label>Ưu tiên giáo viên<input data-field="teacher" value="${escapeHtml(rule.teacher)}" placeholder="Thầy/Cô..." maxlength="120" /></label>
+    <button type="button" class="personalization-remove-item" title="Xoá">×</button>
+  </div>`;
+}
+
+function personalizationColorFields(colors) {
+  const rows = [
+    ['class', 'Lớp'], ['teacher', 'Giáo viên'], ['room', 'Phòng'],
+    ['assessment', 'Kiểm tra'], ['off', 'Nghỉ']
+  ];
+  return `<div class="personalization-color-grid">${rows.map(([key, label]) => `
+    <div class="personalization-color-item">
+      <b>${label}</b>
+      <label>Nền<input data-category-color="${key}Bg" type="color" value="${safeHexColor(colors[`${key}Bg`])}" /></label>
+      <label>Chữ<input data-category-color="${key}Fg" type="color" value="${safeHexColor(colors[`${key}Fg`], '#111827')}" /></label>
+    </div>`).join('')}</div>`;
+}
+
 function collectPersonalizationForm() {
   const existing = currentPersonalization();
   const readItems = (type) => [...document.querySelectorAll(`[data-personalization-item="${type}"]`)].map((row) => ({
@@ -947,12 +1172,42 @@ function collectPersonalizationForm() {
     bg: row.querySelector('[data-field="bg"]')?.value || '#ffffff',
     fg: row.querySelector('[data-field="fg"]')?.value || '#111827'
   }));
+  const sessionDefaults = [...document.querySelectorAll('[data-personalization-session]')].map((row) => ({
+    id: row.dataset.id || personalizationId('session'),
+    code: row.querySelector('[data-field="code"]')?.value || '',
+    label: row.querySelector('[data-field="label"]')?.value || '',
+    startTime: row.querySelector('[data-field="startTime"]')?.value || '',
+    endTime: row.querySelector('[data-field="endTime"]')?.value || '',
+    defaultLocation: row.querySelector('[data-field="defaultLocation"]')?.value || ''
+  }));
+  const teacherSkillRules = [...document.querySelectorAll('[data-personalization-teacher-rule]')].map((row) => ({
+    id: row.dataset.id || personalizationId('teacher-rule'),
+    enabled: Boolean(row.querySelector('[data-field="enabled"]')?.checked),
+    skill: row.querySelector('[data-field="skill"]')?.value || '',
+    teacher: row.querySelector('[data-field="teacher"]')?.value || ''
+  }));
+  const categoryColors = Object.fromEntries([...document.querySelectorAll('[data-category-color]')]
+    .map((input) => [input.dataset.categoryColor, input.value]));
   return normalizePersonalizationProfile({
     ...existing,
     centerName: $('#personalization-center-name')?.value || existing.centerName,
     defaultTeacherName: $('#personalization-teacher-name')?.value || existing.defaultTeacherName,
+    teacherDisplayMode: $('#personalization-teacher-display')?.value || existing.teacherDisplayMode,
+    dateFormat: $('#personalization-date-format')?.value || existing.dateFormat,
+    weekFormat: $('#personalization-week-format')?.value || existing.weekFormat,
+    classCodePattern: $('#personalization-class-pattern')?.value || existing.classCodePattern,
+    classCodeHint: $('#personalization-class-hint')?.value || existing.classCodeHint,
     defaultOverviewMode: $('#personalization-overview-mode')?.value || existing.defaultOverviewMode,
     defaultClassMode: $('#personalization-class-mode')?.value || existing.defaultClassMode,
+    sessionDefaults,
+    countingRules: {
+      assessmentPairs: Boolean($('#personalization-assessment-pairs')?.checked),
+      offCounts: Boolean($('#personalization-off-counts')?.checked),
+      grammarOnlyTotal: Boolean($('#personalization-grammar-total')?.checked)
+    },
+    grammarSectorKeywords: String($('#personalization-grammar-keywords')?.value || '').split(',').map((item) => item.trim()).filter(Boolean),
+    teacherSkillRules,
+    categoryColors,
     symbols: readItems('symbol'),
     locations: readItems('location')
   });
@@ -967,21 +1222,51 @@ function renderPersonalizationSettings() {
   }
   const profile = currentPersonalization();
   root.innerHTML = `<div class="personalization-grid">
-    <section class="personalization-section">
+    <section class="personalization-section personalization-wide">
       <div class="personalization-section-head"><div><h3>Hồ sơ vận hành</h3><p>Tên hiển thị và chế độ mặc định của hệ thống.</p></div></div>
       <div class="personalization-general-grid">
         <label>Tên trung tâm<input id="personalization-center-name" value="${escapeHtml(profile.centerName)}" /></label>
         <label>Tên owner mặc định<input id="personalization-teacher-name" value="${escapeHtml(profile.defaultTeacherName)}" /></label>
+        <label>Hiển thị tên giáo viên<select id="personalization-teacher-display"><option value="short"${profile.teacherDisplayMode === 'short' ? ' selected' : ''}>Tùng</option><option value="title-short"${profile.teacherDisplayMode === 'title-short' ? ' selected' : ''}>Thầy Tùng</option><option value="full"${profile.teacherDisplayMode === 'full' ? ' selected' : ''}>Họ tên đầy đủ</option></select></label>
+        <label>Format ngày<select id="personalization-date-format"><option value="dd/mm"${profile.dateFormat === 'dd/mm' ? ' selected' : ''}>dd/mm</option><option value="dd/mm/yyyy"${profile.dateFormat === 'dd/mm/yyyy' ? ' selected' : ''}>dd/mm/yyyy</option><option value="yyyy-mm-dd"${profile.dateFormat === 'yyyy-mm-dd' ? ' selected' : ''}>yyyy-mm-dd</option></select></label>
+        <label>Format tuần<input id="personalization-week-format" value="${escapeHtml(profile.weekFormat)}" /><small>Dùng {n}, {from}, {to}</small></label>
+        <label>Quy tắc mã lớp<input id="personalization-class-pattern" value="${escapeHtml(profile.classCodePattern)}" /><small>Biểu thức kiểm tra mã lớp</small></label>
+        <label>Gợi ý mã lớp<input id="personalization-class-hint" value="${escapeHtml(profile.classCodeHint)}" /></label>
         <label>Toàn cảnh mặc định<select id="personalization-overview-mode"><option value="compact"${profile.defaultOverviewMode === 'compact' ? ' selected' : ''}>Tối giản</option><option value="detail"${profile.defaultOverviewMode === 'detail' ? ' selected' : ''}>Thêm ca</option></select></label>
         <label>Lịch từng lớp mặc định<select id="personalization-class-mode"><option value="compact"${profile.defaultClassMode === 'compact' ? ' selected' : ''}>Tối giản</option><option value="detail"${profile.defaultClassMode === 'detail' ? ' selected' : ''}>Thêm ca</option></select></label>
       </div>
     </section>
 
+    <section class="personalization-section personalization-wide">
+      <div class="personalization-section-head"><div><h3>Ca và giờ mặc định</h3><p>Khi chọn nội dung buổi, hệ thống tự điền giờ và phòng; chỉnh tay trong ô luôn được ưu tiên.</p></div><button type="button" id="personalization-add-session">+ Ca</button></div>
+      <div class="personalization-session-list">${profile.sessionDefaults.map(personalizationSessionRow).join('')}</div>
+    </section>
+
+    <section class="personalization-section">
+      <div class="personalization-section-head"><div><h3>Quy tắc đếm buổi</h3><p>Các ngoại lệ vẫn có thể chỉnh trực tiếp trong từng lớp.</p></div></div>
+      <div class="personalization-check-list">
+        <label><input id="personalization-assessment-pairs" type="checkbox"${profile.countingRules.assessmentPairs ? ' checked' : ''} /> Hai ô MT/FT liên tiếp dùng chung một số dạng 18a–18b</label>
+        <label><input id="personalization-off-counts" type="checkbox"${profile.countingRules.offCounts ? ' checked' : ''} /> Off vẫn tăng tổng số buổi</label>
+        <label><input id="personalization-grammar-total" type="checkbox"${profile.countingRules.grammarOnlyTotal ? ' checked' : ''} /> Lớp Ngữ pháp chỉ tính tổng buổi</label>
+        <label>Sector được xem là Ngữ pháp<input id="personalization-grammar-keywords" value="${escapeHtml(profile.grammarSectorKeywords.join(', '))}" /></label>
+      </div>
+    </section>
+
+    <section class="personalization-section">
+      <div class="personalization-section-head"><div><h3>Màu vận hành mặc định</h3><p>Dùng chung cho lớp, giáo viên, phòng, kiểm tra và nghỉ.</p></div></div>
+      ${personalizationColorFields(profile.categoryColors)}
+    </section>
+
+    <section class="personalization-section personalization-wide">
+      <div class="personalization-section-head"><div><h3>Tự chọn giáo viên theo kỹ năng</h3><p>Ví dụ Speaking → Cô A. Nếu ô đã được nhập tay, hệ thống không ghi đè.</p></div><button type="button" id="personalization-add-teacher-rule">+ Quy tắc</button></div>
+      <div class="personalization-rule-list">${profile.teacherSkillRules.length ? profile.teacherSkillRules.map(personalizationTeacherRuleRow).join('') : '<p class="placeholder">Chưa có quy tắc tự chọn giáo viên.</p>'}</div>
+    </section>
+
     <section class="personalization-section personalization-presets-section">
-      <div class="personalization-section-head"><div><h3>Preset góc nhìn</h3><p>Lưu lớp đang ẩn, chế độ bảng và sector đang mở.</p></div><button id="personalization-add-preset" type="button">+ Lưu trạng thái hiện tại</button></div>
+      <div class="personalization-section-head"><div><h3>Preset góc nhìn</h3><p>Lưu lớp đang ẩn, đối tượng xuất, góc nhìn, chế độ bảng và sector đang mở.</p></div><div class="personalization-head-actions"><button id="personalization-seed-presets" type="button">Tạo preset mẫu</button><button id="personalization-add-preset" type="button">+ Lưu trạng thái hiện tại</button></div></div>
       <div class="personalization-preset-list">
         ${profile.presets.length ? profile.presets.map((preset) => `<article class="personalization-preset${preset.id === profile.activePresetId ? ' active' : ''}" data-preset-id="${escapeHtml(preset.id)}">
-          <div><b>${escapeHtml(preset.name)}</b><small>${preset.overviewMode === 'compact' ? 'Tối giản' : 'Thêm ca'} · Ẩn ${preset.hiddenClassIds.length} lớp</small></div>
+          <div><b>${escapeHtml(preset.name)}</b><small>${preset.overviewMode === 'compact' ? 'Tối giản' : 'Thêm ca'} · ${preset.resourceView || 'class'} · ${preset.audience || 'owner'} · Ẩn ${preset.hiddenClassIds.length} lớp</small></div>
           <button type="button" data-preset-action="apply">Áp dụng</button>
           <button type="button" data-preset-action="replace">Cập nhật</button>
           <button type="button" data-preset-action="delete" class="btn-del-class">Xoá</button>
@@ -1036,8 +1321,32 @@ function wirePersonalizationSettings() {
       rows[rows.length - 1]?.querySelector('input')?.focus();
     });
   });
+  $('#personalization-add-session')?.addEventListener('click', () => {
+    const profile = collectPersonalizationForm();
+    profile.sessionDefaults.push({
+      id: personalizationId('session'), code: '', label: '',
+      startTime: '', endTime: '', defaultLocation: ''
+    });
+    personalizationProfile = profile;
+    renderPersonalizationSettings();
+    const rows = document.querySelectorAll('[data-personalization-session]');
+    rows[rows.length - 1]?.querySelector('input')?.focus();
+  });
+  $('#personalization-add-teacher-rule')?.addEventListener('click', () => {
+    const profile = collectPersonalizationForm();
+    profile.teacherSkillRules.push({
+      id: personalizationId('teacher-rule'),
+      skill: profile.symbols.find((item) => !['OFF'].includes(item.code))?.code || 'S',
+      teacher: '',
+      enabled: true
+    });
+    personalizationProfile = profile;
+    renderPersonalizationSettings();
+    const rows = document.querySelectorAll('[data-personalization-teacher-rule]');
+    rows[rows.length - 1]?.querySelector('[data-field="teacher"]')?.focus();
+  });
   document.querySelectorAll('.personalization-remove-item').forEach((button) => {
-    button.addEventListener('click', () => button.closest('.personalization-item-row')?.remove());
+    button.addEventListener('click', () => button.closest('.personalization-item-row, .personalization-session-row, .personalization-rule-row')?.remove());
   });
   $('#personalization-add-preset')?.addEventListener('click', async () => {
     const name = prompt('Tên góc nhìn:', `Góc nhìn ${currentPersonalization().presets.length + 1}`);
@@ -1049,6 +1358,18 @@ function wirePersonalizationSettings() {
     try {
       await savePersonalizationProfile(profile, '#personalization-msg');
       showMsg($('#personalization-msg'), 'Đã lưu preset từ trạng thái Lịch chia hiện tại.', 'ok');
+      renderPersonalizationSettings();
+    } catch (err) { /* Message is already displayed. */ }
+  });
+  $('#personalization-seed-presets')?.addEventListener('click', async () => {
+    const profile = collectPersonalizationForm();
+    const existingNames = new Set(profile.presets.map((preset) => preset.name.toLocaleLowerCase('vi')));
+    recommendedPersonalizationPresets().forEach((preset) => {
+      if (!existingNames.has(preset.name.toLocaleLowerCase('vi'))) profile.presets.push(preset);
+    });
+    try {
+      await savePersonalizationProfile(profile, '#personalization-msg');
+      showMsg($('#personalization-msg'), 'Đã tạo bộ preset Olympus đề xuất.', 'ok');
       renderPersonalizationSettings();
     } catch (err) { /* Message is already displayed. */ }
   });
@@ -1516,8 +1837,9 @@ async function renameClass(cls) {
   if (!isOwner() || !cls) return;
   const name = prompt('Nhập tên lớp mới:', cls.name);
   if (name === null) return;
-  const cleaned = name.trim();
+  const cleaned = name.trim().toUpperCase();
   if (!cleaned || cleaned === cls.name) return;
+  if (!classCodeIsValid(cleaned) && !confirm(`Mã lớp chưa đúng quy tắc Olympus (${currentPersonalization().classCodeHint}). Vẫn dùng mã “${cleaned}”?`)) return;
   await api('/classes/' + cls.id + '/rename', { method: 'POST', body: JSON.stringify({ name: cleaned }) });
   await loadClasses();
   if (selectedClassId === cls.id) await openClass(cls.id);
@@ -1526,9 +1848,20 @@ async function renameClass(cls) {
 async function addClass() {
   if (!isOwner()) return;
   const input = $('#new-class-name');
-  const name = input?.value.trim();
+  const name = input?.value.trim().toUpperCase();
   if (!name) return;
-  await api('/classes', { method: 'POST', body: JSON.stringify({ name }) });
+  if (!classCodeIsValid(name) && !confirm(`Mã lớp chưa đúng quy tắc Olympus (${currentPersonalization().classCodeHint}). Vẫn tạo lớp “${name}”?`)) return;
+  const created = await api('/classes', { method: 'POST', body: JSON.stringify({ name }) });
+  const defaultSessions = currentPersonalization().sessionDefaults.map((item) => item.code).filter(Boolean);
+  const createdId = created?.id || created?.classId;
+  if (createdId && defaultSessions.length) {
+    try {
+      await api(`/classes/${createdId}/set-sessions`, {
+        method: 'POST',
+        body: JSON.stringify({ sessions: defaultSessions })
+      });
+    } catch (err) { /* The class still exists with the backend default sessions. */ }
+  }
   input.value = '';
   loadClasses();
 }
@@ -1960,10 +2293,16 @@ function exportPrintTimestampLabel() {
 
 function buildLightExportTable(sourceTable, imageTitleOptions = null, exportOptions = {}) {
   const table = sourceTable.cloneNode(true);
+  const audience = exportOptions.audience || imageTitleOptions?.audience || 'owner';
   table.querySelectorAll('.schedule-actions').forEach((cell) => cell.remove());
   table.querySelectorAll('.student-row-actions').forEach((actions) => actions.remove());
   table.querySelectorAll('.student-code-chip').forEach((chip) => chip.remove());
   table.querySelectorAll('.slot-edit-btn').forEach((button) => button.remove());
+  if (audience !== 'owner') table.querySelectorAll('.slot-note').forEach((element) => element.remove());
+  if (['student', 'parent'].includes(audience)) {
+    table.querySelectorAll('.slot-teacher').forEach((element) => element.remove());
+    table.querySelectorAll('.student-submit-date').forEach((element) => element.remove());
+  }
   if (!exportOptions.printTimestamp) table.querySelectorAll('.student-submit-date').forEach((el) => el.remove());
   if (exportOptions.printTimestamp) {
     const currentLabel = table.querySelector('tr.current-row td.name');
@@ -2086,7 +2425,7 @@ function fallbackCopyHtml(table) {
 async function copyScheduleToExcel(detail, button, titleOptions) {
   const source = detail.querySelector('table.schedule');
   if (!source) return;
-  const table = buildLightExportTable(source, titleOptions);
+  const table = buildLightExportTable(source, titleOptions, { audience: titleOptions?.audience });
   const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>table{border-collapse:collapse;table-layout:fixed}col,td,th{mso-width-source:userset;white-space:nowrap}</style></head><body>${table.outerHTML}</body></html>`;
   const textValue = exportTableText(table);
   try {
@@ -2144,7 +2483,7 @@ async function downloadScheduleExcel(detail, button, titleOptions) {
   button.textContent = '\u0110ang t\u1ea1o file...';
   try {
     const ExcelJS = await loadExcelJs();
-    const table = buildLightExportTable(source, titleOptions);
+    const table = buildLightExportTable(source, titleOptions, { audience: titleOptions?.audience });
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Olympus English';
     const sheetName = titleOptions.className.replace(/[\\/*?:[\]]/g, '-').slice(0, 31) || 'Lich lop';
@@ -2231,7 +2570,7 @@ function canvasBlob(canvas, type, quality) {
 }
 
 async function renderScheduleImage(source, titleOptions) {
-  const table = buildLightExportTable(source, titleOptions, { compactPlanner: true, printTimestamp: true });
+  const table = buildLightExportTable(source, titleOptions, { compactPlanner: true, printTimestamp: true, audience: titleOptions?.audience });
   const stage = document.createElement('div');
   stage.style.cssText = 'position:fixed;left:-10000px;top:0;width:max-content;background:#fff;z-index:-1;';
   stage.appendChild(table);
@@ -2388,6 +2727,14 @@ function openExportStyleDialog(detail, button, exportType) {
           <option value="custom">T&#249;y ch&#7881;nh</option>
         </select>
       </label>
+      <label>Xuất cho
+        <select class="image-export-audience">
+          <option value="owner">Owner · đầy đủ</option>
+          <option value="teacher">Giáo viên · ẩn ghi chú nội bộ</option>
+          <option value="student">Học sinh · lớp, giờ, kỹ năng, địa điểm</option>
+          <option value="parent">Phụ huynh · giao diện đơn giản</option>
+        </select>
+      </label>
       <div class="image-color-fields">
         <label>M&#224;u n&#7873;n<input class="image-bg-color" type="color" /></label>
         <label>M&#224;u ch&#7919;<input class="image-text-color" type="color" /></label>
@@ -2412,6 +2759,7 @@ function openExportStyleDialog(detail, button, exportType) {
   const bgInput = overlay.querySelector('.image-bg-color');
   const textInput = overlay.querySelector('.image-text-color');
   const dayColorSelect = overlay.querySelector('.image-day-color');
+  const audienceSelect = overlay.querySelector('.image-export-audience');
   const preview = overlay.querySelector('.image-title-preview');
   const dayPreview = overlay.querySelector('.image-day-preview');
   presetSelect.value = saved.preset || initialPreset;
@@ -2420,6 +2768,9 @@ function openExportStyleDialog(detail, button, exportType) {
   dayColorSelect.value = saved.dayColorChoice && (saved.dayColorChoice === 'auto' || IMAGE_DAY_COLORS[saved.dayColorChoice])
     ? saved.dayColorChoice
     : 'auto';
+  audienceSelect.value = ['owner', 'teacher', 'student', 'parent'].includes(saved.audience)
+    ? saved.audience
+    : (localStorage.getItem(EXPORT_AUDIENCE_KEY) || 'owner');
 
   const updatePreview = () => {
     preview.textContent = className;
@@ -2458,8 +2809,10 @@ function openExportStyleDialog(detail, button, exportType) {
       className,
       backgroundColor: bgInput.value,
       textColor: textInput.value,
-      dayColor: dayColorChoice === 'auto' ? automaticDayColor(bgInput.value) : IMAGE_DAY_COLORS[dayColorChoice]
+      dayColor: dayColorChoice === 'auto' ? automaticDayColor(bgInput.value) : IMAGE_DAY_COLORS[dayColorChoice],
+      audience: audienceSelect.value
     };
+    localStorage.setItem(EXPORT_AUDIENCE_KEY, options.audience);
     try { localStorage.setItem('lichlop-image-title-colors', JSON.stringify({ preset: presetSelect.value, dayColorChoice, ...options })); } catch (err) { /* Continue without persistence. */ }
     close();
     if (isExcelDownload) await downloadScheduleExcel(detail, button, options);
@@ -2969,11 +3322,10 @@ function overviewWeekStart() {
 }
 
 function overviewRooms() {
-  return [
-    { id: 'A1', label: 'A1', place: 'T\u1ea7ng 1' },
-    { id: 'A2', label: 'A2', place: 'T\u1ea7ng 2' },
-    { id: 'CS2', label: 'CS2', place: 'C\u01a1 s\u1edf 2' }
-  ];
+  const locations = currentPersonalization().locations;
+  return locations.length
+    ? locations.map((item) => ({ id: item.code || item.id, label: item.code || item.label, place: item.label, bg: item.bg, fg: item.fg }))
+    : [{ id: 'A1', label: 'A1', place: 'Tầng 1' }];
 }
 
 function overviewSubRows() {
@@ -3048,14 +3400,15 @@ function defaultOverviewLegend() {
   return overviewRooms().map((room) => ({
     code: room.label,
     text: room.place,
-    backgroundColor: room.id === 'CS2' ? '#fdfd0a' : '#fb923c',
-    color: '#111827'
+    backgroundColor: room.bg || currentPersonalization().categoryColors.roomBg,
+    color: room.fg || currentPersonalization().categoryColors.roomFg
   }));
 }
 
 function overviewSessions() {
   const sessions = selectedGridSessions(teacherClasses);
-  return sessions.length ? sessions : (DEFAULT_SESSIONS.length ? DEFAULT_SESSIONS : ['S1', 'S2', 'C', '57', 'T']);
+  const configured = currentPersonalization().sessionDefaults.map((item) => item.code);
+  return [...new Set([...configured, ...sessions, ...DEFAULT_SESSIONS].filter(Boolean))];
 }
 
 function normalizeOverviewStyle(style = {}) {
@@ -3120,10 +3473,13 @@ function overviewScheduleClasses() {
 }
 
 function overviewRoomForDetail(detail = {}, rooms = overviewRooms()) {
-  const key = String(detail.location || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  if (key.includes('cs2') || key.includes('co so 2')) return rooms.find((room) => room.id === 'CS2');
-  if (key.includes('tang 2') || key === 'a2') return rooms.find((room) => room.id === 'A2');
-  if (key.includes('tang 1') || key === 'a1') return rooms.find((room) => room.id === 'A1');
+  const key = String(detail.location || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('vi');
+  const profileItem = personalizedLocation(detail.location);
+  if (profileItem) return rooms.find((room) => room.id === profileItem.code || room.label === profileItem.code);
+  const direct = rooms.find((room) => [room.id, room.label, room.place].some((value) => (
+    String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('vi') === key
+  )));
+  if (direct) return direct;
   return null;
 }
 
@@ -3162,7 +3518,7 @@ function autoOverviewCells(sessions, rooms) {
       append('L\u1edbp', cls.name);
       const skill = cls.courseKind === 'grammar' ? '' : displayLessonLabel(subjects[slotId] || '');
       append('K\u1ef9 n\u0103ng', skill);
-      append('Ghi ch\u00fa', [detail.teacherName, detail.note].filter(Boolean).join(' \u00b7 '));
+      append('Ghi ch\u00fa', [teacherNameForDisplay(detail.teacherName), detail.note].filter(Boolean).join(' \u00b7 '));
     });
   });
   return cells;
@@ -4297,6 +4653,119 @@ function renderScheduleConflictCenter() {
   </details>`;
 }
 
+function scheduleResourceEntries() {
+  const entries = [];
+  sortClasses(overviewScheduleClasses()).forEach((cls) => {
+    const active = cls.activeSlots || cls.currentSlots || [];
+    const subjects = cls.slots || cls.finalSubjects || {};
+    const details = cls.details || cls.finalDetails || {};
+    active.forEach((slotId) => {
+      const [dayIdx, sessionIdx] = String(slotId).split('-').map(Number);
+      if (!Number.isFinite(dayIdx) || !Number.isFinite(sessionIdx)) return;
+      const rawDetail = details[slotId] || {};
+      const laneIndex = Math.max(0, Math.min(3, Number(rawDetail.primaryLane || 0)));
+      const lane = Array.isArray(rawDetail.lanes) ? rawDetail.lanes[laneIndex] || {} : {};
+      const detail = { ...rawDetail, ...lane };
+      const session = getSessions(cls)[sessionIdx] || `Ca ${sessionIdx + 1}`;
+      const location = personalizedLocation(detail.location);
+      const subject = subjects[slotId] || lane.lesson || rawDetail.lesson || '';
+      entries.push({
+        classId: String(cls.id),
+        className: String(cls.name),
+        dayIdx,
+        day: DAYS[dayIdx] || `Thứ ${dayIdx + 2}`,
+        session,
+        time: detail.startTime || personalizedSession(session)?.startTime || session,
+        teacher: teacherNameForDisplay(detail.teacherName),
+        teacherRaw: detail.teacherName || '',
+        room: location?.code || detail.location || '',
+        center: location?.label || detail.location || '',
+        skill: displayLessonLabel(subject) || subject || '',
+        note: detail.note || ''
+      });
+    });
+  });
+  return entries.sort((a, b) => a.dayIdx - b.dayIdx || compareText(a.time, b.time) || compareText(a.className, b.className));
+}
+
+function scheduleResourceGroupValue(entry, view) {
+  if (view === 'teacher') return entry.teacher || 'Chưa có giáo viên';
+  if (view === 'room') return entry.room || 'Chưa có phòng';
+  if (view === 'center') return entry.center || 'Chưa có cơ sở';
+  if (view === 'time') return entry.time || entry.session;
+  if (view === 'skill') return entry.skill || 'Chưa có kỹ năng';
+  return entry.className;
+}
+
+function renderScheduleResourceView() {
+  const view = localStorage.getItem(SCHEDULE_RESOURCE_VIEW_KEY) || 'class';
+  const filter = localStorage.getItem(SCHEDULE_RESOURCE_FILTER_KEY) || '';
+  const groups = new Map();
+  scheduleResourceEntries().forEach((entry) => {
+    const key = scheduleResourceGroupValue(entry, view);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  });
+  const keys = [...groups.keys()].sort(compareText);
+  const selected = keys.includes(filter) ? filter : '';
+  const visible = selected ? [[selected, groups.get(selected)]] : [...groups.entries()];
+  return `<section class="schedule-resource-view">
+    <div class="schedule-resource-head">
+      <div><h3>Góc nhìn vận hành</h3><p class="hint">Cùng một lịch, xem theo lớp, giáo viên, phòng, cơ sở, khung giờ hoặc kỹ năng.</p></div>
+      <div class="schedule-resource-controls">
+        <label>Xem theo<select id="schedule-resource-view">
+          <option value="class"${view === 'class' ? ' selected' : ''}>Lớp</option>
+          <option value="teacher"${view === 'teacher' ? ' selected' : ''}>Giáo viên</option>
+          <option value="room"${view === 'room' ? ' selected' : ''}>Phòng</option>
+          <option value="center"${view === 'center' ? ' selected' : ''}>Cơ sở</option>
+          <option value="time"${view === 'time' ? ' selected' : ''}>Khung giờ</option>
+          <option value="skill"${view === 'skill' ? ' selected' : ''}>Kỹ năng</option>
+        </select></label>
+        <label>Lọc<select id="schedule-resource-filter"><option value="">Tất cả</option>${keys.map((key) => `<option value="${escapeHtml(key)}"${key === selected ? ' selected' : ''}>${escapeHtml(key)}</option>`).join('')}</select></label>
+      </div>
+    </div>
+    <div class="schedule-resource-groups">${visible.length ? visible.map(([key, rows]) => `<details class="schedule-resource-group"${selected || visible.length <= 4 ? ' open' : ''}>
+      <summary><b>${escapeHtml(key)}</b><small>${rows.length} buổi</small></summary>
+      <div class="schedule-resource-table-wrap"><table><thead><tr><th>Thứ</th><th>Giờ</th><th>Lớp</th><th>Kỹ năng</th><th>Giáo viên</th><th>Phòng</th></tr></thead><tbody>
+        ${rows.map((entry) => `<tr><td>${escapeHtml(entry.day)}</td><td>${escapeHtml(entry.time)}</td><td><button type="button" data-resource-class="${escapeHtml(entry.classId)}">${escapeHtml(entry.className)}</button></td><td>${escapeHtml(entry.skill || '—')}</td><td>${escapeHtml(entry.teacher || '—')}</td><td>${escapeHtml(entry.room || '—')}</td></tr>`).join('')}
+      </tbody></table></div>
+    </details>`).join('') : '<p class="placeholder">Chưa có buổi học trong tuần này.</p>'}</div>
+  </section>`;
+}
+
+function systemNotificationItems() {
+  const classes = sortClasses(overviewScheduleClasses());
+  const entries = scheduleResourceEntries();
+  const conflicts = scheduleConflictItems();
+  const pending = classes.reduce((total, cls) => total + Number(
+    cls.pendingCount ?? (cls.submissions || []).filter((item) => item.status === 'pending').length
+  ), 0);
+  const noSchedule = classes.filter((cls) => !(cls.activeSlots || cls.currentSlots || []).length);
+  const missingTeacher = entries.filter((entry) => !entry.teacherRaw);
+  const missingRoom = entries.filter((entry) => !entry.room);
+  const assessments = new Set(entries.filter((entry) => /^(MT|FT)/i.test(entry.skill)).map((entry) => entry.classId));
+  const unconfirmedAttendance = attendanceRows.filter((row) => !['confirmed', 'đã xác nhận'].includes(String(row.status || '').trim().toLocaleLowerCase('vi')));
+  return [
+    pending ? { tone: 'info', count: pending, label: 'Học sinh gửi lịch mới', target: 'teacher' } : null,
+    noSchedule.length ? { tone: 'warning', count: noSchedule.length, label: 'Lớp chưa xếp lịch', classes: noSchedule } : null,
+    missingTeacher.length ? { tone: 'warning', count: missingTeacher.length, label: 'Buổi chưa có giáo viên' } : null,
+    missingRoom.length ? { tone: 'warning', count: missingRoom.length, label: 'Buổi chưa có phòng' } : null,
+    assessments.size ? { tone: 'info', count: assessments.size, label: 'Lớp đang trong tuần MT/FT' } : null,
+    unconfirmedAttendance.length ? { tone: 'warning', count: unconfirmedAttendance.length, label: 'Bảng công chưa xác nhận', target: 'attendance' } : null,
+    conflicts.length ? { tone: 'danger', count: conflicts.length, label: 'Xung đột lịch cần kiểm tra' } : null
+  ].filter(Boolean);
+}
+
+function renderSystemNotificationCenter() {
+  const items = systemNotificationItems();
+  return `<section class="system-notification-center">
+    <div class="system-notification-head"><div><span>TRUNG TÂM VẬN HÀNH</span><h3>${items.length ? `${items.length} nhóm việc cần chú ý` : 'Mọi việc đang ổn định'}</h3></div><small>Cập nhật theo dữ liệu tuần đang xem</small></div>
+    <div class="system-notification-grid">${items.length ? items.map((item) => `<button type="button" class="system-notification-item is-${item.tone}"${item.target ? ` data-notification-tab="${escapeHtml(item.target)}"` : ''}>
+      <b>${item.count}</b><span>${escapeHtml(item.label)}</span>
+    </button>`).join('') : '<div class="system-notification-clear">✓ Không có cảnh báo mới</div>'}</div>
+  </section>`;
+}
+
 function renderScheduleHome() {
   const target = $('#final-schedule-result');
   if (!target || scheduleClassId) return;
@@ -4307,7 +4776,7 @@ function renderScheduleHome() {
   }
   const expanded = scheduleExpandedSectorIds();
   const overviewHtml = isOwner() ? renderScheduleOverview() : '';
-  target.innerHTML = `${renderScheduleConflictCenter()}${overviewHtml}<div class="schedule-directory"><div class="schedule-directory-head"><h3>L\u1ecbch chia theo l\u1edbp</h3><p class="hint">M\u1edf t\u1eebng l\u1edbp, b\u1ea5m tr\u1ef1c ti\u1ebfp v\u00e0o bu\u1ed5i \u0111\u1ec3 ch\u1ecdn LR/L/R/W/S, ki\u1ec3m tra ho\u1eb7c Off.</p></div>${groups.map((group) => {
+  target.innerHTML = `${renderSystemNotificationCenter()}${renderScheduleConflictCenter()}${overviewHtml}${renderScheduleResourceView()}<div class="schedule-directory"><div class="schedule-directory-head"><h3>L\u1ecbch chia theo l\u1edbp</h3><p class="hint">M\u1edf t\u1eebng l\u1edbp, b\u1ea5m tr\u1ef1c ti\u1ebfp v\u00e0o bu\u1ed5i \u0111\u1ec3 ch\u1ecdn LR/L/R/W/S, ki\u1ec3m tra ho\u1eb7c Off.</p></div>${groups.map((group) => {
     const open = expanded.has(String(group.id));
     return `<section class="schedule-sector${open ? ' expanded' : ''}">
       <button class="schedule-sector-head" type="button" data-sector="${escapeHtml(group.id)}">
@@ -4323,6 +4792,21 @@ function renderScheduleHome() {
   wireScheduleOverview();
   target.querySelectorAll('[data-conflict-class]').forEach((button) => {
     button.addEventListener('click', () => openScheduleClass(button.dataset.conflictClass));
+  });
+  target.querySelectorAll('[data-resource-class]').forEach((button) => {
+    button.addEventListener('click', () => openScheduleClass(button.dataset.resourceClass));
+  });
+  $('#schedule-resource-view')?.addEventListener('change', (event) => {
+    localStorage.setItem(SCHEDULE_RESOURCE_VIEW_KEY, event.target.value);
+    localStorage.removeItem(SCHEDULE_RESOURCE_FILTER_KEY);
+    renderScheduleHome();
+  });
+  $('#schedule-resource-filter')?.addEventListener('change', (event) => {
+    localStorage.setItem(SCHEDULE_RESOURCE_FILTER_KEY, event.target.value);
+    renderScheduleHome();
+  });
+  target.querySelectorAll('[data-notification-tab]').forEach((button) => {
+    button.addEventListener('click', () => document.querySelector(`.tab[data-tab="${button.dataset.notificationTab}"]`)?.click());
   });
   target.querySelectorAll('.schedule-sector-head').forEach((button) => {
     button.addEventListener('click', () => toggleScheduleSector(button.dataset.sector));
@@ -4356,12 +4840,18 @@ function addDays(value, days) {
 
 function shortDate(value) {
   const date = new Date(`${value}T12:00:00`);
-  return `${date.getDate()}/${date.getMonth() + 1}`;
+  const format = currentPersonalization().dateFormat;
+  if (format === 'yyyy-mm-dd') return localIsoDate(date);
+  const base = `${date.getDate()}/${date.getMonth() + 1}`;
+  return format === 'dd/mm/yyyy' ? `${base}/${date.getFullYear()}` : base;
 }
 
 function dayDateLabel(weekStart, dayIndex) {
   const date = addDays(new Date(`${weekStart}T12:00:00`), dayIndex);
-  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+  const format = currentPersonalization().dateFormat;
+  if (format === 'yyyy-mm-dd') return localIsoDate(date);
+  const base = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+  return format === 'dd/mm/yyyy' ? `${base}/${date.getFullYear()}` : base;
 }
 
 function overviewDayLabel(weekStart, dayIndex) {
@@ -4400,7 +4890,10 @@ function defaultWeekTitle(weekStart) {
   const jan4 = new Date(date.getFullYear(), 0, 4, 12);
   const firstMonday = mondayOf(jan4);
   const week = Math.floor((mondayOf(date) - firstMonday) / 604800000) + 1;
-  return `Tuần ${week}`;
+  return String(currentPersonalization().weekFormat || 'Tuần {n} ({from}–{to})')
+    .replaceAll('{n}', String(week))
+    .replaceAll('{from}', shortDate(weekStart))
+    .replaceAll('{to}', shortDate(localIsoDate(addDays(date, 6))));
 }
 
 async function openScheduleClass(classId, options = {}) {
@@ -4488,6 +4981,7 @@ function updatePlannerSlotDisplay(cell) {
 }
 
 function resequenceScheduleWeek() {
+  const countingRules = currentPersonalization().countingRules;
   const starts = lessonStartsFromEditor();
   const before = scheduleEditorData?.sequenceBefore || {};
   const counters = {};
@@ -4519,12 +5013,25 @@ function resequenceScheduleWeek() {
     }
     if (type === 'OFF') {
       cell.dataset.lesson = 'OFF';
-      cell.dataset.courseNo = '';
+      if (countingRules.offCounts) {
+        course += 1;
+        cell.dataset.courseNo = String(course);
+      } else {
+        cell.dataset.courseNo = '';
+      }
       pendingAssessment = null;
       updatePlannerSlotDisplay(cell);
       return;
     }
     if (type === 'MT' || type === 'FT') {
+      if (!countingRules.assessmentPairs) {
+        course += 1;
+        cell.dataset.lesson = type;
+        cell.dataset.courseNo = String(course);
+        pendingAssessment = null;
+        updatePlannerSlotDisplay(cell);
+        return;
+      }
       if (pendingAssessment?.type === type) {
         cell.dataset.lesson = `${type}2`;
         cell.dataset.courseNo = `${pendingAssessment.course}b`;
@@ -4621,7 +5128,7 @@ function slotDetailHtml(detail = {}) {
   const teacherName = String(detail.teacherName || '').trim();
   const locationTheme = personalizedLocation(locationValue);
   if (!locationValue && !note && !startTime && !teacherName) return '';
-  return `<small class="slot-meta">${startTime ? `<span class="slot-time">🕒 ${escapeHtml(startTime)}</span>` : ''}${teacherName ? `<span class="slot-teacher">👤 ${escapeHtml(teacherName)}</span>` : ''}${locationValue ? `<span class="slot-location"${personalizationStyle(locationTheme)}>📍 ${escapeHtml(locationValue)}</span>` : ''}${note ? `<span class="slot-note">📝 ${escapeHtml(note)}</span>` : ''}</small>`;
+  return `<small class="slot-meta">${startTime ? `<span class="slot-time">🕒 ${escapeHtml(startTime)}</span>` : ''}${teacherName ? `<span class="slot-teacher">👤 ${escapeHtml(teacherNameForDisplay(teacherName))}</span>` : ''}${locationValue ? `<span class="slot-location"${personalizationStyle(locationTheme)}>📍 ${escapeHtml(locationValue)}</span>` : ''}${note ? `<span class="slot-note">📝 ${escapeHtml(note)}</span>` : ''}</small>`;
 }
 
 function plannerLaneValues(detail = {}, lesson = '', active = false) {
@@ -4782,6 +5289,9 @@ function renderScheduleEditor() {
         <button id="planner-download-excel" class="btn-export btn-download-excel" type="button">Tải Excel</button>
         <button id="planner-copy-image" class="btn-export btn-export-image" type="button">In Ảnh</button>
         <button id="planner-save-template" class="btn-template" type="button">Lưu mẫu</button>
+        <button id="planner-history" class="btn-template" type="button">Lịch sử</button>
+        <button id="planner-compare-week" class="btn-template" type="button">So sánh tuần trước</button>
+        <button id="planner-copy-classes" class="btn-template" type="button">Sao chép sang lớp</button>
         <button id="planner-new-week" class="planner-new-week" type="button">+ Tuần mới</button>
         <label>Tuần trước
           <select id="planner-week-select">
@@ -4848,6 +5358,19 @@ function clearPlannerCell(cell) {
   updatePlannerSlotDisplay(cell);
 }
 
+function applyAutomaticSlotDefaults(cell, lessonType) {
+  if (!cell) return;
+  const [, sessionIndex] = String(cell.dataset.slot || '').split('-').map(Number);
+  const sessionCode = getSessions(scheduleEditorData)[sessionIndex] || '';
+  const session = personalizedSession(sessionCode);
+  // Manual values always win: automation only fills currently empty metadata.
+  if (!cell.dataset.startTime && session?.startTime) cell.dataset.startTime = session.startTime;
+  if (!cell.dataset.location && session?.defaultLocation) cell.dataset.location = session.defaultLocation;
+  const preferredTeacher = teacherForSkill(lessonType);
+  if (!cell.dataset.teacherName && preferredTeacher) cell.dataset.teacherName = preferredTeacher;
+  refreshSlotDetails(cell);
+}
+
 function openLessonTypePicker(cell) {
   if (!cell || cell.classList.contains('historical-slot')) return;
   closeLessonTypePicker();
@@ -4876,6 +5399,7 @@ function openLessonTypePicker(cell) {
       cell.classList.add('current-slot');
       const type = button.dataset.lessonType || '';
       cell.dataset.lessonType = type;
+      applyAutomaticSlotDefaults(cell, type);
       if (cell.dataset.primary !== 'true') {
         cell.dataset.lesson = type === 'LESSON' ? 'LESSON' : type;
         cell.dataset.courseNo = '';
@@ -5005,6 +5529,9 @@ function wireScheduleEditor() {
     openScheduleClass(scheduleClassId, { updateUrl: false, weekStart: scheduleSelectedWeekStart });
   });
   $('#planner-save-template')?.addEventListener('click', openSaveScheduleTemplateDialog);
+  $('#planner-history')?.addEventListener('click', openScheduleVersionHistory);
+  $('#planner-compare-week')?.addEventListener('click', compareScheduleWithPreviousWeek);
+  $('#planner-copy-classes')?.addEventListener('click', openCopyScheduleToClassesDialog);
   $('#planner-new-week')?.addEventListener('click', openNewWeekDialog);
   $('#planner-copy-url')?.addEventListener('click', async (event) => {
     try {
@@ -5158,6 +5685,166 @@ function openSaveScheduleTemplateDialog() {
   });
 }
 
+function scheduleVersionPayload(body) {
+  return {
+    slots: body.slots || {},
+    details: body.details || {},
+    currentSlots: body.currentSlots || [],
+    sessions: body.sessions || [],
+    lessonStarts: body.lessonStarts || {},
+    courseKind: body.courseKind || 'skills'
+  };
+}
+
+async function openScheduleVersionHistory() {
+  if (!scheduleClassId || !scheduleEditorData?.selectedWeekStart) return;
+  let versions = [];
+  try {
+    versions = await api(`/classes/${scheduleClassId}/schedule-versions`, {
+      method: 'GET',
+      body: JSON.stringify({ weekStart: scheduleEditorData.selectedWeekStart })
+    });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  const dialog = openMiniDialog('Lịch sử phiên bản tuần', versions.length
+    ? `<p class="hint">Mỗi lần bấm Lưu tuần, Olympus tạo một snapshot nhỏ. Chỉ giữ tối đa 30 phiên bản mỗi tuần.</p>
+      <div class="schedule-version-list">${versions.map((item) => `<article>
+        <div><b>Phiên bản ${escapeHtml(item.version)}</b><small>${escapeHtml(formatDateTime(item.createdAt))} · ${escapeHtml(item.editedBy || 'Tài khoản Olympus')}</small><span>${escapeHtml(item.title || '')}</span></div>
+        <button type="button" data-restore-version="${escapeHtml(item.id)}">Khôi phục</button>
+      </article>`).join('')}</div>`
+    : '<p class="placeholder">Tuần này chưa có snapshot. Snapshot đầu tiên sẽ được tạo khi bấm Lưu tuần.</p>', async () => {});
+  dialog.querySelector('.mini-save')?.remove();
+  const cancel = dialog.querySelector('.mini-cancel');
+  if (cancel) cancel.textContent = 'Đóng';
+  dialog.querySelectorAll('[data-restore-version]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const item = versions.find((version) => String(version.id) === button.dataset.restoreVersion);
+      if (!item || !confirm(`Khôi phục phiên bản ${item.version}? Trạng thái hiện tại vẫn được giữ thành một phiên bản mới.`)) return;
+      button.disabled = true;
+      button.textContent = 'Đang khôi phục...';
+      try {
+        const result = await api(`/classes/${scheduleClassId}/schedule-versions/${encodeURIComponent(item.id)}/restore`, { method: 'POST' });
+        closeMiniDialog();
+        await loadClasses();
+        await openScheduleClass(scheduleClassId, { updateUrl: false, weekStart: result.weekStart || scheduleEditorData.selectedWeekStart });
+      } catch (err) {
+        button.disabled = false;
+        button.textContent = 'Khôi phục';
+        alert(err.message);
+      }
+    });
+  });
+}
+
+async function compareScheduleWithPreviousWeek(event) {
+  const button = event?.currentTarget || $('#planner-compare-week');
+  if (!scheduleEditorData?.selectedWeekStart) return;
+  captureScheduleEditorDom();
+  const currentStart = scheduleEditorData.selectedWeekStart;
+  const previous = (scheduleEditorData.weeks || [])
+    .filter((item) => item.weekStart < currentStart)
+    .sort((a, b) => String(b.weekStart).localeCompare(String(a.weekStart)))[0];
+  if (!previous) {
+    setExportButtonStatus(button, 'Chưa có tuần trước', true);
+    return;
+  }
+  button.disabled = true;
+  try {
+    const previousData = await api(`/classes/${scheduleClassId}/schedule`, {
+      method: 'GET',
+      body: JSON.stringify({ weekStart: previous.weekStart })
+    });
+    const oldWeek = previousData.selectedWeek || {};
+    const oldSlots = oldWeek.slots || {};
+    const oldDetails = oldWeek.details || {};
+    let changed = 0;
+    document.querySelectorAll('.week-slot[data-primary="true"]').forEach((cell) => {
+      const slot = cell.dataset.slot;
+      const oldDetail = oldDetails[slot] || {};
+      const oldValue = JSON.stringify({
+        lesson: oldSlots[slot] || '',
+        location: oldDetail.location || '',
+        startTime: oldDetail.startTime || '',
+        teacherName: oldDetail.teacherName || '',
+        note: oldDetail.note || ''
+      });
+      const newValue = JSON.stringify({
+        lesson: cell.dataset.lesson || '',
+        location: cell.dataset.location || '',
+        startTime: cell.dataset.startTime || '',
+        teacherName: cell.dataset.teacherName || '',
+        note: cell.dataset.note || ''
+      });
+      const different = oldValue !== newValue;
+      cell.classList.toggle('changed-from-previous', different);
+      if (different) changed += 1;
+    });
+    setExportButtonStatus(button, changed ? `${changed} ô thay đổi` : 'Không thay đổi');
+  } catch (err) {
+    setExportButtonStatus(button, 'So sánh lỗi', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function openCopyScheduleToClassesDialog() {
+  if (!scheduleClassId || !scheduleEditorData?.selectedWeekStart) return;
+  openMiniDialog('Sao chép lịch sang nhiều lớp', `
+    <label>Nội dung sao chép
+      <select id="copy-schedule-mode">
+        <option value="structure">Chỉ thứ/ca, giờ, phòng và giáo viên</option>
+        <option value="full">Toàn bộ lịch, gồm cả kỹ năng và ghi chú</option>
+      </select>
+    </label>
+    <label>Tuần đích<input id="copy-schedule-week" type="date" value="${escapeHtml(scheduleEditorData.selectedWeekStart)}" /></label>
+    <p class="hint">Tick các lớp muốn nhận lịch. Số buổi sẽ được lớp đích tính lại khi mở và lưu. Dữ liệu nhập tay ở lớp nguồn được sao chép, nhưng vẫn chỉnh riêng được sau đó.</p>
+    ${classChecklistHtml([], scheduleClassId)}`, async (overlay) => {
+    const classIds = selectedDialogClassIds(overlay);
+    if (!classIds.length) throw new Error('Chọn ít nhất một lớp đích.');
+    const weekStart = overlay.querySelector('#copy-schedule-week')?.value;
+    if (!weekStart) throw new Error('Chọn tuần đích.');
+    const mode = overlay.querySelector('#copy-schedule-mode')?.value === 'full' ? 'full' : 'structure';
+    const source = currentScheduleTemplateData(mode);
+    const title = mode === 'full'
+      ? `${scheduleEditorData.selectedWeek?.title || defaultWeekTitle(weekStart)} · sao chép`
+      : defaultWeekTitle(weekStart);
+    const results = await Promise.allSettled(classIds.map(async (classId) => {
+      const target = await api(`/classes/${classId}/schedule`, {
+        method: 'GET',
+        body: JSON.stringify({ weekStart })
+      });
+      const body = {
+        weekStart,
+        title,
+        slots: source.slots || {},
+        details: source.details || {},
+        currentSlots: source.activeSlots || [],
+        sessions: source.sessions?.length ? source.sessions : getSessions(target),
+        lessonStarts: target.lessonStarts || {},
+        courseKind: target.courseKind || 'skills'
+      };
+      await api(`/classes/${classId}/schedule`, { method: 'POST', body: JSON.stringify(body) });
+      await api(`/classes/${classId}/schedule-meta`, {
+        method: 'POST',
+        body: JSON.stringify({ weekStart, details: body.details })
+      });
+      try {
+        await api(`/classes/${classId}/schedule-versions`, {
+          method: 'POST',
+          body: JSON.stringify({ weekStart, title, data: scheduleVersionPayload(body) })
+        });
+      } catch (err) { /* Snapshot is optional until SQL v6 is installed. */ }
+      return classId;
+    }));
+    const failed = results.filter((result) => result.status === 'rejected');
+    if (failed.length) throw new Error(`Đã sao chép ${results.length - failed.length}/${results.length} lớp. ${failed[0].reason?.message || ''}`);
+    await loadClasses();
+    setExportButtonStatus($('#planner-copy-classes'), `Đã chép ${results.length} lớp`);
+  });
+}
+
 function selectedNewWeekSourceData(sourceValue) {
   if (sourceValue === 'current-full') return currentScheduleTemplateData('full');
   if (sourceValue === 'current-structure') return currentScheduleTemplateData('structure');
@@ -5280,7 +5967,20 @@ async function saveScheduleWeek() {
     await api(`/classes/${scheduleClassId}/schedule-meta`, {
       method: 'POST', body: JSON.stringify({ weekStart: body.weekStart, details: body.details })
     });
-    showMsg(msg, 'Đã lưu và đồng bộ sang Lớp học, Sổ chủ nhiệm và Bảng công.', 'ok');
+    let snapshotReady = true;
+    try {
+      await api(`/classes/${scheduleClassId}/schedule-versions`, {
+        method: 'POST',
+        body: JSON.stringify({
+          weekStart: body.weekStart,
+          title: body.title,
+          data: scheduleVersionPayload(body)
+        })
+      });
+    } catch (snapshotError) {
+      snapshotReady = false;
+    }
+    showMsg(msg, `Đã lưu và đồng bộ sang Lớp học, Sổ chủ nhiệm và Bảng công.${snapshotReady ? ' Đã tạo snapshot.' : ' Chạy SQL tổng mới để bật snapshot.'}`, 'ok');
     scheduleDirty = false;
     scheduleSelectedWeekStart = body.weekStart;
     await loadClasses();
@@ -7407,15 +8107,24 @@ async function loadTeacherDirectory() {
     const rows = await api('/teacher-directory');
     teacherDirectory = [...new Set((rows || []).map((item) => String(item.name || item).trim()).filter(Boolean))];
   } catch (err) {
-    teacherDirectory = ['Thầy Tùng'];
+    teacherDirectory = [currentPersonalization().defaultTeacherName];
   }
-  if (!teacherDirectory.includes('Thầy Tùng')) teacherDirectory.unshift('Thầy Tùng');
+  if (!teacherDirectory.includes(currentPersonalization().defaultTeacherName)) teacherDirectory.unshift(currentPersonalization().defaultTeacherName);
   return teacherDirectory;
 }
 
 function teacherOptionsHtml(selected = '', allowCustom = isOwner()) {
-  const names = [...new Set(['Thầy Tùng', ...teacherDirectory, selected].map((name) => String(name || '').trim()).filter(Boolean))];
-  return `${names.map((name) => `<option value="${escapeHtml(name)}"${name === selected ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}
+  const names = [...new Set([currentPersonalization().defaultTeacherName, ...teacherDirectory, selected].map((name) => String(name || '').trim()).filter(Boolean))];
+  const displayCounts = names.reduce((counts, name) => {
+    const display = teacherNameForDisplay(name);
+    counts[display] = (counts[display] || 0) + 1;
+    return counts;
+  }, {});
+  return `${names.map((name) => {
+    const display = teacherNameForDisplay(name);
+    const label = displayCounts[display] > 1 ? `${display} (${name})` : display;
+    return `<option value="${escapeHtml(name)}"${name === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('')}
     ${allowCustom ? '<option value="__custom__">Tên khác...</option>' : ''}`;
 }
 
