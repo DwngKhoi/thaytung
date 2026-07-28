@@ -145,7 +145,7 @@ Sau `schedule_v2.sql`, chạy thêm `supabase/schedule_v3.sql` một lần. Bả
 - Bảng **Tối giản** có nút **Chỉnh sửa** để đổi nội dung, màu chữ, màu nền, chiều rộng và chiều cao của toàn bộ ô.
 - Nút **Chọn lớp** cho phép ẩn các lớp phụ/backup khỏi cả hai chế độ. Danh sách ẩn chỉ là tuỳ chọn hiển thị của trình duyệt, không xoá dữ liệu lớp.
 - Các hàng Tối giản có chiều cao đồng đều; ô đã chọn nhưng chưa xếp kỹ năng vẫn hiện tên ca để không bị hiểu nhầm là trống.
-- Mỗi ô trong lịch từng lớp lưu tối đa **4 ca**. Chế độ **Tối giản** chỉ hiện ca có dấu `★`; chế độ **Thêm ca** hiện cả bốn ca và dùng `☆` để đổi ca chính.
+- Mỗi ô trong lịch từng lớp lưu tối đa **4 ca**. Chế độ **Tối giản** chỉ còn 7 cột **Thứ 2–Chủ nhật** và lấy nội dung từ ca chính; chế độ **Thêm ca** mới hiện các buổi cùng cả bốn ca và dùng `☆` để đổi ca chính.
 - Chỉ ca chính đồng bộ sang tab Lớp học, trang học sinh, Sổ chủ nhiệm và Bảng công. Ba ca còn lại là dữ liệu dự phòng, được lưu gọn trong cùng JSON của tuần.
 
 ### Dung lượng Supabase

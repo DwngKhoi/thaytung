@@ -3922,9 +3922,16 @@ function updatePlannerSlotDisplay(cell) {
   const target = cell?.querySelector('.slot-lesson');
   if (!target) return;
   const primary = cell.dataset.primary === 'true';
-  target.innerHTML = primary
-    ? plannerSlotDisplayHtml(cell.dataset.lesson || '', cell.dataset.courseNo || '')
-    : plannerExtraSlotDisplayHtml(cell);
+  const compactEmpty = cell.classList.contains('planner-compact-entry')
+    && cell.classList.contains('current-slot')
+    && !cell.dataset.lesson
+    && !cell.dataset.courseNo
+    && !cell.dataset.lessonType;
+  target.innerHTML = compactEmpty
+    ? '<span class="planner-compact-empty">Chưa xếp</span>'
+    : primary
+      ? plannerSlotDisplayHtml(cell.dataset.lesson || '', cell.dataset.courseNo || '')
+      : plannerExtraSlotDisplayHtml(cell);
   const hasLesson = Boolean(cell.dataset.lesson || cell.dataset.courseNo);
   cell.classList.toggle('has-lesson', hasLesson);
   cell.classList.toggle('off-slot', cell.dataset.lessonType === 'OFF');
@@ -4009,7 +4016,9 @@ function collectScheduleSlotValues() {
 }
 
 function collectScheduleDetails() {
-  const details = {};
+  const savedWeek = scheduleEditorData?.selectedWeek || {};
+  const savedDetails = savedWeek.details || {};
+  const details = JSON.parse(JSON.stringify(savedDetails));
   const bySlot = new Map();
   document.querySelectorAll('.week-slot[data-slot]').forEach((cell) => {
     if (!bySlot.has(cell.dataset.slot)) bySlot.set(cell.dataset.slot, []);
@@ -4019,8 +4028,6 @@ function collectScheduleDetails() {
     const ordered = cells.sort((a, b) => Number(a.dataset.lane) - Number(b.dataset.lane));
     const primary = ordered.find((cell) => cell.dataset.primary === 'true') || ordered[0];
     if (!primary) return;
-    const savedWeek = scheduleEditorData?.selectedWeek || {};
-    const savedDetails = savedWeek.details || {};
     const savedSlots = savedWeek.slots || scheduleEditorData?.finalSubjects || {};
     const savedActive = new Set(savedWeek.activeSlots || scheduleEditorData?.currentSlots || []);
     const savedModel = plannerLaneValues(savedDetails[slotId] || {}, savedSlots[slotId] || '', savedActive.has(slotId));
@@ -4051,6 +4058,8 @@ function collectScheduleDetails() {
         primaryLane: Number(primary.dataset.lane || 0),
         lanes
       };
+    } else {
+      delete details[slotId];
     }
   });
   return details;
@@ -4105,11 +4114,13 @@ function plannerExtraSlotDisplayHtml(cell, courseKind = courseKindFromEditor()) 
   return `<span class="planner-extra-label">${escapeHtml(lesson || type)}</span>`;
 }
 
-function plannerWeekCellHtml({ slotId, laneIndex, lane, primaryLane, historical, courseKind }) {
+function plannerWeekCellHtml({ slotId, laneIndex, lane, primaryLane, historical, courseKind, compact = false }) {
   const primary = laneIndex === primaryLane;
   const active = Boolean(lane.active);
   const lessonType = lane.lessonType || scheduleLessonTypeFromLabel(lane.lesson, courseKind);
-  const display = primary
+  const display = compact && active && !lane.lesson && !lane.courseNo && !lessonType
+    ? '<span class="planner-compact-empty">Chưa xếp</span>'
+    : primary
     ? plannerSlotDisplayHtml(lane.lesson || '', lane.courseNo || '', courseKind)
     : (lessonType
       ? `<span class="planner-extra-label">${escapeHtml(lessonType === 'LESSON' ? 'Học' : lessonType === 'OFF' ? 'Off' : displayLessonLabel(lane.lesson) || lessonType)}</span>`
@@ -4120,7 +4131,11 @@ function plannerWeekCellHtml({ slotId, laneIndex, lane, primaryLane, historical,
     startTime: lane.startTime || '',
     teacherName: lane.teacherName || ''
   };
-  return `<td class="week-slot${primary ? ' primary-lane' : ' extra-lane'}${active ? ' current-slot' : ''}${lane.lesson || lane.courseNo || lessonType ? ' has-lesson' : ''}${lessonType === 'OFF' ? ' off-slot' : ''}${['MT', 'FT'].includes(lessonType) ? ' assessment-slot' : ''}${historical ? ' historical-slot' : ''}" data-slot="${slotId}" data-lane="${laneIndex}" data-primary="${primary ? 'true' : 'false'}" data-lesson="${escapeHtml(lane.lesson || '')}" data-lesson-type="${escapeHtml(lessonType)}" data-course-no="${escapeHtml(lane.courseNo || '')}" data-location="${escapeHtml(detail.location)}" data-note="${escapeHtml(detail.note)}" data-start-time="${escapeHtml(detail.startTime)}" data-teacher-name="${escapeHtml(detail.teacherName)}" title="${historical ? 'Tuần cũ chỉ xem' : primary ? 'Ca đang dùng cho Tối giản' : `Ca ${laneIndex + 1} dự phòng`}"><span class="slot-lesson">${display}</span>${active ? slotDetailHtml(detail) : ''}${historical ? '' : `${primary ? '<span class="primary-lane-badge" title="Đang dùng cho Tối giản">★</span>' : '<button class="make-primary-lane" type="button" title="Dùng ca này cho Tối giản">☆</button>'}<button class="slot-edit-btn" type="button" title="Giờ, giáo viên, địa điểm và ghi chú">✎</button>`}</td>`;
+  const tag = compact ? 'div' : 'td';
+  const controls = historical || compact
+    ? ''
+    : `${primary ? '<span class="primary-lane-badge" title="Đang dùng cho Tối giản">★</span>' : '<button class="make-primary-lane" type="button" title="Dùng ca này cho Tối giản">☆</button>'}<button class="slot-edit-btn" type="button" title="Giờ, giáo viên, địa điểm và ghi chú">✎</button>`;
+  return `<${tag} class="week-slot${compact ? ' planner-compact-entry' : ''}${primary ? ' primary-lane' : ' extra-lane'}${active ? ' current-slot' : ''}${lane.lesson || lane.courseNo || lessonType ? ' has-lesson' : ''}${lessonType === 'OFF' ? ' off-slot' : ''}${['MT', 'FT'].includes(lessonType) ? ' assessment-slot' : ''}${historical ? ' historical-slot' : ''}" data-slot="${slotId}" data-lane="${laneIndex}" data-primary="${primary ? 'true' : 'false'}" data-lesson="${escapeHtml(lane.lesson || '')}" data-lesson-type="${escapeHtml(lessonType)}" data-course-no="${escapeHtml(lane.courseNo || '')}" data-location="${escapeHtml(detail.location)}" data-note="${escapeHtml(detail.note)}" data-start-time="${escapeHtml(detail.startTime)}" data-teacher-name="${escapeHtml(detail.teacherName)}" title="${historical ? 'Tuần cũ chỉ xem' : compact ? 'Bấm để chọn nội dung của ngày' : primary ? 'Ca đang dùng cho Tối giản' : `Ca ${laneIndex + 1} dự phòng`}"><span class="slot-lesson">${display}</span>${active ? slotDetailHtml(detail) : ''}${controls}</${tag}>`;
 }
 
 function renderScheduleEditor() {
@@ -4148,36 +4163,60 @@ function renderScheduleEditor() {
     const lesson = active ? weekSlots[slotId] || '' : '';
     slotModels[slotId] = plannerLaneValues(weekDetails[slotId] || {}, lesson, active);
   }));
-  let table = '<div class="schedule-scroll"><table class="schedule week-planner"><thead><tr>';
-  if (viewMode === 'detail') table += '<th rowspan="2" class="planner-lane-heading">Ca</th>';
-  DAYS.forEach((day, dayIndex) => table += `<th colspan="${sessions.length}">${escapeHtml(day)} (${dayDateLabel(data.selectedWeekStart, dayIndex)})</th>`);
-  table += '</tr><tr>';
-  DAYS.forEach(() => sessions.forEach((session) => {
-    table += `<th><span class="planner-session-label">${escapeHtml(session)}</span></th>`;
-  }));
-  table += '</tr></thead><tbody>';
-  const visibleLanes = viewMode === 'detail' ? [0, 1, 2, 3] : ['primary'];
-  visibleLanes.forEach((requestedLane) => {
-    table += '<tr>';
-    if (viewMode === 'detail') {
-      table += `<th class="planner-lane-label">Ca ${Number(requestedLane) + 1}<small>${Number(requestedLane) === 0 ? 'mặc định ban đầu' : 'dự phòng'}</small></th>`;
-    }
-    DAYS.forEach((day, dayIdx) => sessions.forEach((session, sessionIdx) => {
-      const slotId = `${dayIdx}-${sessionIdx}`;
-      const model = slotModels[slotId];
-      const laneIndex = requestedLane === 'primary' ? model.primaryLane : Number(requestedLane);
-      table += plannerWeekCellHtml({
-        slotId,
-        laneIndex,
-        lane: model.lanes[laneIndex],
-        primaryLane: model.primaryLane,
-        historical,
-        courseKind
+  let table = '';
+  if (viewMode === 'compact') {
+    table = '<div class="schedule-scroll"><table class="schedule week-planner compact-class-planner"><thead><tr>';
+    DAYS.forEach((day, dayIndex) => {
+      table += `<th>${escapeHtml(day)} (${dayDateLabel(data.selectedWeekStart, dayIndex)})</th>`;
+    });
+    table += '</tr></thead><tbody><tr>';
+    DAYS.forEach((day, dayIdx) => {
+      const entries = [];
+      sessions.forEach((session, sessionIdx) => {
+        const slotId = `${dayIdx}-${sessionIdx}`;
+        const model = slotModels[slotId];
+        const laneIndex = model.primaryLane;
+        const lane = model.lanes[laneIndex];
+        if (!lane.active) return;
+        entries.push(plannerWeekCellHtml({
+          slotId,
+          laneIndex,
+          lane,
+          primaryLane: model.primaryLane,
+          historical,
+          courseKind,
+          compact: true
+        }));
       });
+      table += `<td class="planner-compact-day">${entries.join('') || '<span class="planner-compact-no-class">—</span>'}</td>`;
+    });
+    table += '</tr></tbody></table></div>';
+  } else {
+    table = '<div class="schedule-scroll"><table class="schedule week-planner"><thead><tr><th rowspan="2" class="planner-lane-heading">Ca</th>';
+    DAYS.forEach((day, dayIndex) => table += `<th colspan="${sessions.length}">${escapeHtml(day)} (${dayDateLabel(data.selectedWeekStart, dayIndex)})</th>`);
+    table += '</tr><tr>';
+    DAYS.forEach(() => sessions.forEach((session) => {
+      table += `<th><span class="planner-session-label">${escapeHtml(session)}</span></th>`;
     }));
-    table += '</tr>';
-  });
-  table += '</tbody></table></div>';
+    table += '</tr></thead><tbody>';
+    [0, 1, 2, 3].forEach((laneIndex) => {
+      table += `<tr><th class="planner-lane-label">Ca ${laneIndex + 1}<small>${laneIndex === 0 ? 'mặc định ban đầu' : 'dự phòng'}</small></th>`;
+      DAYS.forEach((day, dayIdx) => sessions.forEach((session, sessionIdx) => {
+        const slotId = `${dayIdx}-${sessionIdx}`;
+        const model = slotModels[slotId];
+        table += plannerWeekCellHtml({
+          slotId,
+          laneIndex,
+          lane: model.lanes[laneIndex],
+          primaryLane: model.primaryLane,
+          historical,
+          courseKind
+        });
+      }));
+      table += '</tr>';
+    });
+    table += '</tbody></table></div>';
+  }
 
   target.innerHTML = `
     <div class="planner-topbar">
@@ -4230,7 +4269,7 @@ function renderScheduleEditor() {
         <span id="planner-sequence-summary" class="planner-sequence-summary"></span>
       </div>
     </div>`}
-    <p class="planner-help">${historical ? 'Tuần cũ chỉ xem.' : viewMode === 'compact' ? 'Tối giản chỉ hiện ca được đánh dấu ★ trong mỗi buổi. Chuyển sang Thêm ca để lưu tối đa 4 phương án và chọn ca nào dùng làm lịch chính.' : 'Mỗi buổi có 4 ca lưu độc lập. Bấm ☆ để chọn ca đó làm lịch chính cho Tối giản, Lớp học, Sổ chủ nhiệm và Bảng công; các ca còn lại chỉ được lưu dự phòng.'}</p>
+    <p class="planner-help">${historical ? 'Tuần cũ chỉ xem.' : viewMode === 'compact' ? 'Tối giản chỉ còn 7 cột theo thứ. Mỗi ngày hiển thị nội dung lịch chính đã chọn; chuyển sang Thêm ca để xem và lưu các ca dự phòng.' : 'Mỗi buổi có 4 ca lưu độc lập. Bấm ☆ để chọn ca đó làm lịch chính cho Tối giản, Lớp học, Sổ chủ nhiệm và Bảng công; các ca còn lại chỉ được lưu dự phòng.'}</p>
     ${table}
     <div class="planner-save-row">
       <span id="planner-save-msg" class="msg"></span>

@@ -3040,6 +3040,49 @@ body.dark .lesson-type-picker { background: #1f2937; }
   font-weight: 900;
 }
 .planner-view-switch button.active { background: var(--primary); color: #fff; }
+.compact-class-planner {
+  width: 100%;
+  min-width: 760px;
+  table-layout: fixed;
+}
+.compact-class-planner th {
+  width: 14.285%;
+  min-width: 100px;
+  padding: 10px 6px;
+  white-space: nowrap;
+}
+.compact-class-planner .planner-compact-day {
+  height: 70px;
+  padding: 5px;
+  vertical-align: top;
+  background: var(--surface);
+}
+.planner-compact-entry {
+  display: grid;
+  place-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 58px;
+  height: auto;
+  padding: 7px 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: center;
+}
+.planner-compact-entry + .planner-compact-entry { margin-top: 5px; }
+.planner-compact-entry .slot-meta { align-items: center; }
+.planner-compact-empty {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 800;
+}
+.planner-compact-no-class {
+  display: grid;
+  min-height: 58px;
+  place-content: center;
+  color: #9ca3af;
+  font-weight: 700;
+}
 .week-planner .planner-lane-heading,
 .week-planner .planner-lane-label {
   position: sticky;
@@ -3099,6 +3142,9 @@ body.dark .lesson-type-picker { background: #1f2937; }
 .week-slot:hover .make-primary-lane { opacity: 1; }
 body.dark .overview-class-picker,
 body.dark .planner-view-switch { background: #111827; }
+body.dark .compact-class-planner .planner-compact-day { background: #111827; }
+body.dark .planner-compact-empty,
+body.dark .planner-compact-no-class { color: #94a3b8; }
 body.dark .week-slot.extra-lane { background: #172554; color: #bfdbfe; }
 body.dark .week-slot.extra-lane.current-slot { background: #1e3a8a !important; color: #dbeafe !important; }
 @media (max-width: 760px) {
