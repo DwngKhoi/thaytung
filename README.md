@@ -104,6 +104,14 @@ Khi `SUPABASE_URL` và `SUPABASE_ANON_KEY` có giá trị, frontend sẽ ưu ti�
 
 Khi nâng cấp một database Supabase đã có, chạy lại toàn bộ `supabase/schema.sql`. Các lệnh migration dùng `if not exists`/`create or replace`, nên giữ nguyên lớp và học sinh hiện tại.
 
+### Chỉ dùng một query SQL khi nâng cấp
+
+Từ bản v5, project Supabase đang chạy chỉ cần mở **một** SQL Editor query, dán toàn bộ file `supabase/OLYMPUS_ALL_IN_ONE.sql` rồi bấm **Run**. File này gộp các migration hồ sơ học sinh, Sổ chủ nhiệm, Bảng công, đồng bộ lịch, Lịch chia v2/v3, cá nhân hoá v4 và mẫu tuần v5 trong một transaction. Có thể chạy lại khi cần cập nhật; các file migration lẻ được giữ lại để tham khảo và sửa lỗi riêng.
+
+- **Project đang sử dụng:** chạy `OLYMPUS_ALL_IN_ONE.sql`.
+- **Project Supabase mới hoàn toàn:** chạy `schema.sql`.
+- Các tab `Untitled query` cũ trong Supabase chỉ là bản nháp phía trình duyệt; sau khi file tổng chạy thành công có thể đóng và chọn **Discard**.
+
 ### Mã học sinh, hồ sơ và cổng phụ huynh (Olympus Portal)
 
 Tính năng thêm ngày 26/07/2026. Để kích hoạt trên database Supabase đang chạy, vào **SQL Editor** và chạy lại toàn bộ `supabase/schema.sql` (hoặc chỉ file `supabase/student_profiles.sql` nếu schema cũ đã cập nhật đến trước đó). Chạy lại nhiều lần đều an toàn.
@@ -157,6 +165,13 @@ Sau `schedule_v3.sql`, chạy thêm `supabase/personalization_v4.sql` một lầ
 - **Thư viện ký hiệu** cho phép đổi màu nền/màu chữ của `LR`, `L`, `R`, `W`, `S`, `MT`, `FT`, `Off`; màu được áp dụng vào Toàn cảnh, lịch từng lớp và lịch công khai.
 - **Địa điểm và cơ sở** thay thế danh sách Tầng 1/Tầng 2/CS2 cố định. Mã, tên và màu địa điểm được dùng lại khi chỉnh thông tin buổi học.
 - Toàn bộ cấu hình chỉ là một JSON nhỏ trong `app_settings`, có bản cache local để giao diện vẫn dùng được khi mạng chập chờn.
+
+### Mẫu tuần và cảnh báo lịch v5
+
+- Nút **Lưu mẫu** trong lịch từng lớp lưu một mẫu khung giờ hoặc toàn bộ lịch của tuần đang mở.
+- **+ Tuần mới** có thể tạo tuần trống, sao chép giờ/phòng/giáo viên, sao chép toàn bộ tuần hoặc dùng một mẫu đã lưu.
+- Mẫu thuộc đúng lớp và dùng chung cho owner cùng giáo viên được phân công lớp đó.
+- **Trung tâm cảnh báo** trên Lịch chia phát hiện giáo viên, địa điểm hoặc chính một lớp bị xếp trùng theo thứ và giờ bắt đầu; nếu chưa nhập giờ thì hệ thống dùng tên ca.
 
 ### Dung lượng Supabase
 
@@ -214,6 +229,9 @@ supabase/vocab_schedule_sync.sql Migration quản lý từ + đồng bộ Lịch
 supabase/schedule_v2.sql         Migration Lịch chia tối giản/chi tiết và bộ đếm buổi
 supabase/schedule_v3.sql         Migration lọc hiển thị và bốn ca dự phòng mỗi ô
 supabase/personalization_v4.sql  Migration hồ sơ vận hành, preset và thư viện màu
+supabase/schedule_templates_v5.sql Migration mẫu tuần dùng lại
+supabase/OLYMPUS_ALL_IN_ONE.sql  File nâng cấp tổng duy nhất cho project đang chạy
+scripts/build-all-in-one-sql.js   Tạo lại file SQL tổng sau khi thêm migration mới
 ```
 
 ## Lưu ý deploy

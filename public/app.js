@@ -639,6 +639,26 @@ async function supabaseApi(path, opts = {}) {
   if (action === 'rename') return supabaseRpc('api_rename_class', { teacher_key: teacherToken(), class_id, name: body.name });
   if (action === 'set-sessions') return supabaseRpc('api_set_class_sessions', { teacher_key: teacherToken(), class_id, sessions: body.sessions || [] });
   if (action === 'set-current-slots') return supabaseRpc('api_set_current_slots', { teacher_key: teacherToken(), class_id, current_slots: body.currentSlots || [], final_subjects: body.finalSubjects || {} });
+  if (action === 'schedule-templates') {
+    if (method === 'GET') return supabaseRpc('api_schedule_templates', {
+      teacher_key: teacherToken(), class_id
+    });
+    if (method === 'POST') return supabaseRpc('api_save_schedule_template', {
+      teacher_key: teacherToken(),
+      class_id,
+      template_id: body.id || null,
+      template_name: body.name,
+      template_mode: body.mode || 'structure',
+      template_data: body.data || {}
+    });
+  }
+  if (action.startsWith('schedule-templates/') && method === 'DELETE') {
+    return supabaseRpc('api_delete_schedule_template', {
+      teacher_key: teacherToken(),
+      class_id,
+      template_id: decodeURIComponent(action.split('/')[1] || '')
+    });
+  }
   if (action === 'schedule') {
     if (method === 'GET') return supabaseRpc('api_schedule_class', {
       teacher_key: teacherToken(),
@@ -4181,6 +4201,102 @@ function wireScheduleOverview() {
   });
 }
 
+function scheduleConflictItems() {
+  const normalizeTeacher = (value) => String(value || '')
+    .trim()
+    .toLocaleLowerCase('vi')
+    .replace(/^(thầy|cô)\s+/u, '');
+  const classes = sortClasses(overviewScheduleClasses());
+  const groups = new Map();
+  const classTimeGroups = new Map();
+  classes.forEach((cls) => {
+    const active = cls.activeSlots || cls.currentSlots || [];
+    const details = cls.details || cls.finalDetails || {};
+    active.forEach((slotId) => {
+      const [dayIdx, sessionIdx] = String(slotId).split('-').map(Number);
+      if (!Number.isFinite(dayIdx) || !Number.isFinite(sessionIdx)) return;
+      const rawDetail = details[slotId] || {};
+      const laneIndex = Math.max(0, Math.min(3, Number(rawDetail.primaryLane || 0)));
+      const lane = Array.isArray(rawDetail.lanes) ? rawDetail.lanes[laneIndex] || {} : {};
+      const detail = { ...rawDetail, ...lane };
+      const session = getSessions(cls)[sessionIdx] || `Ca ${sessionIdx + 1}`;
+      const timeValue = String(detail.startTime || session).trim();
+      const timeKey = `${dayIdx}|${timeValue.toLocaleLowerCase('vi')}`;
+      const entry = {
+        classId: String(cls.id),
+        className: String(cls.name),
+        slotId,
+        dayIdx,
+        session,
+        time: timeValue,
+        teacher: String(detail.teacherName || '').trim(),
+        location: String(detail.location || '').trim()
+      };
+      if (!classTimeGroups.has(`${timeKey}|${entry.classId}`)) classTimeGroups.set(`${timeKey}|${entry.classId}`, []);
+      classTimeGroups.get(`${timeKey}|${entry.classId}`).push(entry);
+      const locationProfile = personalizedLocation(entry.location);
+      [
+        ['teacher', entry.teacher, normalizeTeacher(entry.teacher)],
+        ['location', entry.location, String(locationProfile?.code || entry.location).trim().toLocaleLowerCase('vi')]
+      ].forEach(([type, value, normalizedValue]) => {
+        if (!value) return;
+        const key = `${type}|${timeKey}|${normalizedValue}`;
+        if (!groups.has(key)) groups.set(key, { type, value, entries: [] });
+        groups.get(key).entries.push(entry);
+      });
+    });
+  });
+  const conflicts = [];
+  groups.forEach((group) => {
+    const distinctClasses = [...new Set(group.entries.map((entry) => entry.classId))];
+    if (distinctClasses.length < 2) return;
+    conflicts.push({
+      type: group.type,
+      value: group.value,
+      entries: group.entries,
+      dayIdx: group.entries[0].dayIdx,
+      time: group.entries[0].time
+    });
+  });
+  classTimeGroups.forEach((entries) => {
+    if (entries.length < 2) return;
+    conflicts.push({
+      type: 'class',
+      value: entries[0].className,
+      entries,
+      dayIdx: entries[0].dayIdx,
+      time: entries[0].time
+    });
+  });
+  return conflicts.sort((a, b) => (
+    a.dayIdx - b.dayIdx
+    || compareText(a.time, b.time)
+    || compareText(a.type, b.type)
+    || compareText(a.value, b.value)
+  ));
+}
+
+function renderScheduleConflictCenter() {
+  const conflicts = scheduleConflictItems();
+  if (!conflicts.length) {
+    return `<section class="schedule-conflict-center is-clear">
+      <div class="schedule-conflict-summary"><span>✓</span><div><b>Lịch tuần không có xung đột</b><small>Không trùng giáo viên, địa điểm hoặc lớp theo giờ đã nhập.</small></div></div>
+    </section>`;
+  }
+  const typeNames = { teacher: 'Giáo viên', location: 'Địa điểm', class: 'Lớp học' };
+  return `<details class="schedule-conflict-center" open>
+    <summary class="schedule-conflict-summary"><span>!</span><div><b>${conflicts.length} xung đột cần kiểm tra</b><small>Hệ thống so theo thứ và giờ bắt đầu; nếu chưa có giờ thì dùng tên ca.</small></div></summary>
+    <div class="schedule-conflict-list">${conflicts.map((conflict) => {
+      const classes = [...new Map(conflict.entries.map((entry) => [entry.classId, entry])).values()];
+      return `<article class="schedule-conflict-item conflict-${escapeHtml(conflict.type)}">
+        <span class="schedule-conflict-type">${escapeHtml(typeNames[conflict.type] || conflict.type)}</span>
+        <div><b>${escapeHtml(DAYS[conflict.dayIdx] || '?')} · ${escapeHtml(conflict.time)}</b><small>${escapeHtml(conflict.value)}</small></div>
+        <div class="schedule-conflict-classes">${classes.map((entry) => `<button type="button" data-conflict-class="${escapeHtml(entry.classId)}">${escapeHtml(entry.className)}</button>`).join('')}</div>
+      </article>`;
+    }).join('')}</div>
+  </details>`;
+}
+
 function renderScheduleHome() {
   const target = $('#final-schedule-result');
   if (!target || scheduleClassId) return;
@@ -4191,7 +4307,7 @@ function renderScheduleHome() {
   }
   const expanded = scheduleExpandedSectorIds();
   const overviewHtml = isOwner() ? renderScheduleOverview() : '';
-  target.innerHTML = `${overviewHtml}<div class="schedule-directory"><div class="schedule-directory-head"><h3>L\u1ecbch chia theo l\u1edbp</h3><p class="hint">M\u1edf t\u1eebng l\u1edbp, b\u1ea5m tr\u1ef1c ti\u1ebfp v\u00e0o bu\u1ed5i \u0111\u1ec3 ch\u1ecdn LR/L/R/W/S, ki\u1ec3m tra ho\u1eb7c Off.</p></div>${groups.map((group) => {
+  target.innerHTML = `${renderScheduleConflictCenter()}${overviewHtml}<div class="schedule-directory"><div class="schedule-directory-head"><h3>L\u1ecbch chia theo l\u1edbp</h3><p class="hint">M\u1edf t\u1eebng l\u1edbp, b\u1ea5m tr\u1ef1c ti\u1ebfp v\u00e0o bu\u1ed5i \u0111\u1ec3 ch\u1ecdn LR/L/R/W/S, ki\u1ec3m tra ho\u1eb7c Off.</p></div>${groups.map((group) => {
     const open = expanded.has(String(group.id));
     return `<section class="schedule-sector${open ? ' expanded' : ''}">
       <button class="schedule-sector-head" type="button" data-sector="${escapeHtml(group.id)}">
@@ -4205,6 +4321,9 @@ function renderScheduleHome() {
     </section>`;
   }).join('')}</div>`;
   wireScheduleOverview();
+  target.querySelectorAll('[data-conflict-class]').forEach((button) => {
+    button.addEventListener('click', () => openScheduleClass(button.dataset.conflictClass));
+  });
   target.querySelectorAll('.schedule-sector-head').forEach((button) => {
     button.addEventListener('click', () => toggleScheduleSector(button.dataset.sector));
   });
@@ -4299,6 +4418,11 @@ async function openScheduleClass(classId, options = {}) {
       method: 'GET',
       body: JSON.stringify({ weekStart })
     });
+    try {
+      scheduleEditorData.templates = await api(`/classes/${classId}/schedule-templates`);
+    } catch (err) {
+      scheduleEditorData.templates = [];
+    }
     scheduleSelectedWeekStart = scheduleEditorData.selectedWeekStart || scheduleEditorData.currentWeekStart;
     scheduleDirty = false;
     renderScheduleEditor();
@@ -4657,6 +4781,7 @@ function renderScheduleEditor() {
         <button id="planner-copy-excel" class="btn-export" type="button">Copy Excel</button>
         <button id="planner-download-excel" class="btn-export btn-download-excel" type="button">Tải Excel</button>
         <button id="planner-copy-image" class="btn-export btn-export-image" type="button">In Ảnh</button>
+        <button id="planner-save-template" class="btn-template" type="button">Lưu mẫu</button>
         <button id="planner-new-week" class="planner-new-week" type="button">+ Tuần mới</button>
         <label>Tuần trước
           <select id="planner-week-select">
@@ -4879,6 +5004,7 @@ function wireScheduleEditor() {
     scheduleSelectedWeekStart = event.target.value;
     openScheduleClass(scheduleClassId, { updateUrl: false, weekStart: scheduleSelectedWeekStart });
   });
+  $('#planner-save-template')?.addEventListener('click', openSaveScheduleTemplateDialog);
   $('#planner-new-week')?.addEventListener('click', openNewWeekDialog);
   $('#planner-copy-url')?.addEventListener('click', async (event) => {
     try {
@@ -4958,18 +5084,121 @@ function wireScheduleEditor() {
   $('#planner-save')?.addEventListener('click', saveScheduleWeek);
 }
 
+function scheduleTemplateStructureDetails(details = {}) {
+  const result = {};
+  Object.entries(details || {}).forEach(([slotId, detail]) => {
+    const lanes = Array.isArray(detail?.lanes) ? detail.lanes.slice(0, 4).map((lane) => ({
+      active: Boolean(lane?.active),
+      lesson: '',
+      lessonType: '',
+      courseNo: '',
+      location: String(lane?.location || ''),
+      note: String(lane?.note || ''),
+      startTime: String(lane?.startTime || ''),
+      teacherName: String(lane?.teacherName || '')
+    })) : [];
+    const hasMetadata = lanes.some((lane) => (
+      lane.active || lane.location || lane.note || lane.startTime || lane.teacherName
+    )) || detail?.location || detail?.note || detail?.startTime || detail?.teacherName;
+    if (!hasMetadata) return;
+    result[slotId] = {
+      location: String(detail?.location || ''),
+      note: String(detail?.note || ''),
+      startTime: String(detail?.startTime || ''),
+      teacherName: String(detail?.teacherName || ''),
+      courseNo: '',
+      lessonType: '',
+      primaryLane: Math.max(0, Math.min(3, Number(detail?.primaryLane || 0))),
+      lanes
+    };
+  });
+  return result;
+}
+
+function currentScheduleTemplateData(mode = 'structure') {
+  captureScheduleEditorDom();
+  const week = scheduleEditorData?.selectedWeek || {};
+  const full = mode === 'full';
+  return {
+    version: 1,
+    sessions: getSessions(scheduleEditorData),
+    courseKind: courseKindFromEditor(),
+    activeSlots: [...(week.activeSlots || scheduleEditorData?.currentSlots || [])],
+    slots: full ? JSON.parse(JSON.stringify(week.slots || {})) : {},
+    details: full
+      ? JSON.parse(JSON.stringify(week.details || {}))
+      : scheduleTemplateStructureDetails(week.details || {}),
+    sourceWeekTitle: String(week.title || ''),
+    sourceWeekStart: String(week.weekStart || scheduleEditorData?.selectedWeekStart || '')
+  };
+}
+
+function openSaveScheduleTemplateDialog() {
+  if (!scheduleEditorData || !scheduleClassId) return;
+  const suggested = `${scheduleEditorData.name} - mẫu ${Number(scheduleEditorData.templates?.length || 0) + 1}`;
+  openMiniDialog('Lưu mẫu tuần', `
+    <label>Tên mẫu<input id="schedule-template-name" value="${escapeHtml(suggested)}" maxlength="100" /></label>
+    <label>Nội dung lưu
+      <select id="schedule-template-mode">
+        <option value="structure">Chỉ khung giờ, phòng, giáo viên và ghi chú</option>
+        <option value="full">Toàn bộ, gồm cả kỹ năng và nội dung đã xếp</option>
+      </select>
+    </label>
+    <p class="hint">Mẫu khung giờ phù hợp để dùng lặp lại mỗi tuần; số buổi và kỹ năng sẽ được điền lại tự động.</p>`, async (overlay) => {
+    const name = overlay.querySelector('#schedule-template-name')?.value.trim() || '';
+    const mode = overlay.querySelector('#schedule-template-mode')?.value === 'full' ? 'full' : 'structure';
+    if (!name) throw new Error('Nhập tên mẫu tuần.');
+    await api(`/classes/${scheduleClassId}/schedule-templates`, {
+      method: 'POST',
+      body: JSON.stringify({ name, mode, data: currentScheduleTemplateData(mode) })
+    });
+    scheduleEditorData.templates = await api(`/classes/${scheduleClassId}/schedule-templates`);
+    const button = $('#planner-save-template');
+    if (button) setExportButtonStatus(button, 'Đã lưu mẫu');
+  });
+}
+
+function selectedNewWeekSourceData(sourceValue) {
+  if (sourceValue === 'current-full') return currentScheduleTemplateData('full');
+  if (sourceValue === 'current-structure') return currentScheduleTemplateData('structure');
+  if (sourceValue.startsWith('template:')) {
+    const id = sourceValue.slice('template:'.length);
+    const template = (scheduleEditorData?.templates || []).find((item) => String(item.id) === id);
+    return template?.data ? JSON.parse(JSON.stringify(template.data)) : null;
+  }
+  return {
+    version: 1,
+    activeSlots: [...(scheduleEditorData?.currentSlots || [])],
+    slots: {},
+    details: {}
+  };
+}
+
 function openNewWeekDialog() {
+  captureScheduleEditorDom();
   const weeks = scheduleEditorData?.weeks || [];
   const latest = weeks.length ? new Date(`${weeks[0].weekStart}T12:00:00`) : new Date(`${scheduleEditorData.currentWeekStart}T12:00:00`);
   const proposed = localIsoDate(addDays(latest, 7));
+  const templates = scheduleEditorData?.templates || [];
   const dialog = openMiniDialog('Tạo tuần mới', `
     <label>Tên tuần<input id="new-week-title" value="${escapeHtml(defaultWeekTitle(proposed))}" /></label>
     <label>Chọn một ngày trong tuần<input id="new-week-date" type="date" value="${escapeHtml(proposed)}" /></label>
+    <label>Bắt đầu từ
+      <select id="new-week-source">
+        <option value="blank">Giữ các ngày đang học, để trống nội dung</option>
+        <option value="current-structure">Sao chép khung giờ/phòng/GV của tuần đang mở</option>
+        <option value="current-full">Sao chép toàn bộ tuần đang mở</option>
+        ${templates.map((template) => `<option value="template:${escapeHtml(template.id)}">Mẫu: ${escapeHtml(template.name)}${template.mode === 'full' ? ' · toàn bộ' : ' · khung giờ'}</option>`).join('')}
+      </select>
+    </label>
+    ${templates.length ? '<button id="delete-selected-week-template" class="btn-del-class" type="button">Xoá mẫu đang chọn</button>' : ''}
     <p id="new-week-range" class="hint"></p>`, async (overlay) => {
       const selectedDate = overlay.querySelector('#new-week-date')?.value;
       if (!selectedDate) throw new Error('Hãy chọn ngày cho tuần mới.');
       const monday = localIsoDate(mondayOf(new Date(`${selectedDate}T12:00:00`)));
       const title = overlay.querySelector('#new-week-title')?.value.trim() || defaultWeekTitle(monday);
+      const source = selectedNewWeekSourceData(overlay.querySelector('#new-week-source')?.value || 'blank');
+      if (!source) throw new Error('Không tìm thấy mẫu tuần đã chọn.');
       scheduleSelectedWeekStart = monday;
       const fresh = await api(`/classes/${scheduleClassId}/schedule`, {
         method: 'GET',
@@ -4981,10 +5210,11 @@ function openNewWeekDialog() {
         selectedWeek: {
           weekStart: monday,
           title,
-          slots: {},
-          details: {},
-          activeSlots: fresh.currentSlots || scheduleEditorData.currentSlots || []
-        }
+          slots: JSON.parse(JSON.stringify(source.slots || {})),
+          details: JSON.parse(JSON.stringify(source.details || {})),
+          activeSlots: [...(source.activeSlots || fresh.currentSlots || scheduleEditorData.currentSlots || [])]
+        },
+        templates
       };
       scheduleDirty = true;
       setTimeout(renderScheduleEditor, 0);
@@ -4995,6 +5225,30 @@ function openNewWeekDialog() {
     dialog.querySelector('#new-week-range').textContent = `Thứ 2–Chủ nhật: ${weekRangeText(monday)}`;
   };
   dateInput.addEventListener('change', updateRange);
+  const sourceSelect = dialog.querySelector('#new-week-source');
+  const deleteTemplateButton = dialog.querySelector('#delete-selected-week-template');
+  const syncDeleteButton = () => {
+    if (deleteTemplateButton) deleteTemplateButton.disabled = !String(sourceSelect?.value || '').startsWith('template:');
+  };
+  sourceSelect?.addEventListener('change', syncDeleteButton);
+  deleteTemplateButton?.addEventListener('click', async () => {
+    const value = String(sourceSelect?.value || '');
+    if (!value.startsWith('template:')) return;
+    const id = value.slice('template:'.length);
+    const template = templates.find((item) => String(item.id) === id);
+    if (!template || !confirm(`Xoá mẫu “${template.name}”?`)) return;
+    deleteTemplateButton.disabled = true;
+    try {
+      await api(`/classes/${scheduleClassId}/schedule-templates/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      scheduleEditorData.templates = templates.filter((item) => String(item.id) !== id);
+      [...sourceSelect.options].find((option) => option.value === `template:${id}`)?.remove();
+      sourceSelect.value = 'blank';
+    } catch (err) {
+      alert(err.message);
+    }
+    syncDeleteButton();
+  });
+  syncDeleteButton();
   updateRange();
 }
 

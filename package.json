@@ -4,7 +4,8 @@
   "description": "Web xếp lịch học cho lớp dựa trên lịch bận của học sinh",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build:sql": "node scripts/build-all-in-one-sql.js"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
