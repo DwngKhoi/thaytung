@@ -138,6 +138,16 @@ Với database đang chạy, vào **SQL Editor** và chạy `supabase/schedule_v
 - Lớp ngữ pháp chỉ hiển thị số buổi toàn khoá. Hệ thống tự nhận diện ban đầu từ mã lớp `G...` hoặc sector có tên “Ngữ pháp”, sau đó owner vẫn đổi được loại lớp.
 - Lịch ở tab **Lớp học**, trang lịch công khai, Sổ chủ nhiệm và Bảng công đều đọc cùng dữ liệu tuần đã chốt.
 
+### Lịch chia v3: lọc lớp và bốn ca dự phòng
+
+Sau `schedule_v2.sql`, chạy thêm `supabase/schedule_v3.sql` một lần. Bản cài mới đã có sẵn phần này trong `supabase/schema.sql`.
+
+- Bảng **Tối giản** có nút **Chỉnh sửa** để đổi nội dung, màu chữ, màu nền, chiều rộng và chiều cao của toàn bộ ô.
+- Nút **Chọn lớp** cho phép ẩn các lớp phụ/backup khỏi cả hai chế độ. Danh sách ẩn chỉ là tuỳ chọn hiển thị của trình duyệt, không xoá dữ liệu lớp.
+- Các hàng Tối giản có chiều cao đồng đều; ô đã chọn nhưng chưa xếp kỹ năng vẫn hiện tên ca để không bị hiểu nhầm là trống.
+- Mỗi ô trong lịch từng lớp lưu tối đa **4 ca**. Chế độ **Tối giản** chỉ hiện ca có dấu `★`; chế độ **Thêm ca** hiện cả bốn ca và dùng `☆` để đổi ca chính.
+- Chỉ ca chính đồng bộ sang tab Lớp học, trang học sinh, Sổ chủ nhiệm và Bảng công. Ba ca còn lại là dữ liệu dự phòng, được lưu gọn trong cùng JSON của tuần.
+
 ### Dung lượng Supabase
 
 Với vài trăm học sinh và vài nghìn buổi, dữ liệu dự kiến chỉ ở mức vài đến vài chục MB. Thiết kế hiện tại tránh lưu ảnh/file trong Postgres, không nhân bản danh sách điểm danh vào Bảng công và chỉ giữ các ô Sổ chủ nhiệm khác mặc định, nên còn cách rất xa quota database 500 MB của Free Plan.
@@ -192,6 +202,7 @@ supabase/student_profiles.sql   Khối SQL mã học sinh + hồ sơ + cổng ph
 supabase/attendance_profile.sql Migration sửa danh tính HS + Bảng công đồng bộ
 supabase/vocab_schedule_sync.sql Migration quản lý từ + đồng bộ Lịch/Sổ/Bảng công
 supabase/schedule_v2.sql         Migration Lịch chia tối giản/chi tiết và bộ đếm buổi
+supabase/schedule_v3.sql         Migration lọc hiển thị và bốn ca dự phòng mỗi ô
 ```
 
 ## Lưu ý deploy
